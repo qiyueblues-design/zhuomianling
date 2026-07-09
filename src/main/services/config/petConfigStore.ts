@@ -31,6 +31,7 @@ import type {
 } from "../../../shared/types/pet";
 import { petResourceProtocol, toPetResourceUrl } from "./petResourceProtocol";
 import { validateLive2DFolder } from "./live2dImportService";
+import { warmUpTextToSpeech } from "../speech/textToSpeech";
 
 const localPetsDirectoryName = "pets";
 const localThemesDirectoryName = "themes";
@@ -1550,6 +1551,10 @@ export async function saveLocalPetVoiceModel(
 
   await fs.mkdir(petDirectoryPath, { recursive: true });
   await fs.writeFile(getPetConfigPath(petId), `${JSON.stringify(nextPet, null, 2)}\n`, "utf8");
+
+  if (nextPet.voiceModelSettings?.enabled && nextPet.voiceModelSettings.connected) {
+    void warmUpTextToSpeech(petId);
+  }
 
   return {
     ok: true,

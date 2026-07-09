@@ -1,6 +1,6 @@
 {
   "name": "zhuomianling",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "license": "MIT",
   "description": "Open-source customizable Live2D desktop pet framework with chat, subtitles, and optional voice features.",
@@ -12,6 +12,7 @@
     "preview:prod": "npm run build && npm run start:prod",
     "pack": "npm run build && electron-builder --dir",
     "dist:win": "npm run build && electron-builder --win",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "preview": "vite preview --host 127.0.0.1"
   },
@@ -80,6 +81,7 @@
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
     "typescript": "^5.7.2",
+    "vitest": "^3.2.7",
     "wait-on": "^8.0.1"
   },
   "overrides": {

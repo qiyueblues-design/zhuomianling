@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AiChatMessage } from "../../shared/types/ai";
 import type {
   PetCustomTheme,
   PetExpressionKey,
@@ -25,9 +24,6 @@ import { Live2DCanvas } from "../live2d/Live2DCanvas";
 import { defaultSpeechFrontendSettings } from "../services/speech/speechSettings";
 import { useSubtitle } from "../services/subtitle/subtitleStore";
 import {
-  buildExpressionPrompt,
-  buildReplyPreferencePrompt,
-  buildVoiceTextPrompt,
   extractStreamingReplyPreview,
   extractStreamingVoiceText,
   inferExpressionFromAiReply,
@@ -50,25 +46,9 @@ import {
   fallbackState,
   readSearchParams
 } from "./petWindowState";
+import { buildAiMessages } from "./promptBuilder";
 import { RadialPetMenu } from "./RadialPetMenu";
 import { buildSpeechSettings, defaultEventSettings } from "./speechRuntime";
-
-function hasConfiguredExpressions(expressions: unknown, descriptions: unknown): boolean {
-  if (
-    !expressions ||
-    typeof expressions !== "object" ||
-    !descriptions ||
-    typeof descriptions !== "object"
-  ) {
-    return false;
-  }
-
-  const expressionMap = expressions as Record<string, unknown>;
-
-  return Object.entries(descriptions).some(
-    ([expression, description]) => Boolean(description) && Boolean(expressionMap[expression])
-  );
-}
 
 interface ChatMessage {
   id: number;
@@ -1533,78 +1513,6 @@ export function PetWindow(): JSX.Element {
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const buildAiMessages = (nextUserText: string): AiChatMessage[] => {
-    const currentPetDefinition = petDefinitionRef.current;
-    const voiceOutputEnabled =
-      speechSettingsRef.current.voiceReplyEnabled ||
-      Boolean(
-        currentPetDefinition?.voiceModelSettings?.enabled &&
-          currentPetDefinition.voiceModelSettings.connected
-      );
-    const randomExpressionMode = currentPetDefinition?.expressionSelectionMode === "random";
-    const expressionOutputEnabled =
-      !randomExpressionMode &&
-      hasConfiguredExpressions(
-        currentPetDefinition?.expressions,
-        currentPetDefinition?.expressionDescriptions
-      );
-    const responseShape = {
-      ...(voiceOutputEnabled ? { voiceText: "给语音服务朗读的文本" } : {}),
-      reply: "给用户看的回复",
-      ...(expressionOutputEnabled ? { emotion: "表情标签" } : {})
-    };
-    const responseInstructions = [
-      `只输出这个 JSON 结构：${JSON.stringify(responseShape)}。`,
-      buildReplyPreferencePrompt(
-        currentPetDefinition?.personaSettings?.chatLanguage,
-        currentPetDefinition?.personaSettings?.replyLength
-      )
-    ];
-
-    if (voiceOutputEnabled) {
-      responseInstructions.push(buildVoiceTextPrompt(currentPetDefinition?.voiceModelSettings?.language ?? "zh"));
-    }
-
-    if (expressionOutputEnabled) {
-      responseInstructions.push(
-        buildExpressionPrompt(
-          currentPetDefinition?.expressions,
-          currentPetDefinition?.expressionDescriptions
-        )
-      );
-    }
-    const recentMessages = messagesRef.current
-      .filter((message) => message.status !== "thinking" && message.status !== "error")
-      .slice(-12)
-      .map<AiChatMessage>((message) => ({
-        role: message.role === "user" ? "user" : "assistant",
-        content:
-          message.role === "pet"
-            ? message.aiRawContent ??
-              JSON.stringify({
-                ...(voiceOutputEnabled && message.voiceText ? { voiceText: message.voiceText } : {}),
-                reply: message.text
-              })
-            : message.text
-      }));
-
-    return [
-      {
-        role: "system",
-        content: [
-          currentPetDefinition?.personaPrompt?.trim() || "你是一个桌面宠物聊天助手。",
-          "只输出 JSON，不输出 Markdown 或解释。",
-          ...responseInstructions
-        ].join("\n")
-      },
-      ...recentMessages,
-      {
-        role: "user",
-        content: nextUserText
-      }
-    ];
-  };
-
   const scheduleVoiceRestart = (isVoiceTriggered: boolean): void => {
     if (
       isVoiceTriggered &&
@@ -1876,7 +1784,12 @@ export function PetWindow(): JSX.Element {
     );
     const userMessageId = Date.now();
     const pendingMessageId = userMessageId + 1;
-    const aiMessages = buildAiMessages(nextText);
+    const aiMessages = buildAiMessages({
+      petDefinition: currentPetDefinition,
+      messages: messagesRef.current,
+      nextUserText: nextText,
+      voiceReplyEnabled: speechSettingsRef.current.voiceReplyEnabled
+    });
 
     setSendingState(true);
     setMessages((currentMessages) => [

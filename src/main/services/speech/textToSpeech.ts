@@ -29,6 +29,7 @@ interface GptSoVitsErrorBody {
 const configPath = path.resolve(process.cwd(), "config/tts.local.json");
 const localPetFileName = "pet.local.json";
 const localGptSoVitsBaseUrl = "http://127.0.0.1:9880";
+const warmupControllers = new Map<string, AbortController>();
 
 function buildTtsUrl(baseUrl: string): string {
   const url = new URL(`${baseUrl.replace(/\/+$/, "")}/`);
@@ -51,6 +52,18 @@ function getMimeType(mediaType: string): string {
     case "wav":
     default:
       return "audio/wav";
+  }
+}
+
+function getWarmupText(language: string): string {
+  switch (language) {
+    case "ja":
+      return "うん。";
+    case "en":
+      return "Mm.";
+    case "zh":
+    default:
+      return "嗯。";
   }
 }
 
@@ -140,8 +153,12 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
 }
 
-export async function speakText(request: TextToSpeechRequest): Promise<TextToSpeechResponse> {
+async function synthesizeText(
+  request: TextToSpeechRequest,
+  options?: { abortWarmup?: boolean; signal?: AbortSignal }
+): Promise<TextToSpeechResponse> {
   const text = request.text.trim();
+  const petId = request.petId.trim();
 
   if (!text) {
     return {
@@ -150,12 +167,28 @@ export async function speakText(request: TextToSpeechRequest): Promise<TextToSpe
     };
   }
 
+  if (!petId) {
+    return {
+      ok: false,
+      message: "缺少桌宠 ID。"
+    };
+  }
+
+  if (options?.abortWarmup ?? true) {
+    const warmupController = warmupControllers.get(petId);
+
+    if (warmupController) {
+      warmupController.abort();
+      warmupControllers.delete(petId);
+    }
+  }
+
   let petConfig: Required<GptSoVitsPetConfig>;
 
   try {
     petConfig =
-      (await readLocalPetVoiceConfig(request.petId)) ??
-      normalizePetConfig(request.petId, await readTextToSpeechConfig());
+      (await readLocalPetVoiceConfig(petId)) ??
+      normalizePetConfig(petId, await readTextToSpeechConfig());
   } catch (error) {
     return {
       ok: false,
@@ -174,6 +207,7 @@ export async function speakText(request: TextToSpeechRequest): Promise<TextToSpe
         "Content-Type": "application/json",
         Accept: getMimeType(petConfig.mediaType)
       },
+      signal: options?.signal,
       body: JSON.stringify({
         ...(petConfig.apiMode === "beta"
           ? {
@@ -225,6 +259,44 @@ export async function speakText(request: TextToSpeechRequest): Promise<TextToSpe
     audioBase64: audioBuffer.toString("base64"),
     mimeType: response.headers.get("content-type") || getMimeType(petConfig.mediaType)
   };
+}
+
+export async function speakText(request: TextToSpeechRequest): Promise<TextToSpeechResponse> {
+  return synthesizeText(request);
+}
+
+export async function warmUpTextToSpeech(petId: string): Promise<void> {
+  const normalizedPetId = petId.trim();
+
+  if (!normalizedPetId || warmupControllers.has(normalizedPetId)) {
+    return;
+  }
+
+  const controller = new AbortController();
+  warmupControllers.set(normalizedPetId, controller);
+
+  try {
+    const petConfig =
+      (await readLocalPetVoiceConfig(normalizedPetId)) ??
+      normalizePetConfig(normalizedPetId, await readTextToSpeechConfig());
+
+    await synthesizeText(
+      {
+        petId: normalizedPetId,
+        text: getWarmupText(petConfig.textLang)
+      },
+      {
+        abortWarmup: false,
+        signal: controller.signal
+      }
+    );
+  } catch {
+    // Prewarming is best-effort; normal TTS errors are reported when the user actually plays speech.
+  } finally {
+    if (warmupControllers.get(normalizedPetId) === controller) {
+      warmupControllers.delete(normalizedPetId);
+    }
+  }
 }
 
 export function stopSpeechPlayback(): { ok: boolean; message: string } {
