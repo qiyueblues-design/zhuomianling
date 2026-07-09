@@ -1,6 +1,6 @@
 {
   "name": "zhuomianling",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "MIT",
   "description": "Open-source customizable Live2D desktop pet framework with chat, subtitles, and optional voice features.",
@@ -58,7 +58,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "桌面灵",
-      "artifactName": "桌面灵 Setup.${ext}"
+      "artifactName": "桌面灵 Setup ${version}.${ext}"
     },
     "portable": {
       "artifactName": "桌面灵.${ext}"
