@@ -27,8 +27,8 @@ import {
 import type {
   LocalPetSaveResult,
   PetDefinition,
+  PetVoiceInferenceDevice,
   PetVoiceLanguage,
-  PetVoiceReplyMode,
   LocalPetVoiceModelDraft,
   LocalPetVoiceResourceKind
 } from "../../../shared/types/pet";
@@ -970,7 +970,9 @@ function VoicePanel({
     referenceAudioPath: pet.voiceModelSettings?.referenceAudioPath,
     referenceText: pet.voiceModelSettings?.referenceText ?? "",
     language: pet.voiceModelSettings?.language ?? "zh",
-    playMode: pet.voiceModelSettings?.playMode ?? "full",
+    playMode: "sentence",
+    inferenceDevice: pet.voiceModelSettings?.inferenceDevice ?? "auto",
+    halfPrecision: pet.voiceModelSettings?.halfPrecision ?? true,
     syncTextWithVoice: pet.voiceModelSettings?.syncTextWithVoice ?? false
   };
   const [draft, setDraft] = useState<LocalPetVoiceModelDraft>(initialVoiceDraft);
@@ -984,6 +986,7 @@ function VoicePanel({
   const [saveResult, setSaveResult] = useState<LocalPetSaveResult | undefined>();
   const connected = connectionState === "connected";
   const optionsEditable = connected && draft.enabled;
+  const runtimeEditable = !connected && connectionPopup !== "connecting";
   const serviceStatusText =
     connectionPopup === "connecting" ? "连接中" : connected ? "已连接" : "未连接";
   const markVoiceDirty = (nextDraft: LocalPetVoiceModelDraft): void => {
@@ -1227,6 +1230,51 @@ function VoicePanel({
           />
         </label>
 
+        <div className="voiceRuntimeGrid">
+          <label className="formField">
+            <span>推理设备</span>
+            <AppleSelect
+              value={draft.inferenceDevice}
+              disabled={!runtimeEditable}
+              ariaLabel="语音推理设备"
+              options={[
+                { value: "auto", label: "自动检测" },
+                { value: "cuda", label: "CUDA" },
+                { value: "cpu", label: "CPU" }
+              ]}
+              onChange={(nextDeviceValue) => {
+                const nextDevice = nextDeviceValue as PetVoiceInferenceDevice;
+
+                updateVoiceDraft({
+                  inferenceDevice: nextDevice,
+                  halfPrecision: nextDevice === "cpu" ? false : draft.halfPrecision
+                });
+              }}
+            />
+          </label>
+          <div className="voiceOptionToggle compact">
+            <div>
+              <h3>半精度推理</h3>
+              <p>CUDA 可用时减少显存占用。</p>
+            </div>
+            <label
+              className={
+                runtimeEditable && draft.inferenceDevice !== "cpu"
+                  ? "settingsSwitch"
+                  : "settingsSwitch disabled"
+              }
+            >
+              <input
+                type="checkbox"
+                checked={draft.halfPrecision}
+                disabled={!runtimeEditable || draft.inferenceDevice === "cpu"}
+                onChange={(event) => updateVoiceDraft({ halfPrecision: event.target.checked })}
+              />
+              <span />
+            </label>
+          </div>
+        </div>
+
         <div className="voiceFileList">
           <VoiceFileRow
             icon={<FileCode2 size={18} />}
@@ -1307,30 +1355,22 @@ function VoicePanel({
             onChange={(nextLanguage) => updateVoiceDraft({ language: nextLanguage as PetVoiceLanguage })}
           />
         </label>
-        <label className="formField">
-          <span>播放模式</span>
-          <AppleSelect
-            value={draft.playMode}
-            disabled={!optionsEditable}
-            ariaLabel="语音播放模式"
-            options={[
-              { value: "sentence", label: "逐句播放" },
-              { value: "full", label: "完整生成后播放" }
-            ]}
-            onChange={(nextMode) => updateVoiceDraft({ playMode: nextMode as PetVoiceReplyMode })}
-          />
-        </label>
         <div className="voiceOptionToggle">
           <div>
-            <h3>语音与文字一起输出</h3>
-            <p>开启后会等待语音渲染完成，再同时显示文字和播放语音。</p>
+            <h3>首句就绪后输出</h3>
+            <p>开启后会先等待第一句语音生成完成，再显示文字并开始播放；后续语音会边生成边播放。</p>
           </div>
           <label className={optionsEditable ? "settingsSwitch" : "settingsSwitch disabled"}>
             <input
               type="checkbox"
               checked={draft.syncTextWithVoice}
               disabled={!optionsEditable}
-              onChange={(event) => updateVoiceDraft({ syncTextWithVoice: event.target.checked })}
+              onChange={(event) =>
+                updateVoiceDraft({
+                  syncTextWithVoice: event.target.checked,
+                  playMode: "sentence"
+                })
+              }
             />
             <span />
           </label>

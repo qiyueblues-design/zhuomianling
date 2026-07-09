@@ -46,13 +46,16 @@ function buildChatCompletionsUrl(baseUrl: string): string {
 }
 
 function normalizeMessages(messages: AiChatMessage[]): AiChatMessage[] {
-  return messages
+  const normalizedMessages = messages
     .map((message) => ({
       role: message.role,
       content: message.content.trim()
     }))
-    .filter((message) => message.content.length > 0)
-    .slice(-16);
+    .filter((message) => message.content.length > 0);
+  const systemMessages = normalizedMessages.filter((message) => message.role === "system");
+  const conversationMessages = normalizedMessages.filter((message) => message.role !== "system");
+
+  return [...systemMessages, ...conversationMessages.slice(-15)];
 }
 
 function parseAiReply(content: string): { reply: string; emotion?: string; voiceText?: string } {

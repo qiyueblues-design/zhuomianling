@@ -362,7 +362,7 @@ fieldset.settingsField {
 
 .rangeControl {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) 60px;
   gap: 10px;
   align-items: center;
 }
@@ -377,6 +377,7 @@ fieldset.settingsField {
   color: #1f6feb;
   font-size: 13px;
   text-align: right;
+  white-space: nowrap;
 }
 
 .statusDot {
@@ -3739,6 +3740,13 @@ h2 {
   background: #d8dee7;
 }
 
+.voiceRuntimeGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
 .voiceEnabledOptions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3762,6 +3770,16 @@ h2 {
   gap: 12px;
   align-items: center;
   padding-top: 2px;
+}
+
+.voiceOptionToggle.compact {
+  grid-column: auto;
+  min-height: 65px;
+  align-self: end;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .voiceOptionToggle h3 {
@@ -7444,6 +7462,10 @@ html:not(.startupAnimationsActive) .startupProgress span {
 }
 
 @media (max-width: 760px) {
+  .voiceRuntimeGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .themeImportPicker,
   .importDropzonePrimary {
     grid-template-columns: auto minmax(0, 1fr);

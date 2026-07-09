@@ -2,7 +2,7 @@ import { app, dialog } from "electron";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type {
   LocalPetAvatarImportResult,
@@ -43,6 +43,11 @@ const expressionMappingKeyPattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const allowedAvatarExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const gptSoVitsBaseUrl = "http://127.0.0.1:9880" as const;
 const gptSoVitsLogLineLimit = 40;
+const defaultVoiceInferenceDevice = "auto" as const;
+const defaultVoiceHalfPrecision = true;
+const minVoiceInputSilenceSeconds = 0.4;
+const maxVoiceInputSilenceSeconds = 2;
+const defaultVoiceInputSilenceSeconds = 1;
 let managedGptSoVitsProcess: ChildProcess | undefined;
 const avatarMimeTypes: Record<string, string> = {
   ".png": "image/png",
@@ -124,7 +129,113 @@ function toYamlPath(filePath: string): string {
   return filePath.replace(/\\/g, "/");
 }
 
-async function writeGptSoVitsRuntimeConfig(draft: LocalPetVoiceModelDraft): Promise<string> {
+function normalizeVoiceInputSilenceSeconds(value: number): number {
+  if (!Number.isFinite(value)) {
+    return defaultVoiceInputSilenceSeconds;
+  }
+
+  return Math.min(
+    Math.max(Math.round(value * 10) / 10, minVoiceInputSilenceSeconds),
+    maxVoiceInputSilenceSeconds
+  );
+}
+
+interface CudaProbeResult {
+  available: boolean;
+  deviceName?: string;
+  message?: string;
+}
+
+interface ResolvedVoiceRuntimeOptions {
+  requestedDevice: LocalPetVoiceModelDraft["inferenceDevice"];
+  device: "cuda" | "cpu";
+  isHalf: boolean;
+  cudaProbe?: CudaProbeResult;
+}
+
+function normalizeVoiceInferenceDevice(
+  value: LocalPetVoiceModelDraft["inferenceDevice"] | undefined
+): LocalPetVoiceModelDraft["inferenceDevice"] {
+  return value === "cuda" || value === "cpu" || value === "auto"
+    ? value
+    : defaultVoiceInferenceDevice;
+}
+
+async function probeCudaWithPython(pythonExePath: string): Promise<CudaProbeResult> {
+  const probeScript = [
+    "import json",
+    "try:",
+    "    import torch",
+    "    available = bool(torch.cuda.is_available())",
+    "    device_name = torch.cuda.get_device_name(0) if available else ''",
+    "    print(json.dumps({'available': available, 'deviceName': device_name}, ensure_ascii=False))",
+    "except Exception as exc:",
+    "    print(json.dumps({'available': False, 'message': str(exc)}, ensure_ascii=False))"
+  ].join("\n");
+
+  return await new Promise<CudaProbeResult>((resolve) => {
+    execFile(
+      pythonExePath,
+      ["-c", probeScript],
+      {
+        timeout: 15000,
+        windowsHide: true
+      },
+      (_error, stdout) => {
+        try {
+          const outputLines = stdout.trim().split(/\r?\n/).filter(Boolean);
+          const output = outputLines[outputLines.length - 1] ?? "";
+          const parsed = JSON.parse(output) as Partial<CudaProbeResult>;
+
+          resolve({
+            available: Boolean(parsed.available),
+            deviceName: parsed.deviceName,
+            message: parsed.message
+          });
+        } catch {
+          resolve({
+            available: false,
+            message: "无法解析 CUDA 检测结果。"
+          });
+        }
+      }
+    );
+  });
+}
+
+async function resolveVoiceRuntimeOptions(
+  draft: LocalPetVoiceModelDraft,
+  pythonExePath: string
+): Promise<ResolvedVoiceRuntimeOptions> {
+  const requestedDevice = normalizeVoiceInferenceDevice(draft.inferenceDevice);
+  const wantsCudaProbe = requestedDevice === "auto" || requestedDevice === "cuda";
+  const cudaProbe = wantsCudaProbe ? await probeCudaWithPython(pythonExePath) : undefined;
+  const device = requestedDevice === "cpu" ? "cpu" : cudaProbe?.available ? "cuda" : "cpu";
+
+  if (requestedDevice === "cuda" && device !== "cuda") {
+    throw new Error(
+      [
+        "当前 GPT-SoVITS Python 环境没有检测到可用 CUDA。",
+        cudaProbe?.message ? `检测信息：${cudaProbe.message}` : "",
+        "请确认 NVIDIA 驱动和 CUDA 版 PyTorch 已安装到 GPT-SoVITS 的 runtime/python.exe。"
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
+
+  return {
+    requestedDevice,
+    device,
+    isHalf: device === "cuda" && (draft.halfPrecision ?? defaultVoiceHalfPrecision),
+    cudaProbe
+  };
+}
+
+async function writeGptSoVitsRuntimeConfig(
+  draft: LocalPetVoiceModelDraft,
+  runtimeOptions: ResolvedVoiceRuntimeOptions
+): Promise<string> {
   if (!draft.gptSoVitsRootPath || !draft.gptModelPath || !draft.sovitsModelPath) {
     throw new Error("请先填写 GPT-SoVITS 本地路径，并选择 SoVITS / GPT 模型。");
   }
@@ -137,8 +248,8 @@ async function writeGptSoVitsRuntimeConfig(draft: LocalPetVoiceModelDraft): Prom
     "custom:",
     `  bert_base_path: ${rootPath}/GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large`,
     `  cnhuhbert_base_path: ${rootPath}/GPT_SoVITS/pretrained_models/chinese-hubert-base`,
-    "  device: cpu",
-    "  is_half: false",
+    `  device: ${runtimeOptions.device}`,
+    `  is_half: ${runtimeOptions.isHalf ? "true" : "false"}`,
     `  t2s_weights_path: ${toYamlPath(draft.gptModelPath)}`,
     "  version: v2ProPlus",
     `  vits_weights_path: ${toYamlPath(draft.sovitsModelPath)}`,
@@ -172,7 +283,8 @@ async function launchGptSoVitsApiIfNeeded(draft: LocalPetVoiceModelDraft): Promi
     }
   }
 
-  const runtimeConfigPath = await writeGptSoVitsRuntimeConfig(draft);
+  const runtimeOptions = await resolveVoiceRuntimeOptions(draft, pythonExePath);
+  const runtimeConfigPath = await writeGptSoVitsRuntimeConfig(draft, runtimeOptions);
   const logPath = getGptSoVitsLogPath(draft.petId);
   const logDirectoryPath = path.dirname(logPath);
 
@@ -186,8 +298,13 @@ async function launchGptSoVitsApiIfNeeded(draft: LocalPetVoiceModelDraft): Promi
       `python=${pythonExePath}`,
       `api=${apiScriptPath}`,
       `config=${runtimeConfigPath}`,
+      `requestedDevice=${runtimeOptions.requestedDevice}`,
+      `resolvedDevice=${runtimeOptions.device}`,
+      `isHalf=${runtimeOptions.isHalf}`,
+      runtimeOptions.cudaProbe?.deviceName ? `cudaDevice=${runtimeOptions.cudaProbe.deviceName}` : "",
+      runtimeOptions.cudaProbe?.message ? `cudaProbe=${runtimeOptions.cudaProbe.message}` : "",
       ""
-    ].join("\n"),
+    ].filter((line) => line !== "").join("\n"),
     "utf8"
   );
 
@@ -1294,7 +1411,7 @@ export async function saveLocalPetVoiceInput(
       secretKey: draft.secretKey.trim(),
       connected: draft.connected,
       autoEndEnabled: draft.autoEndEnabled,
-      silenceSeconds: draft.silenceSeconds,
+      silenceSeconds: normalizeVoiceInputSilenceSeconds(draft.silenceSeconds),
       volumeThreshold: draft.volumeThreshold,
       continuousConversationEnabled: draft.continuousConversationEnabled
     },
@@ -1423,7 +1540,9 @@ export async function saveLocalPetVoiceModel(
       referenceAudioPath: draft.referenceAudioPath,
       referenceText: draft.referenceText,
       language: draft.language,
-      playMode: draft.playMode,
+      playMode: "sentence",
+      inferenceDevice: normalizeVoiceInferenceDevice(draft.inferenceDevice),
+      halfPrecision: draft.halfPrecision ?? defaultVoiceHalfPrecision,
       syncTextWithVoice: draft.syncTextWithVoice
     },
     isLocal: true

@@ -113,7 +113,9 @@ export function PetStage({
       referenceAudioPath: voiceModelSettings.referenceAudioPath,
       referenceText: voiceModelSettings.referenceText,
       language: voiceModelSettings.language,
-      playMode: voiceModelSettings.playMode,
+      playMode: "sentence",
+      inferenceDevice: voiceModelSettings.inferenceDevice ?? "auto",
+      halfPrecision: voiceModelSettings.halfPrecision ?? true,
       syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? false
     };
   };

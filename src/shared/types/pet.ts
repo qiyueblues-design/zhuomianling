@@ -106,8 +106,9 @@ export type PetExpressionEffectMap = Partial<Record<PetExpressionKey, PetExpress
 export type PetChatLanguage = "zh" | "ja" | "en";
 export type PetReplyLength = "short" | "medium" | "long";
 export type PetVoiceLanguage = "zh" | "ja" | "en";
-export type PetVoiceReplyMode = "sentence" | "full";
-export type PetVoiceInputSilenceSeconds = 1 | 2 | 3;
+export type PetVoiceReplyMode = "sentence";
+export type PetVoiceInferenceDevice = "auto" | "cuda" | "cpu";
+export type PetVoiceInputSilenceSeconds = number;
 export type BuiltInPetUiTheme = "soft" | "rock" | "pixel" | "journal" | "cyber" | "minimal";
 export type PetUiTheme = BuiltInPetUiTheme | "custom";
 export type PetExpressionSelectionMode = "semantic" | "random";
@@ -177,6 +178,8 @@ export interface PetVoiceModelSettings {
   referenceText: string;
   language: PetVoiceLanguage;
   playMode: PetVoiceReplyMode;
+  inferenceDevice?: PetVoiceInferenceDevice;
+  halfPrecision?: boolean;
   syncTextWithVoice?: boolean;
 }
 
@@ -299,6 +302,8 @@ export interface LocalPetVoiceModelDraft {
   referenceText: string;
   language: PetVoiceLanguage;
   playMode: PetVoiceReplyMode;
+  inferenceDevice: PetVoiceInferenceDevice;
+  halfPrecision: boolean;
   syncTextWithVoice: boolean;
 }
 

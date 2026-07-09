@@ -2,19 +2,29 @@ export interface SpeechFrontendSettings {
   autoEndEnabled: boolean;
   continuousConversationEnabled: boolean;
   voiceReplyEnabled: boolean;
-  voiceReplyMode: "sentence" | "full";
+  voiceReplyMode: "sentence";
   syncTextWithVoice: boolean;
   silenceSeconds: number;
   volumeThreshold: number;
 }
 
 export const speechFrontendSettingsKey = "desktop-pet:speech-settings";
+const minSilenceSeconds = 0.4;
+const maxSilenceSeconds = 2;
+
+function normalizeSilenceSeconds(value: number): number {
+  if (!Number.isFinite(value)) {
+    return defaultSpeechFrontendSettings.silenceSeconds;
+  }
+
+  return Math.min(Math.max(Math.round(value * 10) / 10, minSilenceSeconds), maxSilenceSeconds);
+}
 
 export const defaultSpeechFrontendSettings: SpeechFrontendSettings = {
   autoEndEnabled: true,
   continuousConversationEnabled: false,
   voiceReplyEnabled: false,
-  voiceReplyMode: "full",
+  voiceReplyMode: "sentence",
   syncTextWithVoice: false,
   silenceSeconds: 1,
   volumeThreshold: 0.18
@@ -39,14 +49,9 @@ export function readSpeechFrontendSettings(): SpeechFrontendSettings {
         defaultSpeechFrontendSettings.continuousConversationEnabled,
       voiceReplyEnabled:
         parsed.voiceReplyEnabled ?? defaultSpeechFrontendSettings.voiceReplyEnabled,
-      voiceReplyMode:
-        parsed.voiceReplyMode === "full" || parsed.voiceReplyMode === "sentence"
-          ? parsed.voiceReplyMode
-          : defaultSpeechFrontendSettings.voiceReplyMode,
+      voiceReplyMode: "sentence",
       syncTextWithVoice: parsed.syncTextWithVoice ?? defaultSpeechFrontendSettings.syncTextWithVoice,
-      silenceSeconds: [1, 2, 3].includes(silenceSeconds)
-        ? silenceSeconds
-        : defaultSpeechFrontendSettings.silenceSeconds,
+      silenceSeconds: normalizeSilenceSeconds(silenceSeconds),
       volumeThreshold:
         Number.isFinite(volumeThreshold) && volumeThreshold >= 0.04 && volumeThreshold <= 0.45
           ? volumeThreshold

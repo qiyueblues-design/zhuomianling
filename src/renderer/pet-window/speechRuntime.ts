@@ -70,7 +70,7 @@ export function buildSpeechSettings(
   const voiceReplySettings = voiceModelSettings
     ? {
         voiceReplyEnabled: voiceModelSettings.enabled && voiceModelSettings.connected,
-        voiceReplyMode: voiceModelSettings.playMode,
+        voiceReplyMode: "sentence" as const,
         syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? false
       }
     : {};

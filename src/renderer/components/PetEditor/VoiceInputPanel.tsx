@@ -3,14 +3,30 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   LocalPetSaveResult,
   LocalPetVoiceInputDraft,
-  PetDefinition,
-  PetVoiceInputSilenceSeconds
+  PetDefinition
 } from "../../../shared/types/pet";
 import { PanelSaveActions } from "./EditorShared";
 
+const minSilenceSeconds = 0.4;
+const maxSilenceSeconds = 2;
+const defaultSilenceSeconds = 1;
+
+function normalizeSilenceSeconds(value: unknown): number {
+  const seconds = Number(value);
+
+  if (!Number.isFinite(seconds)) {
+    return defaultSilenceSeconds;
+  }
+
+  return Math.min(Math.max(Math.round(seconds * 10) / 10, minSilenceSeconds), maxSilenceSeconds);
+}
+
+function formatSeconds(seconds: number): string {
+  return Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+}
+
 function createVoiceInputDraft(pet: PetDefinition): LocalPetVoiceInputDraft {
   const settings = pet.voiceInputSettings;
-  const silenceSeconds = settings?.silenceSeconds;
 
   return {
     petId: pet.id,
@@ -19,7 +35,7 @@ function createVoiceInputDraft(pet: PetDefinition): LocalPetVoiceInputDraft {
     secretKey: settings?.secretKey ?? "",
     connected: settings?.connected ?? Boolean(pet.capabilities.voiceInput),
     autoEndEnabled: settings?.autoEndEnabled ?? true,
-    silenceSeconds: silenceSeconds === 2 || silenceSeconds === 3 ? silenceSeconds : 1,
+    silenceSeconds: normalizeSilenceSeconds(settings?.silenceSeconds),
     volumeThreshold: settings?.volumeThreshold ?? 0.18,
     continuousConversationEnabled: settings?.continuousConversationEnabled ?? true
   };
@@ -232,20 +248,19 @@ export function VoiceInputPanel({
 
         <fieldset className="settingsField">
           <legend>静音超过多少时间自动结束</legend>
-          <div className="segmentedControl">
-            {([1, 2, 3] as PetVoiceInputSilenceSeconds[]).map((seconds) => (
-              <button
-                className={draft.silenceSeconds === seconds ? "segment active" : "segment"}
-                type="button"
-                disabled={!connected || !draft.autoEndEnabled}
-                key={seconds}
-                onClick={() => {
-                  updateDraft({ silenceSeconds: seconds });
-                }}
-              >
-                {seconds} 秒
-              </button>
-            ))}
+          <div className="rangeControl">
+            <input
+              type="range"
+              min={minSilenceSeconds}
+              max={maxSilenceSeconds}
+              step="0.1"
+              value={draft.silenceSeconds}
+              disabled={!connected || !draft.autoEndEnabled}
+              onChange={(event) => {
+                updateDraft({ silenceSeconds: normalizeSilenceSeconds(event.target.value) });
+              }}
+            />
+            <strong>{formatSeconds(draft.silenceSeconds)} 秒</strong>
           </div>
         </fieldset>
 
