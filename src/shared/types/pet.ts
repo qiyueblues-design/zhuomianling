@@ -176,6 +176,7 @@ export interface PetVoiceModelSettings {
   gptModelPath?: string;
   referenceAudioPath?: string;
   referenceText: string;
+  referenceLanguage?: PetVoiceLanguage;
   language: PetVoiceLanguage;
   playMode: PetVoiceReplyMode;
   inferenceDevice?: PetVoiceInferenceDevice;
@@ -300,6 +301,7 @@ export interface LocalPetVoiceModelDraft {
   gptModelPath?: string;
   referenceAudioPath?: string;
   referenceText: string;
+  referenceLanguage: PetVoiceLanguage;
   language: PetVoiceLanguage;
   playMode: PetVoiceReplyMode;
   inferenceDevice: PetVoiceInferenceDevice;

@@ -1540,11 +1540,12 @@ export async function saveLocalPetVoiceModel(
       gptModelPath: draft.gptModelPath,
       referenceAudioPath: draft.referenceAudioPath,
       referenceText: draft.referenceText,
+      referenceLanguage: draft.referenceLanguage,
       language: draft.language,
       playMode: "sentence",
       inferenceDevice: normalizeVoiceInferenceDevice(draft.inferenceDevice),
       halfPrecision: draft.halfPrecision ?? defaultVoiceHalfPrecision,
-      syncTextWithVoice: draft.syncTextWithVoice
+      syncTextWithVoice: draft.syncTextWithVoice ?? true
     },
     isLocal: true
   };

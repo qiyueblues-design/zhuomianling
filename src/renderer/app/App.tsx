@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FolderOpen, MousePointer2, Plus, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, FolderOpen, MousePointer2, Plus, Sparkles, Trash2 } from "lucide-react";
 import type { PetDefinition } from "../../shared/types/pet";
 import type { PetWindowState } from "../../shared/types/window";
 import { PetEditor } from "../components/PetEditor/PetEditor";
@@ -17,6 +17,63 @@ const HOME_ICON_SRC = "./icons/home-icon.jpg";
 interface EditorPageOptions {
   mode?: "create" | "edit";
   petId?: string;
+}
+
+function DeletePetDialog({
+  pet,
+  step,
+  deleting,
+  onCancel,
+  onContinue,
+  onConfirm
+}: {
+  pet: PetDefinition;
+  step: 1 | 2;
+  deleting: boolean;
+  onCancel: () => void;
+  onContinue: () => void;
+  onConfirm: () => void | Promise<void>;
+}): JSX.Element {
+  const finalStep = step === 2;
+
+  return (
+    <div className="unsavedOverlay" role="dialog" aria-modal="true" aria-label={`删除 ${pet.name}`}>
+      <div className="unsavedDialog deletePetDialog">
+        <span className="unsavedIcon deletePetIcon" aria-hidden="true">
+          {finalStep ? <AlertTriangle size={22} /> : <Trash2 size={21} />}
+        </span>
+        <div className="unsavedText deletePetText">
+          <h2>{finalStep ? "最后确认删除" : "删除这只桌宠？"}</h2>
+          <p>
+            {finalStep
+              ? "删除后会清理它的本地配置、头像和已导入资源，无法从软件内恢复。"
+              : "这会移除这只本地桌宠和它关联的本机配置。"}
+          </p>
+          <strong className="deletePetName">{pet.name}</strong>
+        </div>
+        <div className="unsavedActions">
+          <button className="secondaryAction" type="button" disabled={deleting} onClick={onCancel}>
+            取消
+          </button>
+          <button
+            className={finalStep ? "primaryAction danger" : "secondaryAction danger"}
+            type="button"
+            disabled={deleting}
+            onClick={() => {
+              if (finalStep) {
+                void onConfirm();
+                return;
+              }
+
+              onContinue();
+            }}
+          >
+            {deleting ? "删除中" : finalStep ? "确认删除" : "继续"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SelectorGuideStage({
@@ -105,10 +162,18 @@ export function App(): JSX.Element {
     () => !window.desktopPet?.appWindow || window.__desktopPetStartupSurfaceReady === true
   );
   const [toastText, setToastText] = useState<string | undefined>();
+  const [deleteTargetPet, setDeleteTargetPet] = useState<PetDefinition | undefined>();
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState<1 | 2>(1);
+  const [deletingPet, setDeletingPet] = useState(false);
   const [petWindowState, setPetWindowState] = useState<PetWindowState>({
     visible: false,
     clickThrough: false
   });
+  const currentViewRef = useRef<AppView>(currentView);
+
+  useEffect(() => {
+    currentViewRef.current = currentView;
+  }, [currentView]);
 
   const selectedPet = useMemo<PetDefinition | undefined>(() => {
     return availablePets.find((pet) => pet.id === selectedPetId);
@@ -136,9 +201,17 @@ export function App(): JSX.Element {
     void loadInitialPets();
 
     const handleFocus = (): void => {
+      if (currentViewRef.current === "editor") {
+        return;
+      }
+
       void refreshPets();
     };
     const unsubscribePetConfig = window.desktopPet?.petConfig.onChanged(() => {
+      if (currentViewRef.current === "editor") {
+        return;
+      }
+
       void refreshPets();
     });
 
@@ -366,20 +439,18 @@ export function App(): JSX.Element {
       return;
     }
 
-    const firstConfirmed = window.confirm(`确定要删除「${pet.name}」吗？`);
+    setDeleteTargetPet(pet);
+    setDeleteConfirmStep(1);
+  };
 
-    if (!firstConfirmed) {
+  const confirmDeletePet = async (): Promise<void> => {
+    const pet = deleteTargetPet;
+
+    if (!pet || deletingPet) {
       return;
     }
 
-    const secondConfirmed = window.confirm(
-      `再次确认：删除后会清理「${pet.name}」相关的所有本地配置，无法从软件内恢复。`
-    );
-
-    if (!secondConfirmed) {
-      return;
-    }
-
+    setDeletingPet(true);
     if (activePetId === pet.id) {
       await deactivatePet();
     }
@@ -387,10 +458,14 @@ export function App(): JSX.Element {
     const result = await window.desktopPet?.petConfig.delete(pet.id);
 
     if (!result) {
+      setDeletingPet(false);
       return;
     }
 
     setToastText(result.message);
+    setDeletingPet(false);
+    setDeleteTargetPet(undefined);
+    setDeleteConfirmStep(1);
 
     if (result.ok) {
       setSelectedPetId(undefined);
@@ -465,6 +540,23 @@ export function App(): JSX.Element {
       </div>
 
       {toastText ? <div className="launchToast">{toastText}</div> : null}
+      {deleteTargetPet ? (
+        <DeletePetDialog
+          pet={deleteTargetPet}
+          step={deleteConfirmStep}
+          deleting={deletingPet}
+          onCancel={() => {
+            if (deletingPet) {
+              return;
+            }
+
+            setDeleteTargetPet(undefined);
+            setDeleteConfirmStep(1);
+          }}
+          onContinue={() => setDeleteConfirmStep(2)}
+          onConfirm={confirmDeletePet}
+        />
+      ) : null}
       {isStartupSplashVisible ? <StartupSplash leaving={isStartupSplashLeaving} /> : null}
     </main>
   );

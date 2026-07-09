@@ -90,7 +90,7 @@ async function readLocalPetVoiceConfig(petId: string): Promise<Required<GptSoVit
       apiMode: "v2",
       refAudioPath: settings.referenceAudioPath,
       promptText: settings.referenceText,
-      promptLang: settings.language,
+      promptLang: settings.referenceLanguage ?? settings.language,
       textLang: settings.language,
       textSplitMethod: "cut5",
       mediaType: "wav"

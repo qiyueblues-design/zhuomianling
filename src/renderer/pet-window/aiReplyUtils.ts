@@ -38,7 +38,9 @@ export function buildReplyPreferencePrompt(
 export function buildVoiceTextPrompt(voiceLanguage: PetVoiceLanguage): string {
   return [
     `voiceText 使用${voiceLanguageLabels[voiceLanguage]}。`,
-    "voiceText 是 reply 的朗读版：语义必须一致，可根据人设、口癖和语气翻译或同义改写，不能新增、删除或改变信息。",
+    "voiceText 是 reply 的逐句朗读版：必须覆盖 reply 的每一句、每个分句和所有关键信息，顺序保持一致。",
+    "如果 reply 有多句、逗号分句或省略号后的补充，voiceText 必须都有对应内容；禁止摘要、缩短、跳过后半句或只翻译前半句。",
+    "voiceText 可根据人设、口癖和语气做自然翻译，但不能新增、删除或改变信息。",
     "voiceText 只写角色实际说出口的话，不写动作、旁白、心理活动或表情说明。"
   ].join("\n");
 }

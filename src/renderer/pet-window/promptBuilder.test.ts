@@ -83,8 +83,44 @@ describe("buildAiMessages", () => {
     expect(systemPrompt).toContain("reply 使用英语。");
     expect(systemPrompt).toContain("reply 长度：短，尽量一到两句话。");
     expect(systemPrompt).toContain("voiceText 使用日语。");
+    expect(systemPrompt).toContain("必须覆盖 reply 的每一句、每个分句和所有关键信息");
+    expect(systemPrompt).toContain("禁止摘要、缩短、跳过后半句或只翻译前半句");
     expect(systemPrompt).toContain("- normal: 平静");
     expect(systemPrompt).toContain("- happy: 开心");
+  });
+
+  it("omits voiceText when chat and voice output languages match", () => {
+    const pet = createPetDefinition({
+      personaSettings: {
+        chatLanguage: "zh",
+        replyLength: "short"
+      },
+      voiceModelSettings: {
+        enabled: true,
+        connected: true,
+        referenceText: "你好",
+        language: "zh",
+        playMode: "sentence"
+      }
+    });
+    const messages = buildAiMessages({
+      petDefinition: pet,
+      messages: [
+        {
+          role: "pet",
+          text: "原句",
+          voiceText: "被改写的原句",
+          aiRawContent: '{"voiceText":"被改写的原句","reply":"原句","emotion":"normal"}'
+        }
+      ],
+      nextUserText: "继续",
+      voiceReplyEnabled: false
+    });
+    const systemPrompt = messages[0].content;
+
+    expect(systemPrompt).toContain('只输出这个 JSON 结构：{"reply":"给用户看的回复"}。');
+    expect(systemPrompt).not.toContain("voiceText");
+    expect(messages[1].content).toBe('{"reply":"原句","emotion":"normal"}');
   });
 
   it("filters transient messages, keeps the latest twelve history items, and preserves assistant raw content", () => {

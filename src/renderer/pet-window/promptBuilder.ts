@@ -1,5 +1,5 @@
 import type { AiChatMessage } from "../../shared/types/ai";
-import type { PetDefinition } from "../../shared/types/pet";
+import type { PetChatLanguage, PetDefinition, PetVoiceLanguage } from "../../shared/types/pet";
 import {
   buildExpressionPrompt,
   buildReplyPreferencePrompt,
@@ -34,6 +34,41 @@ function hasConfiguredExpressions(
   );
 }
 
+function shouldRequestVoiceText(
+  voiceOutputEnabled: boolean,
+  chatLanguage: PetChatLanguage,
+  voiceLanguage: PetVoiceLanguage
+): boolean {
+  return voiceOutputEnabled && chatLanguage !== voiceLanguage;
+}
+
+function buildAssistantHistoryContent(
+  message: PromptBuilderChatMessage,
+  options: {
+    voiceTextOutputEnabled: boolean;
+  }
+): string {
+  if (message.aiRawContent) {
+    if (options.voiceTextOutputEnabled || !/"voiceText"\s*:/.test(message.aiRawContent)) {
+      return message.aiRawContent;
+    }
+
+    try {
+      const parsed = JSON.parse(message.aiRawContent) as Record<string, unknown>;
+      delete parsed.voiceText;
+
+      return JSON.stringify(parsed);
+    } catch {
+      return JSON.stringify({ reply: message.text });
+    }
+  }
+
+  return JSON.stringify({
+    ...(options.voiceTextOutputEnabled && message.voiceText ? { voiceText: message.voiceText } : {}),
+    reply: message.text
+  });
+}
+
 export function buildAiMessages({
   petDefinition,
   messages,
@@ -43,25 +78,32 @@ export function buildAiMessages({
   const voiceOutputEnabled =
     voiceReplyEnabled ||
     Boolean(petDefinition?.voiceModelSettings?.enabled && petDefinition.voiceModelSettings.connected);
+  const chatLanguage = petDefinition?.personaSettings?.chatLanguage ?? "zh";
+  const voiceLanguage = petDefinition?.voiceModelSettings?.language ?? "zh";
+  const voiceTextOutputEnabled = shouldRequestVoiceText(
+    voiceOutputEnabled,
+    chatLanguage,
+    voiceLanguage
+  );
   const randomExpressionMode = petDefinition?.expressionSelectionMode === "random";
   const expressionOutputEnabled =
     !randomExpressionMode &&
     hasConfiguredExpressions(petDefinition?.expressions, petDefinition?.expressionDescriptions);
   const responseShape = {
-    ...(voiceOutputEnabled ? { voiceText: "给语音服务朗读的文本" } : {}),
+    ...(voiceTextOutputEnabled ? { voiceText: "给语音服务朗读的文本" } : {}),
     reply: "给用户看的回复",
     ...(expressionOutputEnabled ? { emotion: "表情标签" } : {})
   };
   const responseInstructions = [
     `只输出这个 JSON 结构：${JSON.stringify(responseShape)}。`,
     buildReplyPreferencePrompt(
-      petDefinition?.personaSettings?.chatLanguage,
+      chatLanguage,
       petDefinition?.personaSettings?.replyLength
     )
   ];
 
-  if (voiceOutputEnabled) {
-    responseInstructions.push(buildVoiceTextPrompt(petDefinition?.voiceModelSettings?.language ?? "zh"));
+  if (voiceTextOutputEnabled) {
+    responseInstructions.push(buildVoiceTextPrompt(voiceLanguage));
   }
 
   if (expressionOutputEnabled) {
@@ -77,10 +119,8 @@ export function buildAiMessages({
       role: message.role === "user" ? "user" : "assistant",
       content:
         message.role === "pet"
-          ? message.aiRawContent ??
-            JSON.stringify({
-              ...(voiceOutputEnabled && message.voiceText ? { voiceText: message.voiceText } : {}),
-              reply: message.text
+          ? buildAssistantHistoryContent(message, {
+              voiceTextOutputEnabled
             })
           : message.text
     }));

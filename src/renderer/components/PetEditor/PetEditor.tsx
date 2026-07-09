@@ -66,6 +66,12 @@ interface PetEditorProps {
 type VoiceConnectionState = "connected" | "failed";
 type PendingNavigation = ActiveEditorPanel | "back";
 
+const voiceLanguageOptions = [
+  { value: "zh", label: "中文" },
+  { value: "ja", label: "日语" },
+  { value: "en", label: "英语" }
+];
+
 export function PetEditor({
   pets,
   selectedPetId,
@@ -969,11 +975,12 @@ function VoicePanel({
     gptModelPath: pet.voiceModelSettings?.gptModelPath,
     referenceAudioPath: pet.voiceModelSettings?.referenceAudioPath,
     referenceText: pet.voiceModelSettings?.referenceText ?? "",
+    referenceLanguage: pet.voiceModelSettings?.referenceLanguage ?? pet.voiceModelSettings?.language ?? "zh",
     language: pet.voiceModelSettings?.language ?? "zh",
     playMode: "sentence",
     inferenceDevice: pet.voiceModelSettings?.inferenceDevice ?? "auto",
     halfPrecision: pet.voiceModelSettings?.halfPrecision ?? true,
-    syncTextWithVoice: pet.voiceModelSettings?.syncTextWithVoice ?? false
+    syncTextWithVoice: pet.voiceModelSettings?.syncTextWithVoice ?? true
   };
   const [draft, setDraft] = useState<LocalPetVoiceModelDraft>(initialVoiceDraft);
   const [savedDraft, setSavedDraft] = useState<LocalPetVoiceModelDraft>(initialVoiceDraft);
@@ -1308,6 +1315,17 @@ function VoicePanel({
             onChange={(event) => updateVoiceDraft({ referenceText: event.target.value })}
           />
         </label>
+        <label className="formField">
+          <span>参考音频语言</span>
+          <AppleSelect
+            value={draft.referenceLanguage}
+            ariaLabel="参考音频语言"
+            options={voiceLanguageOptions}
+            onChange={(nextLanguage) =>
+              updateVoiceDraft({ referenceLanguage: nextLanguage as PetVoiceLanguage })
+            }
+          />
+        </label>
       </section>
 
       <section className="voiceConfigCard voiceEnableSection" aria-label="启用语音回复">
@@ -1327,8 +1345,7 @@ function VoicePanel({
             disabled={!connected}
             onChange={(event) => {
               updateVoiceDraft({
-                enabled: event.target.checked,
-                syncTextWithVoice: event.target.checked ? draft.syncTextWithVoice : false
+                enabled: event.target.checked
               });
             }}
           />
@@ -1347,18 +1364,14 @@ function VoicePanel({
             value={draft.language}
             disabled={!optionsEditable}
             ariaLabel="语音回复语言"
-            options={[
-              { value: "zh", label: "中文" },
-              { value: "ja", label: "日语" },
-              { value: "en", label: "英语" }
-            ]}
+            options={voiceLanguageOptions}
             onChange={(nextLanguage) => updateVoiceDraft({ language: nextLanguage as PetVoiceLanguage })}
           />
         </label>
         <div className="voiceOptionToggle">
           <div>
             <h3>首句就绪后输出</h3>
-            <p>开启后会先等待第一句语音生成完成，再显示文字并开始播放；后续语音会边生成边播放。</p>
+            <p>开启后会先等首句音频就绪再显示和播放；等待时会继续流式预合成后续句子。</p>
           </div>
           <label className={optionsEditable ? "settingsSwitch" : "settingsSwitch disabled"}>
             <input

@@ -1556,6 +1556,35 @@ h2 {
   line-height: 1.55;
 }
 
+.deletePetDialog {
+  width: min(460px, calc(100vw - 48px));
+}
+
+.deletePetIcon {
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.deletePetText {
+  gap: 9px;
+}
+
+.deletePetName {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid rgba(180, 35, 24, 0.12);
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: rgba(255, 241, 240, 0.7);
+  color: #9f1f17;
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
 .unsavedActions {
   display: flex;
   grid-column: 1 / -1;
@@ -6120,6 +6149,12 @@ h2,
 
 .appleSelect.open {
   z-index: 320;
+}
+
+.voiceConfigCard:has(.appleSelect.open),
+.voiceEnabledOptions:has(.appleSelect.open) {
+  z-index: 420;
+  overflow: visible;
 }
 
 .appleSelectButton {

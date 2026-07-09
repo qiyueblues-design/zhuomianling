@@ -182,6 +182,10 @@ function createPetWindow(): BrowserWindow {
     dragStart = null;
     emitStateChanged();
   });
+  createdWindow.on("show", applyPetWindowState);
+  createdWindow.on("focus", applyPetWindowState);
+  createdWindow.on("blur", applyPetWindowState);
+  createdWindow.on("restore", applyPetWindowState);
 
   petWindow = createdWindow;
   applyPetWindowState();
@@ -211,7 +215,11 @@ export function showExistingPetWindow(): PetWindowState {
     };
   }
 
-  petWindow?.show();
+  if (petWindow) {
+    applyPetWindowState();
+    petWindow.show();
+  }
+
   return emitStateChanged();
 }
 

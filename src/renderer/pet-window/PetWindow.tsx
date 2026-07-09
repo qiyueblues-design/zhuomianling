@@ -73,19 +73,38 @@ interface VoiceReplyQueueState {
     audioPromise?: Promise<VoiceReplyAudio | undefined>;
   }>;
   playing: boolean;
+  playbackBlocked: boolean;
   streamedVoiceText: string;
   streamedConsumedLength: number;
   queuedVoiceSegments: string[];
+}
+
+interface SyncVoiceRevealState {
+  requestId: number;
+  pendingMessageId: number;
+  latestContent: string;
+  revealed: boolean;
+  firstAudioSettled: boolean;
+  watchingFirstAudio: boolean;
 }
 
 const voiceWaveformBarCount = 12;
 const initialVoiceWaveformLevels = Array.from({ length: voiceWaveformBarCount }, () => 0.18);
 const voiceAutoSendFallbackMs = 400;
 const voiceReplySynthesisLookahead = 3;
+const voiceReplySegmentMaxAttempts = 3;
+const voiceReplySegmentRetryBaseMs = 220;
+const chatReplyTypewriterDelayMs = 34;
 const aiReplyPendingText = "回复生成中...";
 
 function normalizeVoiceReplyText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function waitForVoiceRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
 }
 
 function getUnqueuedFinalVoiceSegments(finalVoiceText: string, queuedSegments: string[]): string[] {
@@ -121,18 +140,6 @@ function getUnqueuedFinalVoiceSegments(finalVoiceText: string, queuedSegments: s
 
     return true;
   });
-}
-
-function splitVoiceTextForFirstReadyOutput(text: string): string[] {
-  const normalizedText = normalizeVoiceReplyText(text);
-
-  if (!normalizedText) {
-    return [];
-  }
-
-  const segments = splitVoiceTextIntoSegments(normalizedText);
-
-  return segments.length ? segments : [normalizedText];
 }
 
 function getTextDisplayDurationMs(text: string): number {
@@ -284,10 +291,12 @@ export function PetWindow(): JSX.Element {
   const voiceReplyQueueRef = useRef<VoiceReplyQueueState>({
     items: [],
     playing: false,
+    playbackBlocked: false,
     streamedVoiceText: "",
     streamedConsumedLength: 0,
     queuedVoiceSegments: []
   });
+  const syncVoiceRevealRef = useRef<SyncVoiceRevealState | undefined>();
   const voiceReplyRequestIdRef = useRef(0);
   const voiceReplySubtitleHoldRef = useRef<
     | {
@@ -329,6 +338,8 @@ export function PetWindow(): JSX.Element {
   const voiceLastActiveAtRef = useRef(0);
   const voiceStartedAtRef = useRef(0);
   const voiceInputStateRef = useRef<VoiceInputState>("idle");
+  const chatMessageTypewriterTimerRef = useRef<number | undefined>();
+  const chatMessageTypewriterSequenceRef = useRef(0);
   const speechSettingsRef = useRef(defaultSpeechFrontendSettings);
   const nextSendFromVoiceRef = useRef(false);
   const sendingRef = useRef(false);
@@ -364,6 +375,69 @@ export function PetWindow(): JSX.Element {
     setVoiceTypewriterActive(false);
     setVoiceTypewriterTarget("");
     setVoiceTypewriterText("");
+  };
+
+  const clearChatMessageTypewriter = (): void => {
+    chatMessageTypewriterSequenceRef.current += 1;
+    window.clearTimeout(chatMessageTypewriterTimerRef.current);
+    chatMessageTypewriterTimerRef.current = undefined;
+  };
+
+  const showPetMessageWithTypewriter = (
+    messageId: number,
+    fullText: string,
+    options?: {
+      voiceText?: string;
+      aiRawContent?: string;
+    }
+  ): void => {
+    clearChatMessageTypewriter();
+
+    const characters = Array.from(fullText);
+    const sequenceId = chatMessageTypewriterSequenceRef.current;
+    let nextIndex = Math.min(1, characters.length);
+
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === messageId
+          ? {
+              id: messageId,
+              role: "pet",
+              text: characters.slice(0, nextIndex).join(""),
+              voiceText: options?.voiceText,
+              aiRawContent: options?.aiRawContent
+            }
+          : message
+      )
+    );
+
+    const typeNext = (): void => {
+      if (sequenceId !== chatMessageTypewriterSequenceRef.current) {
+        return;
+      }
+
+      nextIndex += 1;
+      const nextText = characters.slice(0, nextIndex).join("");
+
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === messageId
+            ? {
+                ...message,
+                text: nextText
+              }
+            : message
+        )
+      );
+
+      if (nextIndex < characters.length) {
+        chatMessageTypewriterTimerRef.current = window.setTimeout(typeNext, chatReplyTypewriterDelayMs);
+      }
+    };
+
+    if (nextIndex < characters.length) {
+      chatMessageTypewriterTimerRef.current = window.setTimeout(typeNext, chatReplyTypewriterDelayMs);
+    }
   };
 
   const setRecognizedVoiceDraft = (text: string): void => {
@@ -449,6 +523,7 @@ export function PetWindow(): JSX.Element {
 
   useEffect(() => {
     return () => {
+      clearChatMessageTypewriter();
       stopVoiceReplyPlayback();
     };
   }, []);
@@ -604,6 +679,7 @@ export function PetWindow(): JSX.Element {
 
   const stopVoiceReplyPlayback = (): void => {
     voiceReplyRequestIdRef.current += 1;
+    syncVoiceRevealRef.current = undefined;
     voiceReplySubtitleHoldRef.current = undefined;
     voiceReplyExpressionHoldRef.current = undefined;
     voiceRestartAfterReplyRef.current = false;
@@ -614,6 +690,7 @@ export function PetWindow(): JSX.Element {
     voiceReplyQueueRef.current = {
       items: [],
       playing: false,
+      playbackBlocked: false,
       streamedVoiceText: "",
       streamedConsumedLength: 0,
       queuedVoiceSegments: []
@@ -663,6 +740,20 @@ export function PetWindow(): JSX.Element {
         voiceReplyPendingUrlsRef.current.size
     );
 
+  const getStreamingVoiceSourceText = (content: string): string => {
+    const currentPetDefinition = petDefinitionRef.current;
+    const chatLanguage = currentPetDefinition?.personaSettings?.chatLanguage ?? "zh";
+    const voiceLanguage = currentPetDefinition?.voiceModelSettings?.language ?? "zh";
+
+    if (chatLanguage === voiceLanguage) {
+      const replyPreview = extractStreamingReplyPreview(content);
+
+      return replyPreview === aiReplyPendingText ? "" : replyPreview;
+    }
+
+    return extractStreamingVoiceText(content);
+  };
+
   const holdVoiceReplyExpression = (requestId: number, expression?: PetExpressionKey): void => {
     if (!expression || requestId !== voiceReplyRequestIdRef.current || voiceReplyExpressionHoldRef.current?.active) {
       return;
@@ -699,10 +790,112 @@ export function PetWindow(): JSX.Element {
     }
   };
 
+  const getStreamingReplyDisplayText = (content: string): string => {
+    const preview = extractStreamingReplyPreview(content);
+
+    return preview && preview !== aiReplyPendingText ? preview : "";
+  };
+
+  const showStreamingReplyPreview = (
+    pendingMessageId: number,
+    content: string,
+    holdSubtitle: boolean
+  ): boolean => {
+    const displayPreview = getStreamingReplyDisplayText(content);
+
+    if (!displayPreview) {
+      return false;
+    }
+
+    aiReplyStreamingSubtitleMessageIdRef.current = pendingMessageId;
+    showAiReplySubtitle(displayPreview, {
+      mode: "instant",
+      holdMs: holdSubtitle ? Number.POSITIVE_INFINITY : undefined
+    });
+
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === pendingMessageId
+          ? {
+              ...message,
+              text: displayPreview
+            }
+          : message
+      )
+    );
+
+    return true;
+  };
+
+  const revealSynchronizedVoiceOutput = (requestId: number): boolean => {
+    const revealState = syncVoiceRevealRef.current;
+    const queue = voiceReplyQueueRef.current;
+
+    if (
+      !revealState ||
+      revealState.requestId !== requestId ||
+      revealState.revealed ||
+      !revealState.firstAudioSettled ||
+      requestId !== voiceReplyRequestIdRef.current
+    ) {
+      return false;
+    }
+
+    if (!showStreamingReplyPreview(revealState.pendingMessageId, revealState.latestContent, true)) {
+      return false;
+    }
+
+    revealState.revealed = true;
+    queue.playbackBlocked = false;
+    void drainVoiceReplyQueue(requestId);
+
+    return true;
+  };
+
+  const watchFirstQueuedVoiceForSync = (requestId: number): void => {
+    const revealState = syncVoiceRevealRef.current;
+    const queue = voiceReplyQueueRef.current;
+
+    if (
+      !revealState ||
+      revealState.requestId !== requestId ||
+      revealState.revealed ||
+      revealState.firstAudioSettled ||
+      revealState.watchingFirstAudio ||
+      requestId !== voiceReplyRequestIdRef.current
+    ) {
+      return;
+    }
+
+    const firstItem = queue.items[0];
+
+    if (!firstItem) {
+      return;
+    }
+
+    revealState.watchingFirstAudio = true;
+    firstItem.audioPromise ??= synthesizeVoiceSegment(firstItem.segment, requestId);
+
+    void firstItem.audioPromise.then(() => {
+      const currentRevealState = syncVoiceRevealRef.current;
+
+      if (
+        !currentRevealState ||
+        currentRevealState.requestId !== requestId ||
+        requestId !== voiceReplyRequestIdRef.current
+      ) {
+        return;
+      }
+
+      currentRevealState.firstAudioSettled = true;
+      revealSynchronizedVoiceOutput(requestId);
+    });
+  };
+
   const drainVoiceReplyQueue = async (requestId: number): Promise<void> => {
     const queue = voiceReplyQueueRef.current;
 
-    if (queue.playing) {
+    if (queue.playing || queue.playbackBlocked) {
       return;
     }
 
@@ -791,8 +984,11 @@ export function PetWindow(): JSX.Element {
       }))
     );
 
-    if (voiceReplyAudioRef.current) {
-      primeQueuedVoiceReplyItems(voiceReplyQueueRef.current, requestId);
+    primeQueuedVoiceReplyItems(voiceReplyQueueRef.current, requestId);
+
+    if (voiceReplyQueueRef.current.playbackBlocked) {
+      watchFirstQueuedVoiceForSync(requestId);
+      return;
     }
 
     void drainVoiceReplyQueue(requestId);
@@ -904,27 +1100,37 @@ export function PetWindow(): JSX.Element {
     segment: string,
     requestId: number
   ): Promise<VoiceReplyAudio | undefined> => {
-    const response = await window.desktopPet?.textToSpeech.speak({
-      petId: petRef.current.petId,
-      text: segment
-    });
+    for (let attempt = 1; attempt <= voiceReplySegmentMaxAttempts; attempt += 1) {
+      if (requestId !== voiceReplyRequestIdRef.current) {
+        return undefined;
+      }
 
-    if (requestId !== voiceReplyRequestIdRef.current) {
-      return undefined;
+      const response = await window.desktopPet?.textToSpeech.speak({
+        petId: petRef.current.petId,
+        text: segment
+      });
+
+      if (requestId !== voiceReplyRequestIdRef.current) {
+        return undefined;
+      }
+
+      if (response?.ok && response.audioBase64) {
+        const mimeType = response.mimeType ?? "audio/wav";
+        const audioUrl = window.URL.createObjectURL(base64ToBlob(response.audioBase64, mimeType));
+        voiceReplyPendingUrlsRef.current.add(audioUrl);
+
+        return {
+          audioUrl,
+          mimeType
+        };
+      }
+
+      if (attempt < voiceReplySegmentMaxAttempts) {
+        await waitForVoiceRetry(voiceReplySegmentRetryBaseMs * attempt);
+      }
     }
 
-    if (!response?.ok || !response.audioBase64) {
-      return undefined;
-    }
-
-    const mimeType = response.mimeType ?? "audio/wav";
-    const audioUrl = window.URL.createObjectURL(base64ToBlob(response.audioBase64, mimeType));
-    voiceReplyPendingUrlsRef.current.add(audioUrl);
-
-    return {
-      audioUrl,
-      mimeType
-    };
+    return undefined;
   };
 
   useEffect(() => {
@@ -1540,8 +1746,16 @@ export function PetWindow(): JSX.Element {
     const replyText = parsedResponse.reply;
     const replyEmotion = parsedResponse.emotion;
     const voiceText = parsedResponse.voiceText;
+    const chatLanguage = petDefinition?.personaSettings?.chatLanguage ?? "zh";
+    const voiceLanguage = petDefinition?.voiceModelSettings?.language ?? "zh";
+    const useReplyAsVoiceText =
+      speechSettingsRef.current.voiceReplyEnabled && chatLanguage === voiceLanguage;
     const effectiveVoiceText =
-      speechSettingsRef.current.voiceReplyEnabled && !voiceText?.trim() ? replyText : voiceText;
+      speechSettingsRef.current.voiceReplyEnabled
+        ? useReplyAsVoiceText || !voiceText?.trim()
+          ? replyText
+          : voiceText
+        : voiceText;
     const inferredExpression = inferExpressionFromAiReply(replyText);
     const randomExpressionMode = petDefinition?.expressionSelectionMode === "random";
     const randomReplySource = randomExpressionMode ? pickRandomExpressionSource() : undefined;
@@ -1556,45 +1770,74 @@ export function PetWindow(): JSX.Element {
       speechSettingsRef.current.voiceReplyEnabled && Boolean(effectiveVoiceText?.trim());
     const voiceSubtitleRequestId = voiceReplyRequestIdRef.current;
     const syncTextWithVoice = shouldHoldSubtitleForVoice && speechSettingsRef.current.syncTextWithVoice;
-    let firstReadyVoiceSegments: string[] | undefined;
-    let firstReadyVoiceAudio: VoiceReplyAudio | undefined;
 
     if (syncTextWithVoice) {
-      setMessages((currentMessages) =>
-        currentMessages.map((message) =>
-          message.id === pendingMessageId
-            ? {
-                ...message,
-                text: "首句语音生成中..."
-              }
-            : message
-        )
+      const revealState = syncVoiceRevealRef.current;
+
+      if (revealState?.requestId === voiceSubtitleRequestId) {
+        revealState.latestContent = rawContent;
+      }
+
+      enqueueFinalVoiceTextRemainder(
+        effectiveVoiceText || voiceReplyQueueRef.current.streamedVoiceText || "",
+        voiceSubtitleRequestId
       );
 
-      firstReadyVoiceSegments = splitVoiceTextForFirstReadyOutput(effectiveVoiceText ?? "");
-      const firstSegment = firstReadyVoiceSegments[0];
-      firstReadyVoiceAudio = firstSegment
-        ? await synthesizeVoiceSegment(firstSegment, voiceSubtitleRequestId)
-        : undefined;
+      if (voiceReplyQueueRef.current.playbackBlocked) {
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === pendingMessageId
+              ? {
+                  ...message,
+                  text: "首句语音生成中..."
+                }
+              : message
+          )
+        );
+
+        watchFirstQueuedVoiceForSync(voiceSubtitleRequestId);
+
+        const firstItem = voiceReplyQueueRef.current.items[0];
+
+        if (firstItem) {
+          firstItem.audioPromise ??= synthesizeVoiceSegment(firstItem.segment, voiceSubtitleRequestId);
+          await firstItem.audioPromise;
+        }
+
+        if (voiceSubtitleRequestId !== voiceReplyRequestIdRef.current) {
+          return;
+        }
+
+        voiceReplyQueueRef.current.playbackBlocked = false;
+        void drainVoiceReplyQueue(voiceSubtitleRequestId);
+      }
 
       if (voiceSubtitleRequestId !== voiceReplyRequestIdRef.current) {
         return;
       }
     }
 
-    setMessages((currentMessages) =>
-      currentMessages.map((message) =>
-        message.id === pendingMessageId
-          ? {
-              id: pendingMessageId,
-              role: "pet",
-              text: replyText,
-              voiceText: effectiveVoiceText,
-              aiRawContent: rawContent
-            }
-          : message
-      )
-    );
+    if (syncTextWithVoice && !didStreamSubtitle) {
+      showPetMessageWithTypewriter(pendingMessageId, replyText, {
+        voiceText: effectiveVoiceText,
+        aiRawContent: rawContent
+      });
+    } else {
+      clearChatMessageTypewriter();
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === pendingMessageId
+            ? {
+                id: pendingMessageId,
+                role: "pet",
+                text: replyText,
+                voiceText: effectiveVoiceText,
+                aiRawContent: rawContent
+              }
+            : message
+        )
+      );
+    }
 
     if (randomReplySource) {
       triggerExpressionSource(
@@ -1633,23 +1876,11 @@ export function PetWindow(): JSX.Element {
     }
 
     showAiReplySubtitle(replyText, {
-      mode: didStreamSubtitle || syncTextWithVoice ? "instant" : "typewriter",
+      mode: didStreamSubtitle ? "instant" : "typewriter",
       holdMs: shouldHoldSubtitleForVoice ? Number.POSITIVE_INFINITY : undefined,
     });
 
-    if (syncTextWithVoice && firstReadyVoiceSegments?.length) {
-      voiceRestartAfterReplyRef.current = isVoiceTriggered;
-      enqueuePreparedVoiceReplySegments(
-        [
-          {
-            segment: firstReadyVoiceSegments[0] ?? "",
-            audio: firstReadyVoiceAudio
-          },
-          ...firstReadyVoiceSegments.slice(1).map((segment) => ({ segment }))
-        ],
-        voiceReplyRequestIdRef.current
-      );
-    } else if (shouldHoldSubtitleForVoice) {
+    if (!syncTextWithVoice && shouldHoldSubtitleForVoice) {
       enqueueFinalVoiceTextRemainder(
         effectiveVoiceText || voiceReplyQueueRef.current.streamedVoiceText || "",
         voiceReplyRequestIdRef.current,
@@ -1662,6 +1893,10 @@ export function PetWindow(): JSX.Element {
 
     if (!shouldHoldSubtitleForVoice) {
       voiceReplySubtitleHoldRef.current = undefined;
+    }
+
+    if (syncTextWithVoice) {
+      syncVoiceRevealRef.current = undefined;
     }
 
     setSendingState(false);
@@ -1677,6 +1912,9 @@ export function PetWindow(): JSX.Element {
     isVoiceTriggered: boolean
   ): void => {
     aiReplyStreamingSubtitleMessageIdRef.current = undefined;
+    syncVoiceRevealRef.current = undefined;
+    voiceReplyQueueRef.current.playbackBlocked = false;
+    clearChatMessageTypewriter();
     setMessages((currentMessages) =>
       currentMessages.map((message) =>
         message.id === pendingMessageId
@@ -1714,37 +1952,46 @@ export function PetWindow(): JSX.Element {
       }
 
       if (event.type === "chunk") {
+        const content = event.content ?? "";
+
         if (speechSettingsRef.current.syncTextWithVoice) {
+          const revealState = syncVoiceRevealRef.current;
+
+          if (revealState?.requestId === voiceReplyRequestIdRef.current) {
+            revealState.latestContent = content;
+          }
+
+          enqueueStreamingVoiceText(
+            getStreamingVoiceSourceText(content),
+            voiceReplyRequestIdRef.current
+          );
+          if (!revealSynchronizedVoiceOutput(voiceReplyRequestIdRef.current) && revealState?.revealed) {
+            showStreamingReplyPreview(context.pendingMessageId, content, true);
+          }
           return;
         }
 
-        const preview = extractStreamingReplyPreview(event.content ?? "");
-        const displayPreview = preview || aiReplyPendingText;
-        const hasReplyPreview = Boolean(preview && preview !== aiReplyPendingText);
-
         enqueueStreamingVoiceText(
-          extractStreamingVoiceText(event.content ?? ""),
+          extractStreamingVoiceText(content),
           voiceReplyRequestIdRef.current
         );
 
-        if (hasReplyPreview) {
-          aiReplyStreamingSubtitleMessageIdRef.current = context.pendingMessageId;
-          showAiReplySubtitle(displayPreview, {
-            mode: "instant",
-            holdMs: speechSettingsRef.current.voiceReplyEnabled ? Number.POSITIVE_INFINITY : undefined
-          });
+        if (!showStreamingReplyPreview(
+          context.pendingMessageId,
+          content,
+          speechSettingsRef.current.voiceReplyEnabled
+        )) {
+          setMessages((currentMessages) =>
+            currentMessages.map((message) =>
+              message.id === context.pendingMessageId
+                ? {
+                    ...message,
+                    text: aiReplyPendingText
+                  }
+                : message
+            )
+          );
         }
-
-        setMessages((currentMessages) =>
-          currentMessages.map((message) =>
-            message.id === context.pendingMessageId
-              ? {
-                  ...message,
-                  text: displayPreview
-                }
-              : message
-          )
-        );
         return;
       }
 
@@ -1774,6 +2021,7 @@ export function PetWindow(): JSX.Element {
     }
 
     stopVoiceReplyPlayback();
+    clearChatMessageTypewriter();
     pendingVoiceReplyExpressionRef.current = undefined;
     aiReplyStreamingSubtitleMessageIdRef.current = undefined;
     const currentPet = petRef.current;
@@ -1784,6 +2032,21 @@ export function PetWindow(): JSX.Element {
     );
     const userMessageId = Date.now();
     const pendingMessageId = userMessageId + 1;
+    const shouldSyncTextWithVoice =
+      speechSettingsRef.current.voiceReplyEnabled && speechSettingsRef.current.syncTextWithVoice;
+
+    voiceReplyQueueRef.current.playbackBlocked = shouldSyncTextWithVoice;
+    syncVoiceRevealRef.current = shouldSyncTextWithVoice
+      ? {
+          requestId: voiceReplyRequestIdRef.current,
+          pendingMessageId,
+          latestContent: "",
+          revealed: false,
+          firstAudioSettled: false,
+          watchingFirstAudio: false
+        }
+      : undefined;
+
     const aiMessages = buildAiMessages({
       petDefinition: currentPetDefinition,
       messages: messagesRef.current,

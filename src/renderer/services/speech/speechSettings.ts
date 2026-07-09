@@ -25,7 +25,7 @@ export const defaultSpeechFrontendSettings: SpeechFrontendSettings = {
   continuousConversationEnabled: false,
   voiceReplyEnabled: false,
   voiceReplyMode: "sentence",
-  syncTextWithVoice: false,
+  syncTextWithVoice: true,
   silenceSeconds: 1,
   volumeThreshold: 0.18
 };

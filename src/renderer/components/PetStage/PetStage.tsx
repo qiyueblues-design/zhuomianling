@@ -112,11 +112,12 @@ export function PetStage({
       gptModelPath: voiceModelSettings.gptModelPath,
       referenceAudioPath: voiceModelSettings.referenceAudioPath,
       referenceText: voiceModelSettings.referenceText,
+      referenceLanguage: voiceModelSettings.referenceLanguage ?? voiceModelSettings.language,
       language: voiceModelSettings.language,
       playMode: "sentence",
       inferenceDevice: voiceModelSettings.inferenceDevice ?? "auto",
       halfPrecision: voiceModelSettings.halfPrecision ?? true,
-      syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? false
+      syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? true
     };
   };
 

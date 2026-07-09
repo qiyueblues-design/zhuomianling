@@ -71,7 +71,7 @@ export function buildSpeechSettings(
     ? {
         voiceReplyEnabled: voiceModelSettings.enabled && voiceModelSettings.connected,
         voiceReplyMode: "sentence" as const,
-        syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? false
+        syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? true
       }
     : {};
 
