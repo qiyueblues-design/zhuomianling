@@ -320,7 +320,6 @@ export function BasicPanel({
       {cropState ? (
         <AvatarCropModal
           cropState={cropState}
-          onChange={setCropState}
           onCancel={() => setCropState(undefined)}
           onConfirm={(dataUrl) => void saveAvatarCrop(dataUrl)}
         />
@@ -381,18 +380,19 @@ function AvatarPreviewModal({
 }
 
 function AvatarCropModal({
-  cropState,
-  onChange,
+  cropState: initialCropState,
   onCancel,
   onConfirm
 }: {
   cropState: AvatarCropState;
-  onChange: (state: AvatarCropState) => void;
   onCancel: () => void;
   onConfirm: (dataUrl: string) => void;
 }): JSX.Element {
+  const [cropState, setCropState] = useState<AvatarCropState>(initialCropState);
   const [dragState, setDragState] = useState<AvatarCropDragState | undefined>();
-  const previewSize = 320;
+  const previewSize = Math.round(
+    Math.min(320, Math.max(240, Math.min(window.innerWidth - 160, window.innerHeight - 210)))
+  );
   const scale = previewSize / Math.max(cropState.naturalWidth, cropState.naturalHeight);
   const imageWidth = Math.round(cropState.naturalWidth * scale);
   const imageHeight = Math.round(cropState.naturalHeight * scale);
@@ -402,22 +402,24 @@ function AvatarCropModal({
   const minSize = Math.max(32, Math.floor(Math.min(cropState.naturalWidth, cropState.naturalHeight) * 0.18));
 
   const updateCrop = (partialState: Partial<AvatarCropState>): void => {
-    const nextState = {
-      ...cropState,
-      ...partialState
-    };
-    const size = Math.min(
-      Math.max(nextState.size, minSize),
-      Math.min(nextState.naturalWidth, nextState.naturalHeight)
-    );
-    const x = Math.min(Math.max(nextState.x, 0), Math.max(0, nextState.naturalWidth - size));
-    const y = Math.min(Math.max(nextState.y, 0), Math.max(0, nextState.naturalHeight - size));
+    setCropState((currentState) => {
+      const nextState = {
+        ...currentState,
+        ...partialState
+      };
+      const size = Math.min(
+        Math.max(nextState.size, minSize),
+        Math.min(nextState.naturalWidth, nextState.naturalHeight)
+      );
+      const x = Math.min(Math.max(nextState.x, 0), Math.max(0, nextState.naturalWidth - size));
+      const y = Math.min(Math.max(nextState.y, 0), Math.max(0, nextState.naturalHeight - size));
 
-    onChange({
-      ...nextState,
-      x,
-      y,
-      size
+      return {
+        ...nextState,
+        x,
+        y,
+        size
+      };
     });
   };
 
@@ -426,14 +428,27 @@ function AvatarCropModal({
       return;
     }
 
+    event.preventDefault();
+    event.stopPropagation();
     updateCrop({
       x: Math.round(dragState.startX + (event.clientX - dragState.startClientX) / scale),
       y: Math.round(dragState.startY + (event.clientY - dragState.startClientY) / scale)
     });
   };
 
+  const endCropDrag = (event: PointerEvent<HTMLDivElement>): void => {
+    if (!dragState || event.pointerId !== dragState.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setDragState(undefined);
+  };
+
   const zoomCrop = (event: WheelEvent<HTMLDivElement>): void => {
     event.preventDefault();
+    event.stopPropagation();
 
     const delta = event.deltaY > 0 ? 1.08 : 0.92;
     const nextSize = Math.round(cropState.size * delta);
@@ -491,21 +506,22 @@ function AvatarCropModal({
           className="cropPreviewStage"
           style={{ width: previewSize, height: previewSize }}
           onPointerMove={moveCrop}
-          onPointerUp={() => setDragState(undefined)}
-          onPointerCancel={() => setDragState(undefined)}
+          onPointerUp={endCropDrag}
+          onPointerCancel={endCropDrag}
           onWheel={zoomCrop}
         >
           <div className="cropImageBounds" style={{ width: imageWidth, height: imageHeight }}>
-            <img src={cropState.sourceImage} alt="" />
+            <img src={cropState.sourceImage} alt="" draggable={false} />
             <div
               className="cropFrame"
               style={{
-                left: frameLeft,
-                top: frameTop,
+                transform: `translate(${frameLeft}px, ${frameTop}px)`,
                 width: frameSize,
                 height: frameSize
               }}
               onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
                 event.currentTarget.setPointerCapture(event.pointerId);
                 setDragState({
                   pointerId: event.pointerId,

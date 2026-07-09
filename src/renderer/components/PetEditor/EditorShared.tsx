@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, FolderInput, Save, XCircle } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { LocalPetSaveResult } from "../../../shared/types/pet";
 
 type SaveFeedbackResult = Pick<LocalPetSaveResult, "ok" | "message">;
@@ -17,7 +18,8 @@ export function AppleSelect({
   disabled = false,
   placeholder = "请选择",
   ariaLabel,
-  className
+  className,
+  menuBoundarySelector
 }: {
   value: string;
   options: AppleSelectOption[];
@@ -26,10 +28,13 @@ export function AppleSelect({
   placeholder?: string;
   ariaLabel?: string;
   className?: string;
+  menuBoundarySelector?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number | undefined>();
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const selectedOption = options.find((option) => option.value === value);
   const selectLabel = selectedOption?.label ?? placeholder;
 
@@ -59,11 +64,49 @@ export function AppleSelect({
     };
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!open || !menuBoundarySelector) {
+      setMenuMaxHeight(undefined);
+      return;
+    }
+
+    const updateMenuMaxHeight = (): void => {
+      const root = rootRef.current;
+      const menu = menuRef.current;
+      const boundary = root?.closest(menuBoundarySelector);
+
+      if (!root || !menu || !boundary) {
+        setMenuMaxHeight(undefined);
+        return;
+      }
+
+      const menuTop = menu.getBoundingClientRect().top;
+      const boundaryBottom = boundary.getBoundingClientRect().bottom;
+      const nextMaxHeight = Math.floor(boundaryBottom - menuTop - 8);
+
+      setMenuMaxHeight(nextMaxHeight > 96 ? nextMaxHeight : 96);
+    };
+
+    updateMenuMaxHeight();
+    window.addEventListener("resize", updateMenuMaxHeight);
+    window.addEventListener("scroll", updateMenuMaxHeight, true);
+
+    return () => {
+      window.removeEventListener("resize", updateMenuMaxHeight);
+      window.removeEventListener("scroll", updateMenuMaxHeight, true);
+    };
+  }, [menuBoundarySelector, open]);
+
   const selectClassName = [
     "appleSelect",
     open ? "open" : "",
     className ?? ""
   ].filter(Boolean).join(" ");
+  const menuStyle = menuMaxHeight
+    ? ({
+        "--apple-select-menu-max-height": `${menuMaxHeight}px`
+      } as CSSProperties)
+    : undefined;
 
   return (
     <div className={selectClassName} ref={rootRef}>
@@ -90,7 +133,14 @@ export function AppleSelect({
       </button>
 
       {open && !disabled ? (
-        <div className="appleSelectMenu" id={listboxId} role="listbox" aria-label={ariaLabel}>
+        <div
+          className="appleSelectMenu"
+          id={listboxId}
+          role="listbox"
+          aria-label={ariaLabel}
+          ref={menuRef}
+          style={menuStyle}
+        >
           {options.map((option) => {
             const selected = option.value === value;
 

@@ -32,7 +32,8 @@ button {
   font: inherit;
 }
 
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -321,7 +322,7 @@ input {
   isolation: isolate;
   z-index: 8;
   display: grid;
-  grid-template-rows: 27px minmax(0, 1fr) 30px;
+  grid-template-rows: 27px minmax(0, 1fr) auto;
   gap: 8px;
   width: min(252px, calc(100% - 18px));
   max-height: min(214px, calc(100% - 86px));
@@ -341,9 +342,9 @@ input {
 }
 
 .petChatPanel.collapsed {
-  grid-template-rows: 30px;
+  grid-template-rows: auto;
   width: min(252px, calc(100% - 18px));
-  max-height: 46px;
+  max-height: min(112px, calc(100% - 86px));
   padding: 8px;
 }
 
@@ -455,6 +456,7 @@ input {
 .petChatInputRow {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: end;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 999px;
@@ -497,25 +499,66 @@ input {
 
 .petVoiceInputField {
   position: relative;
+  display: grid;
+  align-items: center;
   min-width: 0;
 }
 
-.petChatInputRow input {
+.petChatInputRow textarea {
   position: relative;
   z-index: 1;
   min-width: 0;
   width: 100%;
-  height: 30px;
+  min-height: 30px;
+  max-height: 72px;
   border: 0;
-  padding: 0 4px;
+  padding: 7px 4px;
   background: transparent;
   color: var(--pet-ink);
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  line-height: 16px;
+  scrollbar-width: none;
 }
 
-.petChatInputRow.noVoiceInput input {
+.petChatInputRow textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.petChatInputRow.noVoiceInput textarea {
   padding-left: 12px;
   padding-right: 8px;
+}
+
+.petVoiceInputField.typewriting textarea {
+  color: transparent;
+  caret-color: transparent;
+}
+
+.petVoiceTypewriterText {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  overflow: hidden;
+  padding: 7px 4px;
+  color: var(--pet-ink);
+  font: inherit;
+  line-height: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: none;
+}
+
+.petVoiceTypewriterCaret {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 2px;
+  border-right: 2px solid currentColor;
+  vertical-align: -2px;
+  animation: caretBlink 760ms steps(2, start) infinite;
 }
 
 .petChatInputRow:focus-within {
@@ -643,11 +686,12 @@ input {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.theme-rock .petChatInputRow input {
+.theme-rock .petChatInputRow textarea,
+.theme-rock .petVoiceTypewriterText {
   color: #fff7a8;
 }
 
-.theme-rock .petChatInputRow input::placeholder {
+.theme-rock .petChatInputRow textarea::placeholder {
   color: rgba(255, 247, 168, 0.58);
 }
 
@@ -826,11 +870,16 @@ input {
   background: var(--theme-panel-bg);
 }
 
-.theme-pixel .petChatInputRow input,
-.theme-journal .petChatInputRow input,
-.theme-cyber .petChatInputRow input,
-.theme-minimal .petChatInputRow input,
-.theme-custom .petChatInputRow input {
+.theme-pixel .petChatInputRow textarea,
+.theme-journal .petChatInputRow textarea,
+.theme-cyber .petChatInputRow textarea,
+.theme-minimal .petChatInputRow textarea,
+.theme-custom .petChatInputRow textarea,
+.theme-pixel .petVoiceTypewriterText,
+.theme-journal .petVoiceTypewriterText,
+.theme-cyber .petVoiceTypewriterText,
+.theme-minimal .petVoiceTypewriterText,
+.theme-custom .petVoiceTypewriterText {
   color: var(--theme-panel-text);
 }
 
@@ -1373,7 +1422,7 @@ input {
   }
 }
 
-.petChatInputRow input:disabled {
+.petChatInputRow textarea:disabled {
   cursor: not-allowed;
   opacity: 0.44;
 }

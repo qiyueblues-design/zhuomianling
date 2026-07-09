@@ -5,7 +5,7 @@ import {
   Send,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AiChatMessage } from "../../shared/types/ai";
 import type {
@@ -80,6 +80,7 @@ interface ChatMessage {
 }
 
 type VoiceInputState = "idle" | "recording" | "transcribing";
+type VoiceStopReason = "auto" | "manual";
 
 interface VoiceReplyAudio {
   audioUrl: string;
@@ -158,6 +159,7 @@ export function PetWindow(): JSX.Element {
   const subtitle = useSubtitle();
   const clickThroughButtonRef = useRef<HTMLButtonElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const chatDraftInputRef = useRef<HTMLTextAreaElement>(null);
   const chatPanelDragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -305,12 +307,35 @@ export function PetWindow(): JSX.Element {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [voiceInputState, setVoiceInputState] = useState<VoiceInputState>("idle");
+  const [voiceTypewriterTarget, setVoiceTypewriterTarget] = useState("");
+  const [voiceTypewriterText, setVoiceTypewriterText] = useState("");
+  const [voiceTypewriterActive, setVoiceTypewriterActive] = useState(false);
   const [voiceWaveformLevels, setVoiceWaveformLevels] = useState(initialVoiceWaveformLevels);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const setSendingState = (nextSending: boolean): void => {
     sendingRef.current = nextSending;
     setSending(nextSending);
+  };
+
+  const clearVoiceTypewriter = (): void => {
+    setVoiceTypewriterActive(false);
+    setVoiceTypewriterTarget("");
+    setVoiceTypewriterText("");
+  };
+
+  const setRecognizedVoiceDraft = (text: string): void => {
+    draftRef.current = text;
+    setDraft(text);
+
+    if (!text) {
+      clearVoiceTypewriter();
+      return;
+    }
+
+    setVoiceTypewriterTarget(text);
+    setVoiceTypewriterText((currentText) => (text.startsWith(currentText) ? currentText : ""));
+    setVoiceTypewriterActive(true);
   };
 
   useEffect(() => {
@@ -320,6 +345,56 @@ export function PetWindow(): JSX.Element {
   useEffect(() => {
     voiceInputStateRef.current = voiceInputState;
   }, [voiceInputState]);
+
+  useLayoutEffect(() => {
+    const input = chatDraftInputRef.current;
+
+    if (!input) {
+      return;
+    }
+
+    input.style.height = "0px";
+    input.style.height = `${Math.min(input.scrollHeight, 72)}px`;
+  }, [chatCollapsed, chatOpen, draft, voiceTypewriterText]);
+
+  useEffect(() => {
+    if (!voiceTypewriterActive) {
+      return;
+    }
+
+    if (!voiceTypewriterTarget) {
+      setVoiceTypewriterText("");
+      return;
+    }
+
+    if (voiceTypewriterText === voiceTypewriterTarget) {
+      if (voiceInputState !== "idle") {
+        return;
+      }
+
+      const finishTimer = window.setTimeout(() => {
+        setVoiceTypewriterActive(false);
+      }, 520);
+
+      return () => {
+        window.clearTimeout(finishTimer);
+      };
+    }
+
+    const typingTimer = window.setTimeout(() => {
+      setVoiceTypewriterText((currentText) => {
+        if (!voiceTypewriterTarget.startsWith(currentText)) {
+          return voiceTypewriterTarget.slice(0, 1);
+        }
+
+        return voiceTypewriterTarget.slice(0, Math.min(currentText.length + 1, voiceTypewriterTarget.length));
+      });
+    }, 28);
+
+    return () => {
+      window.clearTimeout(typingTimer);
+    };
+  }, [voiceInputState, voiceTypewriterActive, voiceTypewriterTarget, voiceTypewriterText]);
 
   useEffect(() => {
     return () => {
@@ -831,8 +906,7 @@ export function PetWindow(): JSX.Element {
         .map(([, text]) => text)
         .join("");
       const recognizedText = `${finalText}${streamPartialTextRef.current}`.trim();
-      draftRef.current = recognizedText;
-      setDraft(recognizedText);
+      setRecognizedVoiceDraft(recognizedText);
 
       if (streamStoppingRef.current && event.final) {
         streamSessionIdRef.current = undefined;
@@ -972,7 +1046,7 @@ export function PetWindow(): JSX.Element {
     }
   }, [state.clickThrough]);
 
-  useEffect(() => {
+  const scrollChatToLatest = (behavior: ScrollBehavior = "smooth"): void => {
     const chatMessages = chatMessagesRef.current;
 
     if (!chatMessages) {
@@ -981,9 +1055,25 @@ export function PetWindow(): JSX.Element {
 
     chatMessages.scrollTo({
       top: chatMessages.scrollHeight,
-      behavior: "smooth"
+      behavior
     });
-  }, [messages]);
+  };
+
+  useLayoutEffect(() => {
+    if (!chatOpen || chatCollapsed) {
+      return;
+    }
+
+    scrollChatToLatest("auto");
+  }, [chatCollapsed, chatOpen]);
+
+  useEffect(() => {
+    if (!chatOpen || chatCollapsed) {
+      return;
+    }
+
+    scrollChatToLatest("smooth");
+  }, [chatCollapsed, chatOpen, messages]);
 
   useEffect(() => {
     if (!chatOpen) {
@@ -991,7 +1081,7 @@ export function PetWindow(): JSX.Element {
     }
 
     const panelWidth = 252;
-    const panelHeight = chatCollapsed ? 46 : 214;
+    const panelHeight = chatCollapsed ? 112 : 214;
     const maxLeft = Math.max(window.innerWidth - panelWidth - 8, 8);
     const maxBottom = Math.max(window.innerHeight - panelHeight - 72, 8);
 
@@ -1317,7 +1407,7 @@ export function PetWindow(): JSX.Element {
     const nextBottom = dragState.bottom - (event.clientY - dragState.startY);
 
     const panelWidth = 252;
-    const panelHeight = chatCollapsed ? 46 : 214;
+    const panelHeight = chatCollapsed ? 112 : 214;
     const maxLeft = Math.max(window.innerWidth - panelWidth - 8, 8);
     const maxBottom = Math.max(window.innerHeight - panelHeight - 72, 8);
 
@@ -1684,6 +1774,7 @@ export function PetWindow(): JSX.Element {
     ]);
     draftRef.current = "";
     setDraft("");
+    clearVoiceTypewriter();
     triggerExpression("focus", "normal", 1800);
     speakLine("userMessage", "嗯，我听见了。");
     resetIdleTimer();
@@ -1725,23 +1816,15 @@ export function PetWindow(): JSX.Element {
       void sendMessageText(currentText);
     } else {
       triggerExpression("nervous", "normal", 2600);
-      showVoiceMessage("没有识别到有效语音，可以再说一次。");
+      showVoiceMessage("我没听清，再说一次好吗？");
     }
   };
 
   const showVoiceMessage = (text: string, status?: ChatMessage["status"]): void => {
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      {
-        id: Date.now(),
-        role: "pet",
-        text,
-        status
-      }
-    ]);
     subtitle.show({
       text,
       mode: "instant",
+      holdMs: status === "error" ? 3200 : undefined,
       tone: petDefinition?.subtitleStyle?.tone,
       maxWidth: petDefinition?.subtitleStyle?.maxWidth
     });
@@ -1779,7 +1862,7 @@ export function PetWindow(): JSX.Element {
     streamPendingSamplesRef.current = offset < merged.length ? [merged.slice(offset)] : [];
   };
 
-  const stopVoiceRecording = (): void => {
+  const stopVoiceRecording = (reason: VoiceStopReason): void => {
     if (voiceInputStateRef.current !== "recording") {
       return;
     }
@@ -1822,7 +1905,10 @@ export function PetWindow(): JSX.Element {
     }, 9000);
 
     window.clearTimeout(voiceAutoSendTimerRef.current);
-    voiceAutoSendTimerRef.current = window.setTimeout(sendRecognizedVoiceText, 900);
+
+    if (reason === "auto") {
+      voiceAutoSendTimerRef.current = window.setTimeout(sendRecognizedVoiceText, 900);
+    }
   };
 
   const startVoiceRecording = async (options?: { silent?: boolean }): Promise<void> => {
@@ -1859,6 +1945,8 @@ export function PetWindow(): JSX.Element {
       );
       audioChunksRef.current = [];
       draftRef.current = "";
+      setDraft("");
+      clearVoiceTypewriter();
       streamPendingSamplesRef.current = [];
       streamFinalSegmentsRef.current = new Map();
       streamPartialTextRef.current = "";
@@ -1903,7 +1991,7 @@ export function PetWindow(): JSX.Element {
           now - voiceStartedAtRef.current > 900 &&
           now - voiceLastActiveAtRef.current >= settings.silenceSeconds * 1000
         ) {
-          stopVoiceRecording();
+          stopVoiceRecording("auto");
         }
       };
 
@@ -1914,7 +2002,7 @@ export function PetWindow(): JSX.Element {
       setVoiceInputState("recording");
       triggerExpression("happy", "normal", 1600);
       if (!options?.silent) {
-        showVoiceMessage("正在听，请开始说话。");
+        showVoiceMessage("我在听，慢慢说。");
       }
     } catch {
       voiceInputStateRef.current = "idle";
@@ -1930,7 +2018,7 @@ export function PetWindow(): JSX.Element {
 
   const toggleVoiceInput = async (): Promise<void> => {
     if (voiceInputStateRef.current === "recording") {
-      stopVoiceRecording();
+      stopVoiceRecording("manual");
       return;
     }
 
@@ -2079,10 +2167,10 @@ export function PetWindow(): JSX.Element {
                 disabled={state.clickThrough || voiceInputState === "transcribing"}
                 title={
                   voiceInputState === "recording"
-                    ? "结束录音"
+                    ? "说完了"
                     : voiceInputState === "transcribing"
-                      ? "整理文字中"
-                      : "语音转文字"
+                      ? "我在整理"
+                      : "对我说话"
                 }
                 type="button"
                 onClick={() => void toggleVoiceInput()}
@@ -2090,14 +2178,26 @@ export function PetWindow(): JSX.Element {
                 <Mic size={15} />
               </button>
             ) : null}
-            <div className="petVoiceInputField">
-              <input
+            <div className={voiceTypewriterActive ? "petVoiceInputField typewriting" : "petVoiceInputField"}>
+              {voiceTypewriterActive ? (
+                <span className="petVoiceTypewriterText" aria-hidden="true">
+                  {voiceTypewriterText}
+                  <span className="petVoiceTypewriterCaret" />
+                </span>
+              ) : null}
+              <textarea
+                ref={chatDraftInputRef}
                 aria-label="输入对话内容"
                 value={draft}
                 disabled={state.clickThrough || voiceInputState === "transcribing"}
-                onChange={(event) => setDraft(event.target.value)}
+                rows={1}
+                onChange={(event) => {
+                  clearVoiceTypewriter();
+                  setDraft(event.target.value);
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
                     void sendMessage();
                   }
                 }}
@@ -2105,7 +2205,7 @@ export function PetWindow(): JSX.Element {
                   voiceInputState === "recording"
                     ? "我在听…"
                     : voiceInputState === "transcribing"
-                      ? "整理文字中…"
+                      ? "我在整理刚才的话…"
                       : "输入文字"
                 }
               />

@@ -198,7 +198,7 @@ export function EventLinesPanel({
       {!hasExpressionSources ? (
         <div className="settingsHint">
           <Smile size={16} />
-          <span>当前还没有已保存的动作 / 表情源。请先到“表现映射”扫描并保存当前模型的源文件。</span>
+          <span>当前还没有可绑定的动作 / 表情源。请先在 Live2D 导入页保存模型，或到“表现映射”点击扫描刷新源文件。</span>
         </div>
       ) : null}
 
@@ -231,6 +231,7 @@ export function EventLinesPanel({
                         value={selectedSourceKind === "motion" && selectedSource ? getSourceValue(selectedSource) : ""}
                         ariaLabel={`${event.label} 动作`}
                         className="eventExpressionSelect"
+                        menuBoundarySelector=".eventTile"
                         placeholder="动作"
                         options={[
                           { value: clearEventExpressionValue, label: "无" },
@@ -250,6 +251,7 @@ export function EventLinesPanel({
                         value={selectedSourceKind === "expression" && selectedSource ? getSourceValue(selectedSource) : ""}
                         ariaLabel={`${event.label} 表情`}
                         className="eventExpressionSelect"
+                        menuBoundarySelector=".eventTile"
                         placeholder="表情"
                         options={[
                           { value: clearEventExpressionValue, label: "无" },

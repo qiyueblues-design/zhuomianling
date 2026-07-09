@@ -1412,6 +1412,8 @@ h2 {
   z-index: 1200;
   display: grid;
   place-items: center;
+  overflow: hidden;
+  overscroll-behavior: contain;
   padding: 24px;
   background: rgba(23, 32, 42, 0.22);
 }
@@ -1491,12 +1493,14 @@ h2 {
 .cropPanel {
   display: grid;
   width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 32px);
   gap: 16px;
   border: 1px solid rgba(23, 32, 42, 0.1);
   border-radius: 8px;
   padding: 18px;
   background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 24px 58px rgba(23, 32, 42, 0.22);
+  overscroll-behavior: contain;
 }
 
 .unsavedOverlay {
@@ -1561,6 +1565,7 @@ h2 {
 
 .cropPreviewStage {
   position: relative;
+  contain: layout paint;
   display: grid;
   place-items: center;
   justify-self: center;
@@ -1580,6 +1585,8 @@ h2 {
     -8px 0;
   background-size: 16px 16px;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .cropImageBounds {
@@ -1592,10 +1599,14 @@ h2 {
   height: 100%;
   object-fit: contain;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 
 .cropFrame {
   position: absolute;
+  top: 0;
+  left: 0;
   border: 2px solid #2684ff;
   cursor: grab;
   box-shadow:
@@ -1603,6 +1614,7 @@ h2 {
     0 0 0 1px rgba(255, 255, 255, 0.9) inset;
   pointer-events: auto;
   touch-action: none;
+  will-change: transform, width, height;
 }
 
 .cropFrame:active {
@@ -6169,7 +6181,7 @@ h2,
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  max-height: calc((34px * 5) + (4px * 4) + 12px);
+  max-height: var(--apple-select-menu-max-height, calc((34px * 5) + (4px * 4) + 12px));
   overflow-y: auto;
   overscroll-behavior: contain;
   gap: 4px;
@@ -7377,6 +7389,7 @@ html:not(.startupAnimationsActive) .startupProgress span {
     rgba(255, 255, 255, 0.74);
 }
 
+.editorPetAvatar,
 .createPetHeroIcon {
   border: 1px solid rgba(125, 106, 199, 0.18);
   background:

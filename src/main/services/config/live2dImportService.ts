@@ -2,7 +2,7 @@ import { app, dialog } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Live2DFolderScanResult, Live2DFolderSelectResult, Live2DGeneratedEntryResult, Live2DImportedSource, Live2DImportedSourceScanResult, Live2DModelFormat, Live2DModelImportRequest, Live2DModelImportResult, Live2DPreviewModelResult, Live2DResourceCheck } from "../../../shared/types/live2dImport";
-import type { PetDefinition, PetFeature } from "../../../shared/types/pet";
+import type { PetDefinition, PetExpressionSourceItem, PetFeature } from "../../../shared/types/pet";
 import { registerPetResourcePreviewRoot, toPetPreviewResourceUrl, toPetResourceUrl } from "./petResourceProtocol";
 
 const localPetsDirectoryName = "pets";
@@ -452,6 +452,16 @@ function clearLive2DDependentConfig(pet: PetDefinition): PetDefinition {
   delete nextPet.lines;
 
   return nextPet;
+}
+
+function toPetExpressionSourceItems(sources: Live2DImportedSource[]): PetExpressionSourceItem[] {
+  return sources
+    .map((source) => ({
+      sourceFileName: source.fileName.trim(),
+      runtimeName: source.name,
+      sourceKind: source.kind
+    }))
+    .filter((source) => Boolean(source.sourceFileName));
 }
 
 async function writePetConfig(pet: PetDefinition): Promise<void> {
@@ -1024,6 +1034,8 @@ export async function importLive2DModel(
   }
 
   const basePet = replacingLive2DModel ? clearLive2DDependentConfig(pet) : pet;
+  const importedSourcesScan = await scanLive2DSourcesFromDirectory(targetDirectoryPath);
+  const importedSources = toPetExpressionSourceItems(importedSourcesScan.sources);
   const nextPet: PetDefinition = {
     ...basePet,
     modelPath,
@@ -1037,16 +1049,24 @@ export async function importLive2DModel(
     details: {
       ...basePet.details,
       features: withLive2DFeatureReady(basePet.details.features)
-    }
+    },
+    expressionSources: importedSources
   };
 
   await writePetConfig(nextPet);
 
   return {
     ok: true,
-    message: replacingLive2DModel
-      ? "Live2D 模型已替换。旧角色相关配置已清空，请重新配置人设、表情/动作、事件和声音回复。"
-      : "Live2D 模型已导入。",
+    message: [
+      replacingLive2DModel
+        ? "Live2D 模型已替换。旧角色相关配置已清空，请重新配置人设、表情/动作、事件和声音回复。"
+        : "Live2D 模型已导入。",
+      importedSources.length
+        ? `已自动扫描到 ${importedSources.length} 个动作 / 表情源。`
+        : importedSourcesScan.ok
+          ? "没有扫描到可绑定的动作 / 表情源。"
+          : importedSourcesScan.message
+    ].join(" "),
     petId,
     pet: nextPet,
     modelPath,

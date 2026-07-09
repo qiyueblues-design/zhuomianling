@@ -1,5 +1,5 @@
 import { CheckCircle2, KeyRound, Mic2, PlugZap, XCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   LocalPetSaveResult,
   LocalPetVoiceInputDraft,
@@ -40,10 +40,25 @@ export function VoiceInputPanel({
   const [result, setResult] = useState<LocalPetSaveResult | undefined>();
   const [connectionMessage, setConnectionMessage] = useState<string | undefined>();
   const lastVoiceInputPetIdRef = useRef<string | undefined>();
+  const onDirtyChangeRef = useRef(onDirtyChange);
   const connected = draft.connected;
+  const voiceInputSourceKey = useMemo(
+    () =>
+      JSON.stringify({
+        petId: pet.id,
+        voiceInput: Boolean(pet.capabilities.voiceInput),
+        settings: pet.voiceInputSettings ?? null
+      }),
+    [pet.capabilities.voiceInput, pet.id, pet.voiceInputSettings]
+  );
+  const voiceInputSourceDraft = useMemo(() => createVoiceInputDraft(pet), [voiceInputSourceKey]);
 
   useEffect(() => {
-    const nextDraft = createVoiceInputDraft(pet);
+    onDirtyChangeRef.current = onDirtyChange;
+  }, [onDirtyChange]);
+
+  useEffect(() => {
+    const nextDraft = voiceInputSourceDraft;
     const isSamePet = lastVoiceInputPetIdRef.current === pet.id;
 
     setDraft(nextDraft);
@@ -55,24 +70,20 @@ export function VoiceInputPanel({
       setConnectionMessage(undefined);
     }
 
-    onDirtyChange(false);
-  }, [onDirtyChange, pet]);
+    onDirtyChangeRef.current(false);
+  }, [pet.id, voiceInputSourceDraft]);
 
-  const markVoiceInputDirty = (nextDraft: LocalPetVoiceInputDraft): void => {
-    onDirtyChange(JSON.stringify(nextDraft) !== JSON.stringify(savedDraft));
-  };
+  useEffect(() => {
+    onDirtyChangeRef.current(JSON.stringify(draft) !== JSON.stringify(savedDraft));
+  }, [draft, savedDraft]);
 
   const updateDraft = (patch: Partial<LocalPetVoiceInputDraft>): void => {
     setResult(undefined);
     setDraft((currentDraft) => {
-      const nextDraft = {
+      return {
         ...currentDraft,
         ...patch
       };
-
-      markVoiceInputDirty(nextDraft);
-
-      return nextDraft;
     });
   };
 
@@ -143,6 +154,8 @@ export function VoiceInputPanel({
             <span>AppID</span>
             <input
               value={draft.appId}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(event) => {
                 updateDraft({
                   appId: event.target.value,
@@ -156,6 +169,8 @@ export function VoiceInputPanel({
             <span>SecretId</span>
             <input
               value={draft.secretId}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(event) => {
                 updateDraft({
                   secretId: event.target.value,
@@ -170,6 +185,8 @@ export function VoiceInputPanel({
             <input
               type="password"
               value={draft.secretKey}
+              autoComplete="new-password"
+              spellCheck={false}
               onChange={(event) => {
                 updateDraft({
                   secretKey: event.target.value,
