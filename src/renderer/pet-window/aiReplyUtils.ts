@@ -1,0 +1,278 @@
+import type {
+  PetChatLanguage,
+  PetExpressionDescriptionMap,
+  PetExpressionKey,
+  PetExpressionMap,
+  PetReplyLength,
+  PetVoiceLanguage
+} from "../../shared/types/pet";
+
+const chatLanguageLabels: Record<PetChatLanguage, string> = {
+  zh: "中文",
+  ja: "日语",
+  en: "英语"
+};
+
+const voiceLanguageLabels: Record<PetVoiceLanguage, string> = {
+  zh: "中文",
+  ja: "日语",
+  en: "英语"
+};
+
+const replyLengthLabels: Record<PetReplyLength, string> = {
+  short: "短，尽量一到两句话",
+  medium: "中，保持适中篇幅",
+  long: "长，可以更完整地展开"
+};
+
+export function buildReplyPreferencePrompt(
+  chatLanguage: PetChatLanguage = "zh",
+  replyLength?: PetReplyLength
+): string {
+  return [
+    `reply 使用${chatLanguageLabels[chatLanguage]}。`,
+    replyLength ? `reply 长度：${replyLengthLabels[replyLength]}。` : "reply 长度按对话自然决定。"
+  ].join("\n");
+}
+
+export function buildVoiceTextPrompt(voiceLanguage: PetVoiceLanguage): string {
+  return [
+    `voiceText 使用${voiceLanguageLabels[voiceLanguage]}。`,
+    "voiceText 是 reply 的朗读版：语义必须一致，可根据人设、口癖和语气翻译或同义改写，不能新增、删除或改变信息。",
+    "voiceText 只写角色实际说出口的话，不写动作、旁白、心理活动或表情说明。"
+  ].join("\n");
+}
+
+export function splitVoiceTextIntoSegments(text: string): string[] {
+  const normalized = text.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  const segments: string[] = [];
+  let current = "";
+
+  for (const character of Array.from(normalized)) {
+    current += character;
+
+    const shouldSplit =
+      /[。！？!?]/.test(character) ||
+      (current.length >= 36 && /[、，,；;]/.test(character)) ||
+      current.length >= 80;
+
+    if (shouldSplit) {
+      const segment = current.trim();
+
+      if (segment) {
+        segments.push(segment);
+      }
+
+      current = "";
+    }
+  }
+
+  const lastSegment = current.trim();
+
+  if (lastSegment) {
+    segments.push(lastSegment);
+  }
+
+  return segments;
+}
+
+function unescapePartialJsonText(value: string): string {
+  return value
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\r")
+    .replace(/\\t/g, "\t");
+}
+
+export function extractStreamingReplyPreview(content: string): string {
+  const replyMatch = content.match(/"reply"\s*:\s*"((?:\\.|[^"\\])*)/);
+
+  if (replyMatch?.[1]) {
+    return unescapePartialJsonText(replyMatch[1]).trim();
+  }
+
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent || trimmedContent.startsWith("{")) {
+    return "回复生成中...";
+  }
+
+  return trimmedContent;
+}
+
+export function extractStreamingVoiceText(content: string): string {
+  const voiceTextMatch = content.match(/"voiceText"\s*:\s*"((?:\\.|[^"\\])*)/);
+
+  if (!voiceTextMatch?.[1]) {
+    return "";
+  }
+
+  return unescapePartialJsonText(voiceTextMatch[1]).trim();
+}
+
+export function takeCompleteVoiceSegments(text: string): { segments: string[]; rest: string } {
+  const normalized = text.replace(/\s+/g, " ").trimStart();
+  const segments: string[] = [];
+  let current = "";
+
+  for (const character of Array.from(normalized)) {
+    current += character;
+
+    const shouldSplit =
+      /[。！？!?]/.test(character) ||
+      (current.length >= 36 && /[、，,；;]/.test(character)) ||
+      current.length >= 80;
+
+    if (shouldSplit) {
+      const segment = current.trim();
+
+      if (segment) {
+        segments.push(segment);
+      }
+
+      current = "";
+    }
+  }
+
+  return {
+    segments,
+    rest: current.trimStart()
+  };
+}
+
+export function inferExpressionFromAiReply(text: string): PetExpressionKey {
+  const normalizedText = text.toLowerCase();
+
+  if (/[!！]{2,}|[?？]{2,}/.test(text) || /诶|欸|哇|等等|糟糕|突然/.test(text)) {
+    return "panic";
+  }
+
+  if (/哭|眼泪|流泪|泪目|难过|伤心|委屈|崩溃|绷不住/.test(text)) {
+    return "crying";
+  }
+
+  if (/抱歉|不好意思|对不起|惭愧|害羞|紧张/.test(text)) {
+    return "shy";
+  }
+
+  if (/太好了|真好|开心|没问题|可以呀|当然|nice|great/.test(normalizedText)) {
+    return "happy";
+  }
+
+  if (/认真|分析|步骤|建议|计划|首先|然后|最后/.test(text) || text.length > 80) {
+    return "focus";
+  }
+
+  return "normal";
+}
+
+export function parseStructuredReplyFallback(content: string): {
+  reply: string;
+  emotion?: string;
+  voiceText?: string;
+} {
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent.startsWith("{")) {
+    return {
+      reply: trimmedContent
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmedContent) as {
+      reply?: unknown;
+      emotion?: unknown;
+      voiceText?: unknown;
+    };
+    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+    const emotion = typeof parsed.emotion === "string" ? parsed.emotion.trim() : undefined;
+    const voiceText = typeof parsed.voiceText === "string" ? parsed.voiceText.trim() : undefined;
+
+    if (reply) {
+      return {
+        reply,
+        emotion,
+        voiceText
+      };
+    }
+  } catch {
+    const replyMatch = trimmedContent.match(/"reply"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
+    const emotionMatch = trimmedContent.match(/"emotion"\s*:\s*"([^"]+)"/);
+    const voiceTextMatch = trimmedContent.match(/"voiceText"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
+    const reply = replyMatch?.[1]
+      ?.replace(/\\"/g, '"')
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .trim();
+
+    const voiceText = voiceTextMatch?.[1]
+      ?.replace(/\\"/g, '"')
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .trim();
+
+    if (reply) {
+      return {
+        reply,
+        emotion: emotionMatch?.[1]?.trim(),
+        voiceText
+      };
+    }
+  }
+
+  return {
+    reply: trimmedContent
+  };
+}
+
+function isPetExpressionKey(value: string): value is PetExpressionKey {
+  return value.trim().length > 0;
+}
+
+export function resolveMappedExpression(
+  requestedExpression: string | undefined,
+  expressions?: PetExpressionMap,
+  fallbackExpression: PetExpressionKey = "normal"
+): PetExpressionKey {
+  if (
+    requestedExpression &&
+    isPetExpressionKey(requestedExpression) &&
+    expressions?.[requestedExpression]
+  ) {
+    return requestedExpression;
+  }
+
+  if (expressions?.[fallbackExpression]) {
+    return fallbackExpression;
+  }
+
+  return "normal";
+}
+
+export function buildExpressionPrompt(
+  expressions?: PetExpressionMap,
+  descriptions?: PetExpressionDescriptionMap
+): string {
+  if (!expressions || !descriptions) {
+    return "当前没有可用的本地表情映射，emotion 请固定输出 normal。";
+  }
+
+  const lines = Object.entries(descriptions)
+    .filter(([expression]) => isPetExpressionKey(expression) && Boolean(expressions[expression]))
+    .map(([expression, description]) => `- ${expression}: ${description}`)
+    .join("\n");
+
+  if (!lines) {
+    return "当前没有可用的本地表情映射，emotion 请固定输出 normal。";
+  }
+
+  return `emotion 根据 reply 的语义、情绪和意图选择最贴近的 key；每行冒号前是可输出的 key，冒号后是含义描述：\n${lines}`;
+}

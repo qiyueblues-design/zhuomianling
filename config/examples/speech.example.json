@@ -1,0 +1,9 @@
+{
+  "provider": "tencent",
+  "appId": "你的腾讯云 AppID",
+  "secretId": "你的腾讯云 SecretId",
+  "secretKey": "你的腾讯云 SecretKey",
+  "region": "ap-guangzhou",
+  "engineModelType": "16k_zh",
+  "voiceFormat": "wav"
+}

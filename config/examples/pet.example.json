@@ -1,0 +1,42 @@
+{
+  "id": "my-pet",
+  "name": "My Pet",
+  "description": "A user-created desktop pet.",
+  "model": {
+    "path": "live2d/my-pet/web.model3.json",
+    "scale": 1,
+    "position": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "persona": {
+    "promptFile": "persona.md"
+  },
+  "expressions": {
+    "happy": "soft",
+    "normal": "quiet",
+    "panic": "panic"
+  },
+  "expressionDescriptions": {
+    "happy": "happy",
+    "normal": "neutral",
+    "panic": "surprised"
+  },
+  "events": {
+    "modelReady": {
+      "expression": "normal",
+      "lineGroup": "ready"
+    },
+    "click": {
+      "randomExpressions": ["happy", "panic"],
+      "lineGroup": "click"
+    }
+  },
+  "capabilities": {
+    "chat": true,
+    "voiceInput": false,
+    "voiceOutput": false,
+    "subtitles": true
+  }
+}

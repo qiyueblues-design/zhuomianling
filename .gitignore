@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+build/
+out/
+release/
+.vite/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Caches
+.cache/
+.parcel-cache/
+.eslintcache
+*.tsbuildinfo
+
+# Electron packaging artifacts
+*.asar
+*.blockmap
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# Local convenience launch scripts
+启动桌宠选择器.cmd
+预览打包效果.cmd
+
+# Large local Live2D resources can be kept outside git until licensing/storage is decided.
+assets/live2d/*
+!assets/live2d/.gitkeep
+public/live2d/*
+!public/live2d/.gitkeep
+!public/live2d/README.md
+
+# Local user data
+AGENTS.md
+config/*.local.json
+config/*local*.yaml
+config/local/*
+!config/local/.gitkeep
+user-data/
+logs/
+tmp/
+temp/

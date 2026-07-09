@@ -1,0 +1,41 @@
+Third-Party Notices
+===================
+
+Live2D Runtime and Cubism SDK Files
+-----------------------------------
+
+This repository includes Live2D runtime and SDK-related files for loading and
+driving Live2D models in the Electron renderer, including but not limited to:
+
+- `public/vendor/live2dcubismcore.min.js`
+- `public/vendor/live2d-v2/`
+- `public/vendor/cubism/Shaders/`
+- `src/renderer/live2d/cubism/`
+
+These files are Live2D runtime / Cubism SDK related files provided by Live2D
+Inc. through official Live2D distribution channels or derived from the official
+Cubism SDK layout. They are not original source code of this project.
+
+Use, copying, redistribution, and publication of software that includes Live2D
+Cubism Core are governed by Live2D's official license terms. Before publishing a
+release, redistributing this repository, or using it commercially, review and
+comply with the current official Live2D agreements and release license terms:
+
+- Live2D Cubism SDK:
+  https://www.live2d.com/en/sdk/about/
+- Download Live2D Cubism SDK for Web:
+  https://www.live2d.com/en/sdk/download/web/
+- Live2D License Agreement:
+  https://www.live2d.com/en/terms/
+
+If you do not want to redistribute Live2D runtime / Cubism SDK files with this
+repository, remove the files listed above and ask users to download the required
+runtime from Live2D's official website, then place the required files back in
+the same paths expected by the application, including:
+
+```text
+public/vendor/live2dcubismcore.min.js
+```
+
+This notice is informational only and is not legal advice. The official Live2D
+license terms control.

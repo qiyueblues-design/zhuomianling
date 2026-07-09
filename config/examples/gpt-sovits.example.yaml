@@ -1,0 +1,11 @@
+# Example GPT-SoVITS runtime config.
+# Copy this file to a local ignored config and fill in your own paths.
+
+custom:
+  t2s_weights_path: path/to/your/model.ckpt
+  version: v2Pro
+  vits_weights_path: path/to/your/model.pth
+
+api:
+  host: 127.0.0.1
+  port: 9880

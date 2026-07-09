@@ -1,0 +1,15 @@
+{
+  "provider": "gpt-sovits",
+  "pets": {
+    "example-pet": {
+      "baseUrl": "http://127.0.0.1:9880",
+      "apiMode": "v2",
+      "refAudioPath": "参考音频在 GPT-SoVITS 目录内的路径.wav",
+      "promptText": "参考音频对应文本",
+      "promptLang": "ja",
+      "textLang": "ja",
+      "textSplitMethod": "cut5",
+      "mediaType": "wav"
+    }
+  }
+}

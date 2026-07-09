@@ -1,0 +1,88 @@
+{
+  "name": "zhuomianling",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Open-source customizable Live2D desktop pet framework with chat, subtitles, and optional voice features.",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "concurrently -k --success first \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on tcp:5173 dist/main/index.js dist/preload/index.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.electron.json",
+    "start:prod": "cross-env NODE_ENV=production VITE_DEV_SERVER_URL= electron .",
+    "preview:prod": "npm run build && npm run start:prod",
+    "pack": "npm run build && electron-builder --dir",
+    "dist:win": "npm run build && electron-builder --win",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "build": {
+    "appId": "dev.zhuomianling.desktop",
+    "productName": "桌面灵",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/icons/**/*",
+      "!*.cmd",
+      "package.json",
+      "README.md",
+      "LICENSE",
+      "NOTICE"
+    ],
+    "extraMetadata": {
+      "main": "dist/main/index.js"
+    },
+    "win": {
+      "icon": "assets/icons/app-icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "桌面灵",
+      "artifactName": "桌面灵 Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "桌面灵.${ext}"
+    }
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.7.2",
+    "wait-on": "^8.0.1"
+  },
+  "overrides": {
+    "gh-pages": "^6.3.0"
+  }
+}

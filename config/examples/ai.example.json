@@ -1,0 +1,6 @@
+{
+  "provider": "openai-compatible",
+  "baseUrl": "https://api.example.com/v1",
+  "model": "model-name",
+  "apiKey": "fill-locally-do-not-commit"
+}
