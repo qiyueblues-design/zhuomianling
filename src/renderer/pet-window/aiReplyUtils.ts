@@ -19,10 +19,20 @@ const voiceLanguageLabels: Record<PetVoiceLanguage, string> = {
   en: "英语"
 };
 
-const replyLengthLabels: Record<PetReplyLength, string> = {
-  short: "短，尽量一到两句话",
-  medium: "中，保持适中篇幅",
-  long: "长，可以更完整地展开"
+const replyLengthInstructions: Record<PetReplyLength, string[]> = {
+  short: [
+    "reply 长度偏短：优先一到两句话。",
+    "直接回应用户，不展开长解释；除非用户明确要求详细说明。"
+  ],
+  medium: [
+    "reply 长度适中：通常两到四句话。",
+    "可以给出必要解释和一点情绪回应，但不要写成长段落。"
+  ],
+  long: [
+    "reply 长度偏长：请更完整地展开，通常四句话以上。",
+    "可以补充原因、建议、步骤、例子或安慰，让回复更有内容。",
+    "不要为了变长重复同义句，也不要写与用户问题无关的内容。"
+  ]
 };
 
 export function buildReplyPreferencePrompt(
@@ -31,7 +41,7 @@ export function buildReplyPreferencePrompt(
 ): string {
   return [
     `reply 使用${chatLanguageLabels[chatLanguage]}。`,
-    replyLength ? `reply 长度：${replyLengthLabels[replyLength]}。` : "reply 长度按对话自然决定。"
+    ...(replyLength ? replyLengthInstructions[replyLength] : ["reply 长度按对话自然决定。"])
   ].join("\n");
 }
 
@@ -98,7 +108,7 @@ function unescapePartialJsonText(value: string): string {
     .replace(/\\t/g, "\t");
 }
 
-export function extractStreamingReplyPreview(content: string): string {
+export function extractStreamingReplyText(content: string): string {
   const replyMatch = content.match(/"reply"\s*:\s*"((?:\\.|[^"\\])*)/);
 
   if (replyMatch?.[1]) {
@@ -108,7 +118,7 @@ export function extractStreamingReplyPreview(content: string): string {
   const trimmedContent = content.trim();
 
   if (!trimmedContent || trimmedContent.startsWith("{")) {
-    return "回复生成中...";
+    return "";
   }
 
   return trimmedContent;

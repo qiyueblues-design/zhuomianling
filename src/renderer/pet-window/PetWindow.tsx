@@ -24,7 +24,7 @@ import { Live2DCanvas } from "../live2d/Live2DCanvas";
 import { defaultSpeechFrontendSettings } from "../services/speech/speechSettings";
 import { useSubtitle } from "../services/subtitle/subtitleStore";
 import {
-  extractStreamingReplyPreview,
+  extractStreamingReplyText,
   extractStreamingVoiceText,
   inferExpressionFromAiReply,
   parseStructuredReplyFallback,
@@ -96,7 +96,6 @@ const voiceReplySegmentMaxAttempts = 3;
 const voiceReplySegmentRetryBaseMs = 220;
 const chatReplyTypewriterDelayMs = 34;
 const chatInputMaxVisibleHeightPx = 65;
-const aiReplyPendingText = "回复生成中...";
 
 function normalizeVoiceReplyText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -333,7 +332,6 @@ export function PetWindow(): JSX.Element {
       }
     | undefined
   >();
-  const aiReplyStreamingSubtitleMessageIdRef = useRef<number | undefined>();
   const voiceAutoSendTimerRef = useRef<number | undefined>();
   const voiceRestartTimerRef = useRef<number | undefined>();
   const voiceRestartAfterReplyRef = useRef(false);
@@ -749,9 +747,7 @@ export function PetWindow(): JSX.Element {
     const voiceLanguage = currentPetDefinition?.voiceModelSettings?.language ?? "zh";
 
     if (chatLanguage === voiceLanguage) {
-      const replyPreview = extractStreamingReplyPreview(content);
-
-      return replyPreview === aiReplyPendingText ? "" : replyPreview;
+      return extractStreamingReplyText(content);
     }
 
     return extractStreamingVoiceText(content);
@@ -793,43 +789,6 @@ export function PetWindow(): JSX.Element {
     }
   };
 
-  const getStreamingReplyDisplayText = (content: string): string => {
-    const preview = extractStreamingReplyPreview(content);
-
-    return preview && preview !== aiReplyPendingText ? preview : "";
-  };
-
-  const showStreamingReplyPreview = (
-    pendingMessageId: number,
-    content: string,
-    holdSubtitle: boolean
-  ): boolean => {
-    const displayPreview = getStreamingReplyDisplayText(content);
-
-    if (!displayPreview) {
-      return false;
-    }
-
-    aiReplyStreamingSubtitleMessageIdRef.current = pendingMessageId;
-    showAiReplySubtitle(displayPreview, {
-      mode: "instant",
-      holdMs: holdSubtitle ? Number.POSITIVE_INFINITY : undefined
-    });
-
-    setMessages((currentMessages) =>
-      currentMessages.map((message) =>
-        message.id === pendingMessageId
-          ? {
-              ...message,
-              text: displayPreview
-            }
-          : message
-      )
-    );
-
-    return true;
-  };
-
   const revealSynchronizedVoiceOutput = (requestId: number): boolean => {
     const revealState = syncVoiceRevealRef.current;
     const queue = voiceReplyQueueRef.current;
@@ -841,10 +800,6 @@ export function PetWindow(): JSX.Element {
       !revealState.firstAudioSettled ||
       requestId !== voiceReplyRequestIdRef.current
     ) {
-      return false;
-    }
-
-    if (!showStreamingReplyPreview(revealState.pendingMessageId, revealState.latestContent, true)) {
       return false;
     }
 
@@ -1278,7 +1233,7 @@ export function PetWindow(): JSX.Element {
 
     subtitle.show({
       text,
-      mode: options?.mode ?? "instant",
+      mode: options?.mode ?? "typewriter",
       holdMs: options?.holdMs,
       tone: currentPetDefinition?.subtitleStyle?.tone,
       maxWidth: currentPetDefinition?.subtitleStyle?.maxWidth
@@ -1510,9 +1465,7 @@ export function PetWindow(): JSX.Element {
 
     if (playCloseEffect) {
       triggerEventExpression("closing", "normal", "crying");
-      speakLine("closing", "那我先回去休息啦。", {
-        mode: "instant"
-      });
+      speakLine("closing", "那我先回去休息啦。");
       await new Promise((resolve) => window.setTimeout(resolve, 1200));
       subtitle.hide();
     }
@@ -1781,8 +1734,6 @@ export function PetWindow(): JSX.Element {
     rawContent: string,
     isVoiceTriggered: boolean
   ): Promise<void> => {
-    const didStreamSubtitle = aiReplyStreamingSubtitleMessageIdRef.current === pendingMessageId;
-    aiReplyStreamingSubtitleMessageIdRef.current = undefined;
     const parsedResponse = parseStructuredReplyFallback(rawContent);
     const replyText = parsedResponse.reply;
     const replyEmotion = parsedResponse.emotion;
@@ -1858,27 +1809,10 @@ export function PetWindow(): JSX.Element {
       }
     }
 
-    if (syncTextWithVoice && !didStreamSubtitle) {
-      showPetMessageWithTypewriter(pendingMessageId, replyText, {
-        voiceText: effectiveVoiceText,
-        aiRawContent: rawContent
-      });
-    } else {
-      clearChatMessageTypewriter();
-      setMessages((currentMessages) =>
-        currentMessages.map((message) =>
-          message.id === pendingMessageId
-            ? {
-                id: pendingMessageId,
-                role: "pet",
-                text: replyText,
-                voiceText: effectiveVoiceText,
-                aiRawContent: rawContent
-              }
-            : message
-        )
-      );
-    }
+    showPetMessageWithTypewriter(pendingMessageId, replyText, {
+      voiceText: effectiveVoiceText,
+      aiRawContent: rawContent
+    });
 
     if (randomReplySource) {
       triggerExpressionSource(
@@ -1917,7 +1851,7 @@ export function PetWindow(): JSX.Element {
     }
 
     showAiReplySubtitle(replyText, {
-      mode: didStreamSubtitle ? "instant" : "typewriter",
+      mode: "typewriter",
       holdMs: shouldHoldSubtitleForVoice ? Number.POSITIVE_INFINITY : undefined,
     });
 
@@ -1952,7 +1886,6 @@ export function PetWindow(): JSX.Element {
     errorText: string,
     isVoiceTriggered: boolean
   ): void => {
-    aiReplyStreamingSubtitleMessageIdRef.current = undefined;
     syncVoiceRevealRef.current = undefined;
     voiceReplyQueueRef.current.playbackBlocked = false;
     clearChatMessageTypewriter();
@@ -1971,7 +1904,7 @@ export function PetWindow(): JSX.Element {
     triggerExpression("panic", "high", 3600);
     subtitle.show({
       text: errorText,
-      mode: "instant",
+      mode: "typewriter",
       tone: petDefinition?.subtitleStyle?.tone,
       maxWidth: petDefinition?.subtitleStyle?.maxWidth
     });
@@ -2006,9 +1939,7 @@ export function PetWindow(): JSX.Element {
             getStreamingVoiceSourceText(content),
             voiceReplyRequestIdRef.current
           );
-          if (!revealSynchronizedVoiceOutput(voiceReplyRequestIdRef.current) && revealState?.revealed) {
-            showStreamingReplyPreview(context.pendingMessageId, content, true);
-          }
+          revealSynchronizedVoiceOutput(voiceReplyRequestIdRef.current);
           return;
         }
 
@@ -2016,23 +1947,6 @@ export function PetWindow(): JSX.Element {
           extractStreamingVoiceText(content),
           voiceReplyRequestIdRef.current
         );
-
-        if (!showStreamingReplyPreview(
-          context.pendingMessageId,
-          content,
-          speechSettingsRef.current.voiceReplyEnabled
-        )) {
-          setMessages((currentMessages) =>
-            currentMessages.map((message) =>
-              message.id === context.pendingMessageId
-                ? {
-                    ...message,
-                    text: aiReplyPendingText
-                  }
-                : message
-            )
-          );
-        }
         return;
       }
 
@@ -2064,7 +1978,6 @@ export function PetWindow(): JSX.Element {
     stopVoiceReplyPlayback();
     clearChatMessageTypewriter();
     pendingVoiceReplyExpressionRef.current = undefined;
-    aiReplyStreamingSubtitleMessageIdRef.current = undefined;
     const currentPet = petRef.current;
     const currentPetDefinition = petDefinitionRef.current;
     speechSettingsRef.current = buildSpeechSettings(
@@ -2162,7 +2075,7 @@ export function PetWindow(): JSX.Element {
   const showVoiceMessage = (text: string, status?: ChatMessage["status"]): void => {
     subtitle.show({
       text,
-      mode: "instant",
+      mode: "typewriter",
       holdMs: status === "error" ? 3200 : undefined,
       tone: petDefinition?.subtitleStyle?.tone,
       maxWidth: petDefinition?.subtitleStyle?.maxWidth
@@ -2415,9 +2328,7 @@ export function PetWindow(): JSX.Element {
           }}
           onModelError={() => {
             triggerEventExpression("modelError", "high", "panic");
-            speakLine("modelError", "我好像没能正确出现，可以帮我检查一下模型文件吗？", {
-              mode: "instant"
-            });
+            speakLine("modelError", "我好像没能正确出现，可以帮我检查一下模型文件吗？");
           }}
           onModelHit={handleModelTouchHit}
           subscribeLookAtPoint={(callback) => {

@@ -85,12 +85,32 @@ describe("buildAiMessages", () => {
       '只输出这个 JSON 结构：{"voiceText":"给语音服务朗读的文本","reply":"给用户看的回复","emotion":"表情标签"}。'
     );
     expect(systemPrompt).toContain("reply 使用英语。");
-    expect(systemPrompt).toContain("reply 长度：短，尽量一到两句话。");
+    expect(systemPrompt).toContain("reply 长度偏短：优先一到两句话。");
+    expect(systemPrompt).toContain("直接回应用户，不展开长解释");
     expect(systemPrompt).toContain("voiceText 使用日语。");
     expect(systemPrompt).toContain("必须覆盖 reply 的每一句、每个分句和所有关键信息");
     expect(systemPrompt).toContain("禁止摘要、缩短、跳过后半句或只翻译前半句");
     expect(systemPrompt).toContain("- normal: 平静");
     expect(systemPrompt).toContain("- happy: 开心");
+  });
+
+  it("strengthens the prompt when long reply length is selected", () => {
+    const messages = buildAiMessages({
+      petDefinition: createPetDefinition({
+        personaSettings: {
+          chatLanguage: "zh",
+          replyLength: "long"
+        }
+      }),
+      messages: [],
+      nextUserText: "详细讲讲",
+      voiceReplyEnabled: false
+    });
+    const systemPrompt = messages[0].content;
+
+    expect(systemPrompt).toContain("reply 长度偏长：请更完整地展开，通常四句话以上。");
+    expect(systemPrompt).toContain("可以补充原因、建议、步骤、例子或安慰");
+    expect(systemPrompt).toContain("不要为了变长重复同义句");
   });
 
   it("omits voiceText when chat and voice output languages match", () => {
