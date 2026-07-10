@@ -95,6 +95,7 @@ const voiceReplySynthesisLookahead = 3;
 const voiceReplySegmentMaxAttempts = 3;
 const voiceReplySegmentRetryBaseMs = 220;
 const chatReplyTypewriterDelayMs = 34;
+const chatInputMaxVisibleHeightPx = 65;
 const aiReplyPendingText = "回复生成中...";
 
 function normalizeVoiceReplyText(text: string): string {
@@ -479,7 +480,7 @@ export function PetWindow(): JSX.Element {
     }
 
     input.style.height = "0px";
-    input.style.height = `${Math.min(input.scrollHeight, 72)}px`;
+    input.style.height = `${Math.min(input.scrollHeight, chatInputMaxVisibleHeightPx)}px`;
   }, [chatCollapsed, chatOpen, draft, voiceTypewriterText]);
 
   useEffect(() => {

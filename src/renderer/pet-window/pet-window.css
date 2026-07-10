@@ -510,7 +510,7 @@ textarea {
   min-width: 0;
   width: 100%;
   min-height: 30px;
-  max-height: 72px;
+  max-height: 65px;
   border: 0;
   padding: 7px 4px;
   background: transparent;
@@ -518,7 +518,9 @@ textarea {
   outline: none;
   resize: none;
   overflow-y: auto;
-  line-height: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
   scrollbar-width: none;
 }
 
@@ -544,8 +546,9 @@ textarea {
   overflow: hidden;
   padding: 7px 4px;
   color: var(--pet-ink);
-  font: inherit;
-  line-height: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
   white-space: pre-wrap;
   word-break: break-word;
   pointer-events: none;
@@ -1804,6 +1807,8 @@ textarea {
 .theme-soft .petChatInputRow textarea,
 .theme-soft .petVoiceTypewriterText {
   color: #2d4b5d;
+  font-weight: 760;
+  line-height: 1.42;
 }
 
 .theme-soft .petChatInputRow textarea::placeholder {
