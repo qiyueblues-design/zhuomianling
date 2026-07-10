@@ -17,7 +17,7 @@ import type {
   PetLineEvent,
   PetPresetLine
 } from "../../shared/types/pet";
-import type { PetWindowState } from "../../shared/types/window";
+import type { PetWindowDragPoint, PetWindowState } from "../../shared/types/window";
 import { Subtitle } from "../components/Subtitle/Subtitle";
 import type { PetExpressionEvent } from "../live2d/Live2DCanvas";
 import { Live2DCanvas } from "../live2d/Live2DCanvas";
@@ -281,6 +281,8 @@ export function PetWindow(): JSX.Element {
       }
     | undefined
   >();
+  const pendingPetWindowDragPointRef = useRef<PetWindowDragPoint | undefined>();
+  const petWindowDragFrameRef = useRef<number | undefined>();
   const idleTimerRef = useRef<number | undefined>();
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
@@ -1524,6 +1526,39 @@ export function PetWindow(): JSX.Element {
     }
   };
 
+  const flushPetWindowDrag = (): void => {
+    petWindowDragFrameRef.current = undefined;
+    const point = pendingPetWindowDragPointRef.current;
+    pendingPetWindowDragPointRef.current = undefined;
+
+    if (!point || !draggingRef.current || state.clickThrough) {
+      return;
+    }
+
+    void window.desktopPet?.petWindow.moveDrag(point);
+  };
+
+  const queuePetWindowDrag = (point: PetWindowDragPoint): void => {
+    pendingPetWindowDragPointRef.current = point;
+
+    if (petWindowDragFrameRef.current !== undefined) {
+      return;
+    }
+
+    petWindowDragFrameRef.current = window.requestAnimationFrame(flushPetWindowDrag);
+  };
+
+  const clearQueuedPetWindowDrag = (): void => {
+    pendingPetWindowDragPointRef.current = undefined;
+
+    if (petWindowDragFrameRef.current === undefined) {
+      return;
+    }
+
+    window.cancelAnimationFrame(petWindowDragFrameRef.current);
+    petWindowDragFrameRef.current = undefined;
+  };
+
   const startDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (state.clickThrough) {
       return;
@@ -1544,7 +1579,7 @@ export function PetWindow(): JSX.Element {
       return;
     }
 
-    void window.desktopPet?.petWindow.moveDrag({
+    queuePetWindowDrag({
       x: event.screenX,
       y: event.screenY
     });
@@ -1557,12 +1592,17 @@ export function PetWindow(): JSX.Element {
 
     draggingRef.current = false;
     modelDragStartPointRef.current = undefined;
+    clearQueuedPetWindowDrag();
     event.currentTarget.releasePointerCapture(event.pointerId);
     void window.desktopPet?.petWindow.endDrag();
   };
 
   const startModelDragCandidate = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0 || state.clickThrough || !touchEnabled) {
+      return;
+    }
+
+    if (!(event.target instanceof Element) || !event.target.closest(".live2dHost")) {
       return;
     }
 
@@ -1611,7 +1651,7 @@ export function PetWindow(): JSX.Element {
       resetIdleTimer();
     }
 
-    void window.desktopPet?.petWindow.moveDrag({
+    queuePetWindowDrag({
       x: event.screenX,
       y: event.screenY
     });
@@ -1662,11 +1702,11 @@ export function PetWindow(): JSX.Element {
     modelDragLineShownRef.current = false;
 
     if (!draggingRef.current) {
-      handleModelTouchHit();
       return;
     }
 
     draggingRef.current = false;
+    clearQueuedPetWindowDrag();
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);

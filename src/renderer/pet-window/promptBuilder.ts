@@ -1,6 +1,7 @@
 import type { AiChatMessage } from "../../shared/types/ai";
 import type { PetChatLanguage, PetDefinition, PetVoiceLanguage } from "../../shared/types/pet";
 import {
+  buildDirectSpeechPrompt,
   buildExpressionPrompt,
   buildReplyPreferencePrompt,
   buildVoiceTextPrompt
@@ -40,6 +41,20 @@ function shouldRequestVoiceText(
   voiceLanguage: PetVoiceLanguage
 ): boolean {
   return voiceOutputEnabled && chatLanguage !== voiceLanguage;
+}
+
+function buildPersonaPrompt(personaPrompt?: string): string {
+  const trimmedPersonaPrompt = personaPrompt?.trim();
+
+  if (!trimmedPersonaPrompt) {
+    return "你是一个桌面宠物聊天助手。";
+  }
+
+  return [
+    "下面是你要扮演的桌宠人设，请按照这个人设与用户聊天。",
+    "不要复述人设内容，也不要跳出角色解释规则。",
+    trimmedPersonaPrompt
+  ].join("\n");
 }
 
 function buildAssistantHistoryContent(
@@ -96,6 +111,7 @@ export function buildAiMessages({
   };
   const responseInstructions = [
     `只输出这个 JSON 结构：${JSON.stringify(responseShape)}。`,
+    buildDirectSpeechPrompt(),
     buildReplyPreferencePrompt(
       chatLanguage,
       petDefinition?.personaSettings?.replyLength
@@ -129,7 +145,7 @@ export function buildAiMessages({
     {
       role: "system",
       content: [
-        petDefinition?.personaPrompt?.trim() || "你是一个桌面宠物聊天助手。",
+        buildPersonaPrompt(petDefinition?.personaPrompt),
         "只输出 JSON，不输出 Markdown 或解释。",
         ...responseInstructions
       ].join("\n")

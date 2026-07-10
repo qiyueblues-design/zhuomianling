@@ -35,6 +35,13 @@ export function buildReplyPreferencePrompt(
   ].join("\n");
 }
 
+export function buildDirectSpeechPrompt(): string {
+  return [
+    "reply 只写角色实际对用户说出口的话。",
+    "禁止在 reply 中输出心理活动、旁白、动作描写、舞台说明、表情说明或括号内补充，例如“她心想……”“她低下头……”“（小声）”。"
+  ].join("\n");
+}
+
 export function buildVoiceTextPrompt(voiceLanguage: PetVoiceLanguage): string {
   return [
     `voiceText 使用${voiceLanguageLabels[voiceLanguage]}。`,

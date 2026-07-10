@@ -39,6 +39,8 @@ describe("buildAiMessages", () => {
     });
     expect(messages[0].content).toContain("只输出 JSON，不输出 Markdown 或解释。");
     expect(messages[0].content).toContain('只输出这个 JSON 结构：{"reply":"给用户看的回复"}。');
+    expect(messages[0].content).toContain("reply 只写角色实际对用户说出口的话。");
+    expect(messages[0].content).toContain("禁止在 reply 中输出心理活动、旁白、动作描写");
     expect(messages[0].content).toContain("reply 使用中文。");
     expect(messages[1]).toEqual({
       role: "user",
@@ -77,6 +79,8 @@ describe("buildAiMessages", () => {
     const systemPrompt = messages[0].content;
 
     expect(systemPrompt).toContain("你是测试桌宠，说话温柔但简洁。");
+    expect(systemPrompt).toContain("下面是你要扮演的桌宠人设，请按照这个人设与用户聊天。");
+    expect(systemPrompt).toContain("不要复述人设内容，也不要跳出角色解释规则。");
     expect(systemPrompt).toContain(
       '只输出这个 JSON 结构：{"voiceText":"给语音服务朗读的文本","reply":"给用户看的回复","emotion":"表情标签"}。'
     );
@@ -119,7 +123,8 @@ describe("buildAiMessages", () => {
     const systemPrompt = messages[0].content;
 
     expect(systemPrompt).toContain('只输出这个 JSON 结构：{"reply":"给用户看的回复"}。');
-    expect(systemPrompt).not.toContain("voiceText");
+    expect(systemPrompt).not.toContain('"voiceText":"给语音服务朗读的文本"');
+    expect(systemPrompt).not.toContain("voiceText 使用");
     expect(messages[1].content).toBe('{"reply":"原句","emotion":"normal"}');
   });
 

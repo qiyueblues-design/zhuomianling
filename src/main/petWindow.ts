@@ -11,15 +11,27 @@ let cursorTrackingTimer: NodeJS.Timeout | undefined;
 let dragStart:
   | {
       pointer: PetWindowDragPoint;
-      window: { x: number; y: number };
+      window: { x: number; y: number; width: number; height: number };
     }
   | null = null;
 const stateListeners = new Set<(state: PetWindowState) => void>();
+const petWindowWidth = 380;
+const petWindowHeight = 480;
 const closeEffectDurationMs = 3300;
 const cursorTrackingIntervalMs = 50;
 type ClosePetWindowOptions = {
   playEffect?: boolean;
 };
+
+function getCurrentDragPoint(fallback: PetWindowDragPoint): PetWindowDragPoint {
+  const point = screen.getCursorScreenPoint();
+
+  if (Number.isFinite(point.x) && Number.isFinite(point.y)) {
+    return point;
+  }
+
+  return fallback;
+}
 
 function normalizeCloseLineText(line: unknown): { text?: string; audioPath?: string } | undefined {
   if (typeof line === "string") {
@@ -78,11 +90,34 @@ function applyPetWindowState(): void {
     return;
   }
 
+  petWindow.setResizable(false);
   petWindow.setAlwaysOnTop(true, "screen-saver");
   petWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   petWindow.setIgnoreMouseEvents(clickThrough && !clickThroughControlInteractive, {
     forward: true
   });
+}
+
+function enforcePetWindowSize(): void {
+  if (!petWindow || petWindow.isDestroyed()) {
+    return;
+  }
+
+  const bounds = petWindow.getBounds();
+
+  if (bounds.width === petWindowWidth && bounds.height === petWindowHeight) {
+    return;
+  }
+
+  petWindow.setBounds(
+    {
+      x: bounds.x,
+      y: bounds.y,
+      width: petWindowWidth,
+      height: petWindowHeight
+    },
+    false
+  );
 }
 
 function snapshot(): PetWindowState {
@@ -147,21 +182,22 @@ export function onPetWindowStateChanged(listener: (state: PetWindowState) => voi
 function createPetWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, "../preload/index.js");
   const display = screen.getPrimaryDisplay();
-  const width = 380;
-  const height = 480;
-  const x = Math.round(display.workArea.x + display.workArea.width - width - 28);
-  const y = Math.round(display.workArea.y + display.workArea.height - height - 28);
+  const x = Math.round(display.workArea.x + display.workArea.width - petWindowWidth - 28);
+  const y = Math.round(display.workArea.y + display.workArea.height - petWindowHeight - 28);
 
   const createdWindow = new BrowserWindow({
-    width,
-    height,
+    width: petWindowWidth,
+    height: petWindowHeight,
     x,
     y,
-    minWidth: 320,
-    minHeight: 360,
+    minWidth: petWindowWidth,
+    minHeight: petWindowHeight,
+    maxWidth: petWindowWidth,
+    maxHeight: petWindowHeight,
     frame: false,
     transparent: true,
-    resizable: true,
+    resizable: false,
+    maximizable: false,
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: "#00000000",
@@ -197,8 +233,10 @@ export async function showPetWindow(payload: DesktopPetPayload): Promise<PetWind
   currentPet = payload;
   const targetWindow = petWindow ?? createPetWindow();
 
+  enforcePetWindowSize();
   await targetWindow.loadURL(getPetWindowUrl(payload));
   applyPetWindowState();
+  enforcePetWindowSize();
   targetWindow.show();
   targetWindow.focus();
   startCursorTracking();
@@ -296,11 +334,21 @@ export function startPetWindowDrag(point: PetWindowDragPoint): void {
     return;
   }
 
-  const [x, y] = petWindow.getPosition();
+  const bounds = petWindow.getBounds();
+  const dragPoint = getCurrentDragPoint(point);
   dragStart = {
-    pointer: point,
-    window: { x, y }
+    pointer: dragPoint,
+    window: {
+      x: bounds.x,
+      y: bounds.y,
+      width: petWindowWidth,
+      height: petWindowHeight
+    }
   };
+
+  if (bounds.width !== petWindowWidth || bounds.height !== petWindowHeight) {
+    enforcePetWindowSize();
+  }
 }
 
 export function movePetWindowDrag(point: PetWindowDragPoint): void {
@@ -308,9 +356,18 @@ export function movePetWindowDrag(point: PetWindowDragPoint): void {
     return;
   }
 
-  const nextX = dragStart.window.x + point.x - dragStart.pointer.x;
-  const nextY = dragStart.window.y + point.y - dragStart.pointer.y;
-  petWindow.setPosition(Math.round(nextX), Math.round(nextY), false);
+  const dragPoint = getCurrentDragPoint(point);
+  const nextX = dragStart.window.x + dragPoint.x - dragStart.pointer.x;
+  const nextY = dragStart.window.y + dragPoint.y - dragStart.pointer.y;
+  petWindow.setBounds(
+    {
+      x: Math.round(nextX),
+      y: Math.round(nextY),
+      width: dragStart.window.width,
+      height: dragStart.window.height
+    },
+    false
+  );
   emitCursorMoved();
 }
 
