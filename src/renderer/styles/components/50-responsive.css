@@ -1,0 +1,108 @@
+/* Baseline responsive rules; theme passes later may intentionally refine them. */
+@media (max-width: 940px) {
+  body {
+    min-width: 0;
+  }
+
+  .workspace.detailsOpen {
+    grid-template-columns: minmax(282px, 0.78fr) minmax(320px, 1.22fr);
+  }
+
+  .petGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .stagePane {
+    padding: 14px;
+  }
+
+  .appTopbar {
+    padding: 0 18px;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace,
+  .workspace.detailsOpen {
+    grid-template-columns: 1fr;
+  }
+
+  .rightColumn {
+    grid-template-rows: auto auto;
+  }
+
+  .appTopbar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 18px;
+  }
+
+  .appNav {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .editorPageHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .editorPetIdentity {
+    justify-self: start;
+  }
+
+  .editorLayout,
+  .voiceLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .editorTabs,
+  .voiceStatusPanel {
+    position: static;
+  }
+
+  .editorTabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .resourceChecklist,
+  .eventGrid,
+  .uiThemeGrid,
+  .formGrid.twoColumns,
+  .formGrid.threeColumns,
+  .basicEditorLayout,
+  .live2dReadyHeader,
+  .live2dSummaryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .eventColumn {
+    display: contents;
+  }
+
+  .voiceCardHeader,
+  .voiceServiceRow,
+  .voiceEnableSection,
+  .eventTileHeader,
+  .eventExpressionSection,
+  .mappingRow,
+  .voiceFileRow {
+    grid-template-columns: 1fr;
+  }
+
+  .eventExpressionPickerGroup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .voiceStatusBadge,
+  .connectAction,
+  .voiceServiceActions,
+  .voiceCardHeader .secondaryAction {
+    justify-self: start;
+  }
+
+  .voiceServiceActions {
+    flex-wrap: wrap;
+  }
+}

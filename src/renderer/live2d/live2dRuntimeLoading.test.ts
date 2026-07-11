@@ -154,6 +154,18 @@ describe("Cubism 4/5 deferred actions", () => {
 });
 
 describe("Cubism WebGL shader loading", () => {
+  it("creates a WebGL 1 context for the bundled GLSL ES 1.00 shaders", () => {
+    const constructor = sourceBetween(
+      runtimeSource,
+      "  private constructor(options: CubismLive2DModelOptions) {",
+      "\n  async load(): Promise<void> {"
+    );
+
+    expect(constructor).toContain('this.canvas.getContext("webgl",');
+    expect(constructor).toContain('this.canvas.getContext("experimental-webgl",');
+    expect(constructor).not.toContain('this.canvas.getContext("webgl2",');
+  });
+
   it("uses the shared signal-aware text loader with no raw fetch", () => {
     expect(shaderSource).toContain("fetchLive2DText(url, signal)");
     expect(shaderSource).not.toMatch(/\bfetch\s*\(/);
@@ -169,5 +181,21 @@ describe("Cubism WebGL shader loading", () => {
     expect(shaderSource).toContain("this._shaderLoadPromise = null");
     expect(shaderSource).toContain("this._shaderSets.length = 0");
     expect(shaderSource).toContain("return this.generateShaders(signal)");
+  });
+
+  it("does not reserve empty shader slots for the reused Normal + Over combination", () => {
+    const shaderConstructor = sourceBetween(
+      shaderSource,
+      "  public constructor() {",
+      "\n  public release(): void {"
+    );
+
+    expect(shaderConstructor).toContain("const generatedBlendCombinationCount =");
+    expect(shaderConstructor).toMatch(
+      /\(this\._alphaBlendValues\.length - 1\)\s*-\s*1;/
+    );
+    expect(shaderConstructor).toContain(
+      "generatedBlendCombinationCount * ShaderType.ShaderType_Count"
+    );
   });
 });

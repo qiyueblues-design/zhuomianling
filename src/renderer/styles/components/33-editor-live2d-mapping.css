@@ -1,0 +1,693 @@
+/* Live2D preview controls and expression mapping workflow. */
+.live2dFlowToolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(38, 132, 255, 0.14);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f4f9ff;
+}
+
+.live2dFlowToolbar span {
+  color: #607080;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.backChevron {
+  transform: rotate(180deg);
+}
+
+.live2dImportSection {
+  display: grid;
+  gap: 10px;
+}
+
+.sectionMiniHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionMiniHeader strong {
+  color: #17202a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.sectionMiniHeader span {
+  flex: 1;
+  color: #8b98a7;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.sectionMiniHeader .secondaryAction {
+  flex: 0 0 auto;
+}
+
+.resourceChecklist,
+.mappingList,
+.voiceFileList,
+.statusStack {
+  display: grid;
+  gap: 10px;
+}
+
+.resourceChecklist {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.resourceChecklist.compact {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.resourceItem,
+.mappingRow,
+.voiceFileRow,
+.statusRow {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.resourceItem {
+  justify-items: start;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.resourceChecklist.compact .resourceItem {
+  grid-template-columns: auto 96px minmax(0, 1fr) auto;
+  min-height: 42px;
+  padding: 9px 12px;
+}
+
+.resourceItem svg {
+  color: #2684ff;
+}
+
+.resourceItem.ready svg {
+  color: #2f9e44;
+}
+
+.resourceItem strong {
+  max-width: 100%;
+  overflow: hidden;
+  color: #17202a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inlineFixButton {
+  min-height: 30px;
+  border: 1px solid rgba(38, 132, 255, 0.28);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #eaf3ff;
+  color: #1766c2;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.inlineFixButton:hover {
+  border-color: rgba(38, 132, 255, 0.46);
+  background: #ddecff;
+}
+
+.live2dPreviewPanel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(38, 132, 255, 0.13);
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fbff;
+}
+
+.live2dPreviewHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.live2dPreviewHeader .secondaryAction {
+  white-space: nowrap;
+}
+
+.live2dPreviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.live2dPreviewHeader h3 {
+  margin: 0;
+  color: #17202a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.live2dPreviewHeader p {
+  margin: 4px 0 0;
+  color: #607080;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.live2dPreviewGrid {
+  display: grid;
+  grid-template-columns: minmax(360px, min(72%, 980px)) minmax(230px, 300px);
+  gap: 14px;
+  justify-content: center;
+  min-height: 520px;
+}
+
+.live2dPreviewStage {
+  position: relative;
+  contain: paint;
+  isolation: isolate;
+  height: clamp(520px, 62vh, 680px);
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, #edf2f7 25%, transparent 25%),
+    linear-gradient(-45deg, #edf2f7 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #edf2f7 75%),
+    linear-gradient(-45deg, transparent 75%, #edf2f7 75%),
+    #fff;
+  background-position:
+    0 0,
+    0 12px,
+    12px -12px,
+    -12px 0;
+  background-size: 24px 24px;
+}
+
+.live2dPreviewStage .live2dHost {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  overflow: hidden;
+}
+
+.live2dPreviewStage canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.live2dPreviewControls {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  align-content: stretch;
+  align-self: stretch;
+  gap: 12px;
+  height: clamp(520px, 62vh, 680px);
+  min-height: 0;
+}
+
+.live2dPreviewStatus,
+.previewControlGroup {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+}
+
+.previewControlGroup {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.live2dPreviewStatus strong,
+.previewControlGroup h4 {
+  margin: 0;
+  color: #17202a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.live2dPreviewStatus span,
+.previewEmptyText {
+  margin: 0;
+  color: #607080;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.previewButtonList {
+  display: grid;
+  min-height: 0;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.previewTrigger {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #f8fafc;
+  color: #17202a;
+  text-align: left;
+}
+
+.previewTrigger:hover,
+.previewTrigger.active {
+  border-color: rgba(38, 132, 255, 0.28);
+  background: #eaf3ff;
+}
+
+.previewTrigger strong,
+.previewTrigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewTrigger strong {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.previewTrigger span {
+  color: #607080;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.mappingRow {
+  position: relative;
+  align-items: start;
+  grid-template-columns: minmax(132px, 0.72fr) minmax(132px, 0.72fr) minmax(160px, 1fr);
+}
+
+.mappingScanMessage {
+  margin: -2px 0 2px;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.mappingRandomStatus {
+  margin: -2px 0 2px;
+  border: 1px solid rgba(0, 122, 255, 0.16);
+  border-radius: 14px;
+  padding: 9px 12px;
+  background:
+    linear-gradient(135deg, rgba(232, 244, 255, 0.92), rgba(255, 255, 255, 0.74)),
+    #f4f9ff;
+  color: #24517d;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.mappingEditArea {
+  display: grid;
+  min-height: 0;
+  gap: 10px;
+}
+
+.mappingEditArea.randomLocked {
+  opacity: 0.52;
+  filter: grayscale(0.12);
+}
+
+.mappingEditArea.randomLocked .mappingRow,
+.mappingEditArea.randomLocked .mappingHeaderRow {
+  pointer-events: none;
+}
+
+.mappingHeaderRow {
+  display: grid;
+  grid-template-columns: minmax(132px, 0.72fr) minmax(132px, 0.72fr) minmax(160px, 1fr);
+  gap: 10px;
+  border: 1px solid rgba(73, 103, 138, 0.2);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background:
+    linear-gradient(135deg, rgba(211, 226, 244, 0.96), rgba(229, 237, 248, 0.92)),
+    #dce8f6;
+  color: #17202a;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 10px 22px rgba(38, 50, 65, 0.1);
+}
+
+.mappingHeaderRow span {
+  min-width: 0;
+  text-align: center;
+}
+
+.mappingSourceSwitch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid rgba(73, 103, 138, 0.16);
+  border-radius: 14px;
+  padding: 5px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(241, 247, 255, 0.72)),
+    rgba(255, 255, 255, 0.66);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 24px rgba(38, 50, 65, 0.08);
+}
+
+.mappingSourceButton {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0 14px;
+  background: transparent;
+  color: #607080;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease;
+}
+
+.mappingSourceButton:hover {
+  border-color: rgba(38, 132, 255, 0.18);
+  background: rgba(235, 244, 255, 0.72);
+  color: #1d3858;
+}
+
+.mappingSourceButton.active {
+  border-color: rgba(38, 132, 255, 0.28);
+  background:
+    linear-gradient(135deg, rgba(227, 240, 255, 0.98), rgba(255, 255, 255, 0.9)),
+    #eaf3ff;
+  color: #164c9f;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 20px rgba(38, 132, 255, 0.14);
+}
+
+.mappingSourceButton span,
+.mappingSourceButton strong {
+  min-width: 0;
+}
+
+.mappingSourceButton strong {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: rgba(96, 112, 128, 0.12);
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.expressionMappingPanel {
+  min-height: 0;
+  max-height: calc(100vh - 156px);
+  overflow: hidden;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+}
+
+.expressionMappingPanel .mappingList {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-color: rgba(76, 92, 112, 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.mappingEmptyState {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  border: 1px dashed rgba(73, 103, 138, 0.22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.48);
+  color: #607080;
+  font-size: 13px;
+  font-weight: 850;
+  text-align: center;
+}
+
+.mappingRandomOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 520;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(242, 246, 252, 0.46);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.mappingRandomDialog {
+  display: grid;
+  width: min(420px, calc(100vw - 40px));
+  gap: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  padding: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.92)),
+    #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 28px 70px rgba(38, 50, 65, 0.22);
+}
+
+.mappingRandomDialogHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.mappingRandomIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 13px;
+  background: rgba(0, 122, 255, 0.12);
+  color: #0f6fd6;
+}
+
+.mappingRandomDialog h3 {
+  margin: 0;
+  color: #17202a;
+  font-size: 17px;
+}
+
+.mappingRandomDialog p {
+  margin: 5px 0 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.5;
+}
+
+.mappingRandomChoices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.mappingRandomChoice {
+  display: grid;
+  min-width: 0;
+  min-height: 68px;
+  gap: 4px;
+  align-content: center;
+  border: 1px solid rgba(73, 103, 138, 0.15);
+  border-radius: 15px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #1d3858;
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+}
+
+.mappingRandomChoice.active {
+  border-color: rgba(0, 122, 255, 0.34);
+  background: rgba(226, 240, 255, 0.9);
+  box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.1);
+}
+
+.mappingRandomChoice:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mappingRandomChoice strong,
+.mappingRandomChoice span {
+  min-width: 0;
+}
+
+.mappingRandomChoice strong {
+  font-size: 14px;
+  font-weight: 920;
+}
+
+.mappingRandomChoice span {
+  color: #607080;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.mappingRandomWarning {
+  border: 1px solid rgba(220, 38, 38, 0.14);
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 241, 242, 0.78);
+  color: #b4232c !important;
+}
+
+.mappingRandomActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.expressionMappingPanel .mappingList::-webkit-scrollbar {
+  width: 8px;
+}
+
+.expressionMappingPanel .mappingList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.expressionMappingPanel .mappingList::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(76, 92, 112, 0.32);
+  background-clip: content-box;
+}
+
+.expressionSourceInput,
+.mappingKeySelect,
+.mappingDescriptionInput {
+  min-width: 0;
+  min-height: 32px;
+  overflow: hidden;
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: #17202a;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.expressionSourceInput {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expressionSourceInput:read-only {
+  cursor: default;
+}
+
+.mappingKeySelect {
+  width: 100%;
+  padding-right: 30px;
+  cursor: pointer;
+}
+
+.mappingRow.invalid {
+  padding-right: 34px;
+}
+
+.mappingRow.invalid .mappingKeySelect {
+  border-color: rgba(220, 38, 38, 0.72);
+  box-shadow:
+    0 0 0 4px rgba(220, 38, 38, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.mappingRowErrorIcon {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+  transform: translateY(-50%);
+}
+
+.mappingDescriptionInput::placeholder,
+.expressionSourceInput::placeholder {
+  color: #8b98a7;
+  font-weight: 800;
+}
+
+.mappingDescriptionInput {
+  height: auto;
+  min-height: 32px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  resize: none;
+  line-height: 1.35;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mappingDescription {
+  min-width: 0;
+  color: #52606d;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.spinIcon {
+  animation: spinIcon 0.8s linear infinite;
+}
+
+@keyframes spinIcon {
+  to {
+    transform: rotate(360deg);
+  }
+}

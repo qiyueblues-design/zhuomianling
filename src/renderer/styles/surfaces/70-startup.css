@@ -1,0 +1,463 @@
+/* Startup surface shared with the static anti-white-screen placeholder. */
+.startupSplash {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 34%, rgba(255, 255, 255, 0.96), transparent 30%),
+    radial-gradient(circle at 43% 39%, rgba(179, 132, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 58% 55%, rgba(109, 218, 230, 0.16), transparent 25%),
+    linear-gradient(145deg, rgba(249, 247, 255, 0.98), rgba(238, 246, 251, 0.98));
+  color: var(--ui-ink);
+  pointer-events: all;
+}
+
+.startupAura {
+  position: absolute;
+  width: 360px;
+  height: 360px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.84), transparent 39%),
+    conic-gradient(from 120deg, rgba(175, 126, 255, 0.2), rgba(95, 211, 225, 0.14), rgba(175, 126, 255, 0.2));
+  filter: blur(14px);
+  opacity: 0.9;
+  animation: startupAuraPulse 1.9s ease-in-out infinite alternate;
+}
+
+.startupCard {
+  position: relative;
+  display: grid;
+  width: min(360px, calc(100vw - 56px));
+  min-height: 352px;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 24px;
+  padding: 30px 28px 28px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.9), transparent 32%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(246, 250, 255, 0.58)),
+    rgba(255, 255, 255, 0.64);
+  backdrop-filter: blur(28px) saturate(180%) contrast(1.02);
+  -webkit-backdrop-filter: blur(28px) saturate(180%) contrast(1.02);
+  box-shadow:
+    var(--ui-highlight),
+    0 28px 74px rgba(28, 39, 54, 0.16);
+}
+
+.startupSplash.leaving {
+  pointer-events: none;
+  animation: startupSplashExit 0.36s ease both;
+}
+
+.startupMascot {
+  position: relative;
+  width: 248px;
+  height: 198px;
+  transform: translateY(4px);
+}
+
+.startupScreen {
+  position: absolute;
+  right: 4px;
+  bottom: 6px;
+  z-index: 4;
+  width: 158px;
+  height: 118px;
+  overflow: hidden;
+  border: 6px solid #5e5980;
+  border-right-width: 9px;
+  border-bottom-width: 9px;
+  border-radius: 28px 12px 16px 12px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(237, 232, 255, 0.64)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 0 0 4px rgba(139, 126, 179, 0.18),
+    0 18px 38px rgba(68, 58, 112, 0.18);
+  transform-origin: right bottom;
+}
+
+.startupScreen::before {
+  position: absolute;
+  inset: 9px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 18px 8px 10px 8px;
+  content: "";
+}
+
+.startupScreenGlow {
+  position: absolute;
+  top: 18px;
+  right: 16px;
+  width: 52px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(180, 156, 255, 0.18);
+  filter: blur(10px);
+}
+
+.startupSpirit {
+  position: absolute;
+  left: 6px;
+  top: 24px;
+  z-index: 2;
+  width: 150px;
+  height: 150px;
+  border: 4px solid rgba(150, 118, 206, 0.72);
+  border-radius: 52% 52% 48% 50% / 48% 48% 54% 54%;
+  background:
+    radial-gradient(circle at 58% 18%, rgba(255, 255, 255, 0.92) 0 12%, transparent 13%),
+    radial-gradient(circle at 75% 32%, rgba(255, 255, 255, 0.72) 0 6%, transparent 7%),
+    radial-gradient(circle at 27% 74%, rgba(102, 216, 220, 0.18), transparent 24%),
+    radial-gradient(circle at 73% 62%, rgba(252, 154, 189, 0.16), transparent 21%),
+    linear-gradient(145deg, #ffffff 0%, #fbfbff 48%, #eee8ff 100%);
+  box-shadow:
+    inset -12px -18px 28px rgba(177, 140, 238, 0.2),
+    inset 10px 12px 24px rgba(255, 255, 255, 0.9),
+    0 0 34px rgba(186, 137, 255, 0.34),
+    0 22px 40px rgba(83, 65, 130, 0.12);
+  transform-origin: 65% 82%;
+}
+
+.startupSpirit::before {
+  position: absolute;
+  right: 13px;
+  bottom: 35px;
+  z-index: 7;
+  width: 34px;
+  height: 22px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.94), transparent 36%),
+    linear-gradient(180deg, #ffffff, #eadfff);
+  box-shadow:
+    inset -5px -6px 10px rgba(167, 118, 218, 0.18),
+    0 8px 16px rgba(74, 55, 112, 0.14);
+  content: "";
+}
+
+.startupSpirit::after {
+  position: absolute;
+  left: 32px;
+  bottom: -8px;
+  width: 38px;
+  height: 24px;
+  border-radius: 0 0 999px 999px;
+  background:
+    radial-gradient(circle at 48% 20%, rgba(255, 255, 255, 0.9), transparent 34%),
+    linear-gradient(180deg, #f8f2ff, #eadfff);
+  box-shadow: inset -5px -8px 10px rgba(159, 119, 211, 0.2);
+  content: "";
+}
+
+.startupSpiritGlow {
+  position: absolute;
+  inset: -18px;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 48% 58%, rgba(184, 137, 255, 0.28), transparent 58%),
+    radial-gradient(circle at 25% 75%, rgba(94, 221, 222, 0.18), transparent 35%);
+  filter: blur(14px);
+}
+
+.startupAntenna {
+  position: absolute;
+  left: 82px;
+  top: -62px;
+  width: 62px;
+  height: 78px;
+  transform-origin: 8px 74px;
+  animation: startupAntennaBob 1.8s ease-in-out infinite;
+}
+
+.startupAntennaStem {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 48px;
+  height: 76px;
+  border-top: 5px solid rgba(150, 118, 206, 0.8);
+  border-left: 5px solid rgba(150, 118, 206, 0.8);
+  border-radius: 42px 0 0;
+  transform: rotate(10deg);
+  transform-origin: left bottom;
+}
+
+.startupAntennaSquare {
+  position: absolute;
+  border-radius: 7px;
+  transform: rotate(-5deg);
+}
+
+.startupAntennaSquare.outline {
+  top: 4px;
+  left: 20px;
+  width: 38px;
+  height: 38px;
+  border: 5px solid rgba(150, 118, 206, 0.8);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.startupAntennaSquare.solid {
+  top: 38px;
+  left: 49px;
+  width: 31px;
+  height: 31px;
+  border: 4px solid rgba(150, 118, 206, 0.6);
+  background: linear-gradient(145deg, #c59bff, #a477e8);
+  box-shadow: 0 8px 18px rgba(150, 118, 206, 0.24);
+}
+
+.startupEye {
+  position: absolute;
+  z-index: 6;
+  width: 25px;
+  height: 34px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 35% 28%, #ffffff 0 9%, transparent 10%),
+    radial-gradient(circle at 59% 38%, rgba(255, 255, 255, 0.72) 0 7%, transparent 8%),
+    linear-gradient(180deg, #6b4b9c, #3c296e);
+  box-shadow:
+    inset -3px -6px 8px rgba(24, 15, 62, 0.28),
+    0 4px 8px rgba(62, 42, 108, 0.2);
+  transform-origin: center center;
+  animation: startupBlink 1.8s ease-in-out infinite;
+}
+
+.startupEye.left {
+  left: 54px;
+  top: 65px;
+  transform: rotate(-8deg);
+}
+
+.startupEye.right {
+  left: 110px;
+  top: 51px;
+  transform: rotate(-10deg);
+}
+
+.startupBlush {
+  position: absolute;
+  z-index: 5;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(100deg, transparent 0 7px, rgba(240, 121, 166, 0.46) 8px 11px, transparent 12px 15px),
+    radial-gradient(circle, rgba(255, 151, 183, 0.34), transparent 68%);
+  opacity: 0.9;
+}
+
+.startupBlush.left {
+  left: 29px;
+  top: 91px;
+}
+
+.startupBlush.right {
+  left: 118px;
+  top: 78px;
+}
+
+.startupPaw {
+  position: absolute;
+  z-index: 6;
+  width: 28px;
+  height: 46px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.94), transparent 31%),
+    linear-gradient(180deg, #ffffff, #eadfff);
+  box-shadow:
+    inset -5px -9px 12px rgba(167, 118, 218, 0.18),
+    0 8px 16px rgba(74, 55, 112, 0.12);
+}
+
+.startupPaw.left {
+  right: -2px;
+  bottom: 28px;
+  transform: rotate(50deg);
+}
+
+.startupPaw.right {
+  right: -76px;
+  bottom: 45px;
+  width: 37px;
+  height: 26px;
+  transform: rotate(2deg);
+}
+
+.startupFoot {
+  position: absolute;
+  left: 35px;
+  bottom: -24px;
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  border-bottom: 5px solid rgba(150, 118, 206, 0.74);
+  border-left: 5px solid rgba(150, 118, 206, 0.74);
+  transform: rotate(-28deg);
+}
+
+.startupPeekLine {
+  position: absolute;
+  left: 36px;
+  bottom: 17px;
+  z-index: 1;
+  width: 36px;
+  height: 30px;
+  border-bottom: 5px solid rgba(150, 118, 206, 0.68);
+  border-left: 5px solid rgba(150, 118, 206, 0.68);
+  border-radius: 0 0 0 26px;
+  opacity: 0.84;
+}
+
+.startupCopy {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.startupCopy strong {
+  color: #111827;
+  font-size: 30px;
+  font-weight: 860;
+  line-height: 1;
+}
+
+.startupCopy span {
+  color: var(--ui-muted);
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+.startupProgress {
+  position: relative;
+  width: 176px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.24)),
+    rgba(110, 93, 150, 0.08);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.78),
+    inset 0 -1px 2px rgba(93, 74, 139, 0.08);
+}
+
+.startupProgress span {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0;
+  width: 58px;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 80% 50%, rgba(255, 255, 255, 0.96) 0 10%, transparent 24%),
+    linear-gradient(90deg, transparent 0%, rgba(170, 116, 242, 0.16) 22%, rgba(155, 114, 231, 0.72) 52%, rgba(72, 209, 188, 0.76) 78%, transparent 100%);
+  filter: drop-shadow(0 0 8px rgba(149, 112, 232, 0.32));
+  animation: startupProgressRun 1.58s cubic-bezier(0.45, 0, 0.18, 1) infinite;
+}
+
+html:not(.startupAnimationsActive) .startupAura,
+html:not(.startupAnimationsActive) .startupAntenna,
+html:not(.startupAnimationsActive) .startupEye,
+html:not(.startupAnimationsActive) .startupProgress span {
+  animation-play-state: paused;
+}
+
+@keyframes startupAuraPulse {
+  0% {
+    transform: scale(0.9) rotate(0deg);
+  }
+
+  100% {
+    transform: scale(1.04) rotate(18deg);
+  }
+}
+
+@keyframes startupAntennaBob {
+  0% {
+    transform: rotate(0deg) translateY(0);
+  }
+
+  50% {
+    transform: rotate(3deg) translateY(-2px);
+  }
+
+  100% {
+    transform: rotate(0deg) translateY(0);
+  }
+}
+
+@keyframes startupBlink {
+  0%,
+  54%,
+  72%,
+  100% {
+    scale: 1 1;
+  }
+
+  62% {
+    scale: 1 0.12;
+  }
+}
+
+@keyframes startupProgressRun {
+  0% {
+    transform: translateX(-58px);
+  }
+
+  100% {
+    transform: translateX(176px);
+  }
+}
+
+@keyframes startupSplashExit {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startupSplash,
+  .startupAura,
+  .startupCard,
+  .startupScreen,
+  .startupSpirit,
+  .startupAntenna,
+  .startupEye,
+  .startupPaw,
+  .startupFoot,
+  .startupProgress span,
+  .saveSuccessToast {
+    animation: none;
+  }
+
+  .startupSplash {
+    opacity: 1;
+  }
+
+  .startupSplash.leaving {
+    opacity: 0;
+  }
+
+  .startupProgress span {
+    transform: translateX(54%);
+  }
+}

@@ -1,0 +1,1109 @@
+/* Apple-style web material pass. This is a web approximation, not Apple platform Liquid Glass. */
+:root {
+  --ui-bg: #f5f7fb;
+  --ui-ink: #111827;
+  --ui-muted: #5f6b7a;
+  --ui-soft: #8a94a3;
+  --ui-line: rgba(30, 41, 59, 0.1);
+  --ui-line-strong: rgba(30, 41, 59, 0.18);
+  --ui-glass: rgba(255, 255, 255, 0.62);
+  --ui-glass-strong: rgba(255, 255, 255, 0.82);
+  --ui-accent: #007aff;
+  --ui-accent-ink: #0057c2;
+  --ui-accent-soft: rgba(0, 122, 255, 0.12);
+  --ui-success: #248a3d;
+  --ui-warning: #b26a00;
+  --ui-danger: #d70015;
+  --ui-radius: 18px;
+  --ui-radius-sm: 12px;
+  --ui-shadow: 0 26px 70px rgba(28, 39, 54, 0.15);
+  --ui-shadow-soft: 0 16px 42px rgba(28, 39, 54, 0.1);
+  --ui-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+html {
+  background: var(--ui-bg);
+}
+
+body {
+  background:
+    radial-gradient(circle at 14% 0%, rgba(255, 255, 255, 0.88), transparent 26%),
+    radial-gradient(circle at 88% 10%, rgba(0, 122, 255, 0.1), transparent 30%),
+    linear-gradient(180deg, #fbfcff 0%, #eef2f8 48%, #f7f8fb 100%);
+  letter-spacing: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  letter-spacing: 0;
+}
+
+.appTopbar {
+  height: 66px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.66);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.58)),
+    rgba(245, 247, 251, 0.72);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: 0 14px 36px rgba(28, 39, 54, 0.08);
+}
+
+.brandBlock {
+  font-weight: 760;
+}
+
+.brandMark {
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  border: 1px solid rgba(169, 139, 222, 0.18);
+  border-radius: 13px;
+  background: rgba(239, 226, 255, 0.5);
+  box-shadow:
+    0 14px 30px rgba(128, 95, 184, 0.16),
+    var(--ui-highlight);
+}
+
+.appNav,
+.statusBlock {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: var(--ui-highlight);
+}
+
+.navButton.active {
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ui-accent-ink);
+  box-shadow:
+    var(--ui-highlight),
+    0 10px 22px rgba(28, 39, 54, 0.1);
+}
+
+.workspace,
+.pageShell {
+  padding: 24px;
+}
+
+.workspace {
+  gap: 16px;
+  padding: 18px;
+}
+
+.workspace.detailsOpen {
+  grid-template-columns: minmax(300px, 0.78fr) minmax(420px, 1.22fr);
+}
+
+.workspace .stagePane {
+  padding: 16px;
+}
+
+.workspace .stageToolbar {
+  margin-bottom: 12px;
+}
+
+.workspace .stageSurface {
+  min-height: 286px;
+}
+
+.workspace .stageLive2dPreview {
+  height: 270px;
+}
+
+.workspace .stageActions {
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.workspace .primaryAction,
+.workspace .secondaryAction {
+  min-height: 36px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.workspace .stageVoiceSummary,
+.workspace .stageThemeSummary {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+}
+
+.workspace .petInfoPanel {
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.workspace .infoLead,
+.workspace .infoText {
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.workspace .sceneList {
+  gap: 6px;
+}
+
+.workspace .scenePill {
+  padding: 5px 9px;
+}
+
+.selectorPane,
+.stagePane,
+.editorTabs,
+.editorPanel,
+.voiceConfigPanel,
+.voiceStatusPanel,
+.editorPetIdentity,
+.settingsRowHeader,
+.voiceConfigCard,
+.stageVoiceSummary,
+.stageThemeSummary,
+.petCard,
+.emptyPets,
+.cropPanel,
+.avatarPreviewDialog,
+.unsavedDialog,
+.voiceConnectPopup,
+.live2dReadyCard,
+.importDropzone,
+.live2dImportSection,
+.live2dPreviewPanel,
+.eventTile,
+.mappingRow,
+.uiThemeCard,
+.resourceItem,
+.featureItem {
+  border-color: rgba(255, 255, 255, 0.72);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.46)),
+    var(--ui-glass);
+  backdrop-filter: blur(32px) saturate(180%) contrast(1.03);
+  -webkit-backdrop-filter: blur(32px) saturate(180%) contrast(1.03);
+  box-shadow:
+    var(--ui-highlight),
+    var(--ui-shadow-soft);
+}
+
+.selectorPane,
+.stagePane,
+.editorPanel,
+.voiceConfigPanel,
+.voiceStatusPanel,
+.editorPageHeader,
+.cropPanel,
+.avatarPreviewDialog,
+.unsavedDialog,
+.voiceConnectPopup {
+  border-radius: var(--ui-radius);
+}
+
+.editorTabs,
+.petCard,
+.createPetHeroButton,
+.stageSurface,
+.live2dReadyCard,
+.importDropzone,
+.live2dImportSection,
+.live2dPreviewPanel,
+.eventTile,
+.mappingRow,
+.uiThemeCard,
+.resourceItem,
+.featureItem,
+.settingsRowHeader,
+.voiceConfigCard,
+.stageVoiceSummary,
+.stageThemeSummary {
+  border-radius: 16px;
+}
+
+.petCard:hover,
+.petCard.selected,
+.uiThemeCard.selected {
+  border-color: rgba(0, 122, 255, 0.3);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(235, 244, 255, 0.58)),
+    rgba(255, 255, 255, 0.68);
+  box-shadow:
+    var(--ui-highlight),
+    0 22px 48px rgba(0, 122, 255, 0.13);
+}
+
+.petCard.selected {
+  transform: translateY(-1px);
+}
+
+.emptyPets {
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.7);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.46)),
+    rgba(255, 255, 255, 0.56);
+}
+
+.avatar,
+.editorPetAvatar,
+.voiceAvatar {
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.86), transparent 34%),
+    linear-gradient(145deg, #69d2ff 0%, #007aff 52%, #5856d6 100%);
+  box-shadow:
+    var(--ui-highlight),
+    0 18px 34px rgba(28, 39, 54, 0.15);
+}
+
+h1,
+h2,
+h3,
+.petName,
+.editorHeaderNav strong,
+.panelTitleRow h2,
+.voiceSectionHeader h2,
+.voiceStatusPanel h2 {
+  color: var(--ui-ink);
+  font-weight: 760;
+}
+
+h1 {
+  font-size: 31px;
+}
+
+h2,
+.panelTitleRow h2,
+.voiceSectionHeader h2,
+.voiceStatusPanel h2 {
+  font-size: 21px;
+}
+
+.eyebrow,
+.editorHeaderNav span {
+  color: var(--ui-soft);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: none;
+}
+
+.pageIntro,
+.petDescription,
+.panelTitleRow p,
+.voiceStatusPanel p,
+.settingsFieldNote,
+.avatarFormatHint,
+.voiceCardHeader p,
+.voiceEnableCopy p,
+.infoText,
+.featureCopy,
+.stageVoiceSummary small,
+.stageThemeSummary small {
+  color: var(--ui-muted);
+}
+
+.countBadge,
+.localBadge,
+.connectionBadge,
+.voiceStatusBadge,
+.activeBadge,
+.draftBadge,
+.featureStatus,
+.scenePill {
+  border-color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--ui-muted);
+}
+
+.connectionBadge.ok,
+.settingsResult.ok,
+.voiceStatusBadge.connected,
+.stageVoiceSummary.ready,
+.featureStatus.ready,
+.featureIcon.ready {
+  background: rgba(232, 248, 238, 0.78);
+  color: var(--ui-success);
+}
+
+.connectionBadge.wait,
+.draftBadge,
+.featureStatus.planned,
+.featureIcon.planned {
+  background: rgba(255, 248, 232, 0.8);
+  color: var(--ui-warning);
+}
+
+.createPetHeroButton {
+  border-color: rgba(0, 122, 255, 0.18);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(235, 244, 255, 0.52)),
+    rgba(255, 255, 255, 0.58);
+  box-shadow:
+    var(--ui-highlight),
+    0 18px 42px rgba(0, 122, 255, 0.1);
+}
+
+.createPetHeroButton:hover {
+  border-color: rgba(0, 122, 255, 0.34);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(225, 240, 255, 0.62)),
+    rgba(255, 255, 255, 0.72);
+}
+
+.createPetHeroIcon,
+.readyIcon,
+.voiceConnectSpinner,
+.voiceConnectSuccess,
+.voiceFileIcon,
+.importDropzoneIcon {
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.72), transparent 34%),
+    linear-gradient(145deg, #1683ff, #0057c2);
+  box-shadow: 0 16px 32px rgba(0, 122, 255, 0.22);
+}
+
+.primaryAction,
+.activateButton {
+  border-color: rgba(0, 87, 194, 0.18);
+  background: linear-gradient(180deg, #1683ff 0%, #007aff 52%, #0062d1 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 14px 30px rgba(0, 122, 255, 0.24);
+}
+
+.primaryAction:hover,
+.activateButton:hover {
+  background: linear-gradient(180deg, #2990ff 0%, #087fff 52%, #006adc 100%);
+}
+
+.primaryAction.danger,
+.activateButton.danger,
+.connectAction.disconnect {
+  border-color: rgba(215, 0, 21, 0.18);
+  background: linear-gradient(180deg, #ff453a 0%, #d70015 100%);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(215, 0, 21, 0.16);
+}
+
+.secondaryAction,
+.iconButton,
+.segment,
+.personaLanguageOption,
+.personaLengthOption,
+.avatarChangeButton,
+.pillAddButton,
+.previewTrigger,
+.inlineFixButton,
+.connectAction,
+.navButton,
+.editorTab,
+.editorSubTab {
+  border-color: rgba(255, 255, 255, 0.68);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.44)),
+    rgba(255, 255, 255, 0.46);
+  color: #2f3c4d;
+  box-shadow:
+    var(--ui-highlight),
+    0 10px 22px rgba(28, 39, 54, 0.07);
+}
+
+.secondaryAction:hover,
+.iconButton:hover,
+.segment:hover,
+.personaLanguageOption:hover,
+.personaLengthOption:hover,
+.avatarChangeButton:hover,
+.pillAddButton:hover,
+.previewTrigger:hover,
+.inlineFixButton:hover,
+.connectAction:hover,
+.editorTab:hover,
+.editorSubTab:hover {
+  border-color: rgba(0, 122, 255, 0.28);
+  color: var(--ui-accent-ink);
+}
+
+.avatarPickerFrame {
+  border: 1px dashed rgba(96, 112, 128, 0.32);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 24px rgba(28, 39, 54, 0.08);
+}
+
+.avatarPickerFrame:hover {
+  border-color: rgba(0, 122, 255, 0.42);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.avatarPickerPlaceholder {
+  border-radius: inherit;
+  color: var(--ui-accent);
+}
+
+.avatarPickerPlaceholder svg {
+  filter: drop-shadow(0 6px 14px rgba(0, 122, 255, 0.18));
+}
+
+.secondaryAction.active,
+.segment.active,
+.previewTrigger.active,
+.personaLengthOption.active,
+.editorSubTab.active {
+  border-color: rgba(0, 122, 255, 0.26);
+  background: rgba(229, 242, 255, 0.76);
+  color: var(--ui-accent-ink);
+}
+
+.editorTab.active {
+  background: linear-gradient(180deg, #2f3b4d, #121923);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 14px 30px rgba(18, 25, 35, 0.18);
+}
+
+.settingsField input,
+.settingsField select,
+.formField input,
+.formField select,
+.formField textarea,
+.eventNumberField input,
+.eventLinesField textarea,
+.eventLineItem textarea,
+.expressionSourceInput,
+.mappingKeySelect,
+.mappingDescriptionInput,
+.personaTextArea,
+.customSceneControl input,
+.petSelect {
+  border-color: rgba(30, 41, 59, 0.11);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.66)),
+    rgba(255, 255, 255, 0.72);
+  color: var(--ui-ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(28, 39, 54, 0.04);
+}
+
+.settingsField input:focus,
+.settingsField select:focus,
+.formField input:focus,
+.formField select:focus,
+.formField textarea:focus,
+.eventNumberField input:focus,
+.eventLinesField textarea:focus,
+.eventLineItem textarea:focus,
+.expressionSourceInput:focus,
+.mappingKeySelect:focus,
+.mappingDescriptionInput:focus,
+.personaTextArea:focus,
+.customSceneControl input:focus,
+.petSelect:focus {
+  border-color: rgba(0, 122, 255, 0.44);
+  box-shadow:
+    0 0 0 4px rgba(0, 122, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.settingsSwitch input:checked + span,
+.voiceToggle input:checked + i {
+  background: linear-gradient(180deg, #1683ff, #007aff);
+  box-shadow: 0 0 0 5px rgba(0, 122, 255, 0.12);
+}
+
+.rangeControl input {
+  accent-color: var(--ui-accent);
+}
+
+.stageSurface {
+  border-color: rgba(255, 255, 255, 0.72);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.86), transparent 24%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.62), rgba(232, 238, 247, 0.56));
+  box-shadow:
+    var(--ui-highlight),
+    inset 0 -18px 48px rgba(28, 39, 54, 0.04);
+}
+
+.subtitlePreview,
+.launchToast {
+  background: rgba(17, 24, 39, 0.78);
+  box-shadow: 0 18px 42px rgba(17, 24, 39, 0.22);
+}
+
+.settingsHint,
+.settingsResult,
+.voiceFileRow {
+  border-color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: var(--ui-highlight);
+}
+
+.appleSelect {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.appleSelect.open {
+  z-index: 320;
+}
+
+.voiceConfigCard:has(.appleSelect.open),
+.voiceEnabledOptions:has(.appleSelect.open) {
+  z-index: 420;
+  overflow: visible;
+}
+
+.appleSelectButton {
+  display: grid;
+  width: 100%;
+  min-height: 40px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(30, 41, 59, 0.11);
+  border-radius: 12px;
+  padding: 0 11px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.66)),
+    rgba(255, 255, 255, 0.72);
+  color: var(--ui-ink);
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 8px 18px rgba(28, 39, 54, 0.04);
+}
+
+.appleSelectButton:hover {
+  border-color: rgba(0, 122, 255, 0.24);
+}
+
+.appleSelectButton:focus-visible,
+.appleSelectButton[aria-expanded="true"] {
+  border-color: rgba(0, 122, 255, 0.44);
+  box-shadow:
+    0 0 0 4px rgba(0, 122, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.appleSelectButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.appleSelectButton svg {
+  color: var(--ui-soft);
+  transition: transform 0.16s ease;
+}
+
+.appleSelectButton[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.appleSelectValue {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llmSettingsForm .appleSelectButton {
+  min-height: 46px;
+}
+
+.llmSettingsForm .appleSelectValue {
+  font-size: 15px;
+}
+
+.appleSelectValue.placeholder {
+  color: #9aa7b4;
+}
+
+.appleSelectMenu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 330;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  max-height: var(--apple-select-menu-max-height, calc((34px * 5) + (4px * 4) + 12px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 14px;
+  padding: 6px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.58)),
+    rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(30px) saturate(180%) contrast(1.03);
+  -webkit-backdrop-filter: blur(30px) saturate(180%) contrast(1.03);
+  box-shadow:
+    var(--ui-highlight),
+    0 22px 48px rgba(28, 39, 54, 0.18);
+  scrollbar-color: rgba(76, 92, 112, 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.appleSelectMenu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.appleSelectMenu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.appleSelectMenu::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(76, 92, 112, 0.32);
+  background-clip: content-box;
+}
+
+.appleSelectMenu::-webkit-scrollbar-thumb:hover {
+  background: rgba(76, 92, 112, 0.48);
+  background-clip: content-box;
+}
+
+.mappingKeyCombobox {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.mappingKeyCombobox.open {
+  z-index: 120;
+}
+
+.mappingKeyCombobox svg {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  color: var(--ui-soft);
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: transform 0.16s ease;
+}
+
+.mappingKeyCombobox.open svg {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.mappingRow:has(.mappingKeyCombobox.open) {
+  z-index: 130;
+}
+
+.mappingKeyMenu {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 0;
+  z-index: 140;
+  display: grid;
+  width: 100%;
+  min-width: 140px;
+  max-height: calc((34px * 5) + (4px * 4) + 12px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 14px;
+  padding: 6px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6)),
+    rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(30px) saturate(180%) contrast(1.03);
+  -webkit-backdrop-filter: blur(30px) saturate(180%) contrast(1.03);
+  box-shadow:
+    var(--ui-highlight),
+    0 22px 48px rgba(28, 39, 54, 0.18);
+  scrollbar-color: rgba(76, 92, 112, 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.mappingKeyMenu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.mappingKeyMenu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mappingKeyMenu::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(76, 92, 112, 0.32);
+  background-clip: content-box;
+}
+
+.mappingKeyMenu::-webkit-scrollbar-thumb:hover {
+  background: rgba(76, 92, 112, 0.48);
+  background-clip: content-box;
+}
+
+.mappingKeyOption {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: transparent;
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: 780;
+  text-align: left;
+}
+
+.mappingKeyOption:hover,
+.mappingKeyOption.selected {
+  background:
+    linear-gradient(135deg, rgba(0, 122, 255, 0.16), rgba(255, 255, 255, 0.52)),
+    rgba(0, 122, 255, 0.1);
+  color: var(--ui-accent);
+}
+
+.eventGrid {
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.eventColumn {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 8px;
+}
+
+.eventSettingsPanel {
+  min-height: 0;
+  max-height: calc(100vh - 156px);
+  overflow: hidden;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.eventSettingsPanel .eventGrid {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-color: rgba(76, 92, 112, 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.eventSettingsPanel .eventGrid::-webkit-scrollbar {
+  width: 8px;
+}
+
+.eventSettingsPanel .eventGrid::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.eventSettingsPanel .eventGrid::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(76, 92, 112, 0.32);
+  background-clip: content-box;
+}
+
+.eventTile {
+  position: relative;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 12px;
+  padding: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(246, 250, 255, 0.62)),
+    rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 16px 34px rgba(28, 39, 54, 0.08);
+}
+
+.eventTile:has(.appleSelect.open) {
+  z-index: 300;
+}
+
+.eventTileHeader {
+  border-bottom: 1px solid rgba(54, 72, 91, 0.08);
+  border-radius: 0;
+  padding: 0 0 7px;
+  background: transparent;
+}
+
+.eventTitleBlock {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.eventTitleBlock strong {
+  color: #17202a;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.eventExpressionSelect .appleSelectButton {
+  min-height: 30px;
+  border-radius: 9px;
+}
+
+.eventExpressionSection {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.eventExpressionSection > span {
+  color: #344255;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.eventExpressionPickerGroup {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  justify-self: stretch;
+}
+
+.eventTimingGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.eventTimingGrid.single {
+  grid-template-columns: minmax(150px, 0.5fr);
+}
+
+.eventNumberField {
+  grid-template-columns: minmax(0, 1fr) 62px auto;
+  min-height: 32px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.eventNumberField span {
+  color: #344255;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.eventNumberField input {
+  height: 28px;
+  border-radius: 9px;
+  text-align: center;
+}
+
+.eventLinesField {
+  gap: 5px;
+  border: 1px solid rgba(54, 72, 91, 0.1);
+  border-radius: 10px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.eventLinesHeader {
+  padding-bottom: 0;
+}
+
+.eventLinesHeader > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #344255;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.eventLinesHeader > span em {
+  min-height: 20px;
+  border: 1px solid rgba(54, 72, 91, 0.1);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: rgba(246, 250, 255, 0.72);
+  color: #687789;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.eventLineList {
+  align-content: start;
+}
+
+.eventLineItem {
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+}
+
+.eventLineItem textarea {
+  min-height: 30px;
+  border-radius: 9px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.eventAddLineButton,
+.eventRemoveLineButton {
+  border-color: rgba(54, 72, 91, 0.11);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.62)),
+    rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+@media (max-width: 920px) {
+  .eventGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .eventColumn {
+    display: contents;
+  }
+}
+
+.appleSelectOption {
+  display: grid;
+  width: 100%;
+  min-height: 34px;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 9px;
+  background: transparent;
+  color: #2f3c4d;
+  font-size: 13px;
+  font-weight: 760;
+  text-align: left;
+}
+
+.appleSelectOption span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appleSelectOption:hover {
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--ui-accent-ink);
+}
+
+.appleSelectOption.selected {
+  background: rgba(0, 122, 255, 0.14);
+  color: var(--ui-accent-ink);
+}
+
+.appleSelectOption svg {
+  justify-self: end;
+}
+
+.appleSelectOption:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.eventExpressionSelect {
+  width: 100%;
+  min-width: 0;
+}
+
+.editorHeaderNav {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.editorHeaderCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.editorHeaderCopy strong {
+  color: var(--ui-ink);
+  font-size: 16px;
+  font-weight: 820;
+  line-height: 1.15;
+  text-transform: none;
+}
+
+.editorHeaderCopy small {
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.editorBackButton {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  padding: 0;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.9), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(232, 241, 250, 0.58)),
+    rgba(255, 255, 255, 0.62);
+  color: #2f3c4d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.34),
+    0 12px 24px rgba(28, 39, 54, 0.1);
+  transition:
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.editorBackButton:hover {
+  border-color: rgba(0, 122, 255, 0.28);
+  color: var(--ui-accent-ink);
+  transform: translateX(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 14px 28px rgba(0, 122, 255, 0.12);
+}
+
+.editorBackButton:active {
+  transform: translateX(-1px) scale(0.97);
+}
+
+.editorPanel,
+.voiceConfigPanel,
+.voiceStatusPanel,
+.settingsRowHeader,
+.voiceConfigCard,
+.eventTile,
+.mappingRow,
+.uiThemeCard,
+.resourceItem {
+  overflow: visible;
+}
+

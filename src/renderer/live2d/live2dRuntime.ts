@@ -82,6 +82,45 @@ const previewFitScale = 0.9;
 const bottomPaddingRatio = 0.02;
 const previewPaddingRatio = 0.05;
 const lookSmoothing = 12;
+const cubismCoreReadyTimeoutMs = 10_000;
+const cubismCoreReadyPollMs = 16;
+
+export function isLive2DCubismCoreReady(
+  getVersion: () => number = () => Live2DCubismCore.Version.csmGetVersion()
+): boolean {
+  try {
+    return Number.isFinite(getVersion());
+  } catch {
+    // The Core script creates its global before its async Emscripten runtime is ready.
+    return false;
+  }
+}
+
+function waitForLive2DCubismCoreReady(): Promise<void> {
+  if (isLive2DCubismCoreReady()) {
+    return Promise.resolve();
+  }
+
+  const deadline = window.performance.now() + cubismCoreReadyTimeoutMs;
+
+  return new Promise((resolve, reject) => {
+    const poll = (): void => {
+      if (isLive2DCubismCoreReady()) {
+        resolve();
+        return;
+      }
+
+      if (window.performance.now() >= deadline) {
+        reject(new Error("Live2D Cubism Core did not finish initializing."));
+        return;
+      }
+
+      window.setTimeout(poll, cubismCoreReadyPollMs);
+    };
+
+    poll();
+  });
+}
 
 function normalizeLive2DId(id: string): string {
   return id.replace(/[\s_-]/g, "").toLowerCase();
@@ -151,7 +190,9 @@ export function loadLive2DRuntime(): Promise<void> {
 
       return loadScript(resolveRuntimeUrl());
     })
-    .then(() => {
+    .then(async () => {
+      await waitForLive2DCubismCoreReady();
+
       if (!CubismFramework.isStarted()) {
         const option = new Option();
         option.loggingLevel = import.meta.env.DEV
@@ -333,19 +374,22 @@ export class CubismLive2DModel {
     this.onHit = options.onHit;
     this.onError = options.onError;
 
+    // Cubism's bundled WebGL shaders use GLSL ES 1.00 (`attribute`, `varying`,
+    // `gl_FragColor` and `texture2D`). They therefore must compile against a
+    // WebGL 1 context; requesting WebGL 2 first makes modern GPUs reject them.
     const gl =
-      this.canvas.getContext("webgl2", {
-        alpha: true,
-        antialias: false,
-        premultipliedAlpha: true,
-        preserveDrawingBuffer: false
-      }) ??
       this.canvas.getContext("webgl", {
         alpha: true,
         antialias: false,
         premultipliedAlpha: true,
         preserveDrawingBuffer: false
-      });
+      }) ??
+      this.canvas.getContext("experimental-webgl", {
+        alpha: true,
+        antialias: false,
+        premultipliedAlpha: true,
+        preserveDrawingBuffer: false
+      }) as WebGLRenderingContext | null;
 
     if (!gl) {
       throw new Error("WebGL is not available.");

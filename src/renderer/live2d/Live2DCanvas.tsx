@@ -48,6 +48,14 @@ interface Live2DCanvasProps {
 type LoadState = "idle" | "loading" | "ready" | "error";
 type ExpressionPriority = "low" | "normal" | "high";
 
+function getLive2DLoadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim().slice(0, 220);
+  }
+
+  return "请检查模型资源和图形驱动。";
+}
+
 interface ForcedParameter {
   id: string;
   value: number;
@@ -150,6 +158,7 @@ export function Live2DCanvas({
   const explodeEventReplayGuardRef = useRef(new PreviewActionReplayGuard());
   const neutralResetFramesRef = useRef<NeutralResetFrames | undefined>();
   const [loadState, setLoadState] = useState<LoadState>(modelPath ? "loading" : "idle");
+  const [loadErrorMessage, setLoadErrorMessage] = useState<string | undefined>();
 
   useLayoutEffect(() => {
     previewActionRef.current = previewAction;
@@ -473,6 +482,7 @@ export function Live2DCanvas({
     window.clearTimeout(resetTimerRef.current);
     clearForcedEffects();
     setLoadState("loading");
+    setLoadErrorMessage(undefined);
 
     const isCurrentLoad = (): boolean => !disposed && loadSequenceRef.current === loadSequence;
 
@@ -493,6 +503,7 @@ export function Live2DCanvas({
           onError: (error) => {
             console.error("Live2D runtime error", error);
             if (isCurrentLoad()) {
+              setLoadErrorMessage(getLive2DLoadErrorMessage(error));
               setLoadState("error");
               onModelErrorRef.current?.();
             }
@@ -556,6 +567,7 @@ export function Live2DCanvas({
 
         console.error("Failed to load Live2D model", error);
 
+        setLoadErrorMessage(getLive2DLoadErrorMessage(error));
         setLoadState("error");
         onModelErrorRef.current?.();
       });
@@ -609,6 +621,7 @@ export function Live2DCanvas({
         <div className="live2dError">
           <span>{fallbackText}</span>
           <strong>模型加载失败</strong>
+          {loadErrorMessage ? <small>{loadErrorMessage}</small> : null}
         </div>
       ) : null}
     </div>

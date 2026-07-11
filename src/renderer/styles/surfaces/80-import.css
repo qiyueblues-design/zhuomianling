@@ -1,0 +1,390 @@
+/* Import surfaces: compact product UI for local files and model folders. */
+.themeImportOverlay {
+  background: rgba(17, 24, 39, 0.38);
+}
+
+.themeImportDialog {
+  width: min(560px, calc(100vw - 48px));
+  gap: 16px;
+  border-color: rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  padding: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98)),
+    #fff;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.2);
+}
+
+.themeImportHeader {
+  align-items: center;
+}
+
+.themeImportHeader h3 {
+  font-size: 19px;
+  font-weight: 780;
+  letter-spacing: 0;
+}
+
+.themeImportHeader p {
+  max-width: 420px;
+  color: #64748b;
+  font-weight: 650;
+}
+
+.themeImportIcon {
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  border-radius: 12px;
+  background: #eef6ff;
+  color: #0f67c6;
+}
+
+.themeImportContent {
+  display: grid;
+  gap: 10px;
+}
+
+.themeImportPicker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.importFileMark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, #f8fbff, #eef6ff);
+  color: #0f67c6;
+}
+
+.importFileMark em {
+  margin-top: -8px;
+  color: #2563eb;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+}
+
+.themeImportPicker strong,
+.importDropzoneCopy strong {
+  display: block;
+  color: #17202a;
+  font-size: 15px;
+  font-weight: 780;
+}
+
+.themeImportPicker span,
+.importDropzoneCopy span {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.importDropzoneMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.importDropzoneMeta span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: rgba(248, 250, 252, 0.92);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.importDropzoneMeta svg {
+  color: #0f67c6;
+}
+
+.importStepList {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.importStep {
+  justify-content: flex-start;
+  border-color: rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  padding: 0 12px;
+  background: rgba(248, 250, 252, 0.78);
+  color: #64748b;
+  font-weight: 760;
+}
+
+.importStep.active {
+  border-color: rgba(37, 99, 235, 0.22);
+  background: rgba(239, 246, 255, 0.9);
+  color: #0f67c6;
+}
+
+.importDropzone {
+  min-height: auto;
+  place-items: stretch;
+  gap: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 16px;
+  padding: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(248, 251, 255, 0.72)),
+    rgba(255, 255, 255, 0.66);
+  color: #475569;
+  text-align: left;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 14px 34px rgba(15, 23, 42, 0.07);
+}
+
+.importDropzone.dragging {
+  border-color: rgba(37, 99, 235, 0.5);
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.94), rgba(255, 255, 255, 0.82)),
+    #fff;
+  box-shadow:
+    0 0 0 4px rgba(37, 99, 235, 0.1),
+    0 16px 36px rgba(37, 99, 235, 0.12);
+}
+
+.importDropzonePrimary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.importDropzoneIcon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, #f8fbff, #eef6ff);
+  color: #0f67c6;
+  box-shadow: none;
+}
+
+.importDropzoneMeta {
+  padding-left: 66px;
+}
+
+.importDropzone .primaryAction,
+.themeImportPicker .primaryAction {
+  min-height: 38px;
+  border-radius: 12px;
+  padding: 0 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 10px 22px rgba(0, 122, 255, 0.16);
+}
+
+.selectorGuideStage {
+  display: grid;
+  min-height: calc(100dvh - 132px);
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  padding: 28px;
+  text-align: center;
+}
+
+.selectorGuideVisual {
+  position: relative;
+  display: grid;
+  width: min(320px, 100%);
+  aspect-ratio: 1.48;
+  place-items: center;
+}
+
+.selectorGuideScreen {
+  display: grid;
+  width: 76%;
+  height: 64%;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 244, 255, 0.72)),
+    rgba(255, 255, 255, 0.7);
+  color: #7d6ac7;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 22px 56px rgba(15, 23, 42, 0.1);
+}
+
+.selectorGuidePet {
+  position: absolute;
+  right: 12%;
+  bottom: 13%;
+  display: grid;
+  width: 70px;
+  height: 70px;
+  place-items: center;
+  border: 1px solid rgba(125, 106, 199, 0.2);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.86), transparent 34%),
+    linear-gradient(145deg, #d8cff8 0%, #9b8ae1 56%, #67c4b4 100%);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 18px 36px rgba(105, 86, 168, 0.2);
+}
+
+.createPetHeroButton {
+  border-color: rgba(125, 106, 199, 0.18);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(247, 244, 255, 0.56)),
+    rgba(255, 255, 255, 0.6);
+  color: #574f78;
+  box-shadow:
+    var(--ui-highlight),
+    0 18px 42px rgba(105, 86, 168, 0.08);
+}
+
+.createPetHeroButton:hover {
+  border-color: rgba(125, 106, 199, 0.32);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(241, 237, 255, 0.68)),
+    rgba(255, 255, 255, 0.74);
+}
+
+.editorPetAvatar,
+.createPetHeroIcon {
+  border: 1px solid rgba(125, 106, 199, 0.18);
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.82), transparent 34%),
+    linear-gradient(145deg, #d8cff8 0%, #9b8ae1 56%, #67c4b4 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 16px 30px rgba(105, 86, 168, 0.18);
+}
+
+.selectorGuideCopy {
+  display: grid;
+  max-width: 420px;
+  gap: 8px;
+}
+
+.selectorGuideCopy h2 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 23px;
+  font-weight: 780;
+}
+
+.selectorGuideCopy p {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.62;
+}
+
+.selectorGuideActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.selectorGuideHint {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(248, 250, 252, 0.82);
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+@media (max-width: 760px) {
+  .voiceRuntimeGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .themeImportPicker,
+  .importDropzonePrimary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .themeImportPicker .primaryAction,
+  .importDropzone .primaryAction {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .importDropzoneMeta {
+    padding-left: 0;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .selectorPane,
+  .stagePane,
+  .editorTabs,
+  .editorPanel,
+  .voiceConfigPanel,
+  .voiceStatusPanel,
+  .editorPetIdentity,
+  .settingsRowHeader,
+  .voiceConfigCard,
+  .stageVoiceSummary,
+  .stageThemeSummary,
+  .petCard,
+  .emptyPets,
+  .cropPanel,
+  .avatarPreviewDialog,
+  .unsavedDialog,
+  .voiceConnectPopup,
+  .live2dReadyCard,
+  .importDropzone,
+  .live2dImportSection,
+  .live2dPreviewPanel,
+  .eventTile,
+  .mappingRow,
+  .uiThemeCard,
+  .resourceItem,
+  .featureItem,
+  .appTopbar,
+  .appleSelectMenu,
+  .mappingKeyMenu,
+  .startupCard,
+  .saveSuccessToast {
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

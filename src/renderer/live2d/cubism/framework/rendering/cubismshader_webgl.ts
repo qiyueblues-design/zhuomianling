@@ -201,16 +201,23 @@ export class CubismShader_WebGL {
 
     this._blendShaderSetMap = new Map<string, number>();
 
+    // Normal + Over reuses the ordinary premultiplied-alpha shaders and is
+    // deliberately skipped by registerBlendShader(). Do not reserve three
+    // unreachable slots for that combination: generateShaders() validates
+    // every reserved slot after the asynchronous shader load completes.
+    const generatedBlendCombinationCount =
+      (this._colorBlendValues.length - 3) *
+        (this._alphaBlendValues.length - 1) -
+      1;
     this._shaderCount =
       ShaderNames.ShaderNames_ShaderCount +
       1 +
-      (this._colorBlendValues.length - 3) *
-        (this._alphaBlendValues.length - 1) *
-        3;
+      generatedBlendCombinationCount * ShaderType.ShaderType_Count;
     // シェーダーの数 =
     // (マスク生成用 + (通常用 + 加算 + 乗算) * (マスク無の乗算済アルファ対応版 + マスク有の乗算済アルファ対応版 + マスク有反転の乗算済アルファ対応版))
     // + 1（コピー用のシェーダー）
-    // + カラーブレンドの数（後方互換とNone除く） * アルファブレンドの数（None除く） * （通常 + マスク + 反転マスク）
+    // + (カラーブレンドの数（後方互換とNone除く） * アルファブレンドの数（None除く）
+    //   - 既存シェーダーを再利用する Normal + Over) * （通常 + マスク + 反転マスク）
 
     this._defaultShaderPath = '../../Framework/Shaders/WebGL/';
     this._shaderPath = this._defaultShaderPath;

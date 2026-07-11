@@ -1339,7 +1339,7 @@ function VoicePanel({
             icon={<FileAudio size={18} />}
             title="参考音频"
             fileName={draft.referenceAudioPath}
-            hint="干净单句或短句参考音频"
+            hint="干净的参考音频，时长 3–10 秒"
             onPick={() => void pickVoiceFile("referenceAudio")}
           />
         </div>

@@ -1,0 +1,438 @@
+/* Basic information, avatar editing, form fields, and layout controls. */
+.formGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.basicEditorLayout {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.avatarEditorColumn {
+  display: grid;
+  gap: 9px;
+}
+
+.avatarPickerFrame {
+  display: grid;
+  width: 112px;
+  height: 112px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 8px;
+  padding: 0;
+  background: #f8fafc;
+  box-shadow: 0 10px 22px rgba(23, 32, 42, 0.08);
+}
+
+.avatarPickerFrame:hover {
+  border-color: rgba(38, 132, 255, 0.42);
+  background: #f4f9ff;
+}
+
+.avatarPickerFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarPickerPlaceholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: #2684ff;
+}
+
+.avatarFormatHint {
+  margin: 0;
+  color: #8b98a7;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.avatarChangeButton {
+  justify-self: start;
+  min-height: 31px;
+  border: 1px solid rgba(38, 132, 255, 0.22);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #f4f9ff;
+  color: #1766c2;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.avatarChangeButton:hover {
+  border-color: rgba(38, 132, 255, 0.42);
+  background: #eaf3ff;
+}
+
+.cropOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  padding: 24px;
+  background: rgba(23, 32, 42, 0.22);
+}
+
+.avatarPreviewOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  border-radius: inherit;
+  background: rgba(23, 32, 42, 0.28);
+}
+
+.avatarPreviewDialog {
+  display: grid;
+  width: min(460px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  gap: 14px;
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 58px rgba(23, 32, 42, 0.22);
+}
+
+.avatarPreviewHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.avatarPreviewHeader h2 {
+  margin: 0;
+  color: #17202a;
+  font-size: 18px;
+}
+
+.avatarPreviewHeader p {
+  margin: 4px 0 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.avatarPreviewImageFrame {
+  display: grid;
+  min-height: 220px;
+  max-height: min(520px, calc(100vh - 170px));
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, rgba(237, 242, 247, 0.86) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(237, 242, 247, 0.86) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(237, 242, 247, 0.86) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(237, 242, 247, 0.86) 75%),
+    #fff;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+}
+
+.avatarPreviewImageFrame img {
+  display: block;
+  max-width: 100%;
+  max-height: min(480px, calc(100vh - 196px));
+  object-fit: contain;
+}
+
+.cropPanel {
+  display: grid;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 32px);
+  gap: 16px;
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 8px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 24px 58px rgba(23, 32, 42, 0.22);
+  overscroll-behavior: contain;
+}
+
+.unsavedOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 32, 42, 0.34);
+}
+
+.unsavedDialog {
+  display: grid;
+  width: min(440px, calc(100vw - 48px));
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  border: 1px solid rgba(23, 32, 42, 0.12);
+  border-radius: 8px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 60px rgba(23, 32, 42, 0.22);
+}
+
+.unsavedIcon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  background: #fff4df;
+  color: #a15c07;
+}
+
+.unsavedText {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.unsavedText h2 {
+  margin: 0;
+  color: #17202a;
+  font-size: 18px;
+}
+
+.unsavedText p {
+  margin: 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.deletePetDialog {
+  width: min(460px, calc(100vw - 48px));
+}
+
+.deletePetIcon {
+  background: #fff1f0;
+  color: #b42318;
+}
+
+.deletePetText {
+  gap: 9px;
+}
+
+.deletePetName {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 30px;
+  align-items: center;
+  border: 1px solid rgba(180, 35, 24, 0.12);
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: rgba(255, 241, 240, 0.7);
+  color: #9f1f17;
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.unsavedActions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.cropPreviewStage {
+  position: relative;
+  contain: layout paint;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, #edf2f7 25%, transparent 25%),
+    linear-gradient(-45deg, #edf2f7 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #edf2f7 75%),
+    linear-gradient(-45deg, transparent 75%, #edf2f7 75%),
+    #fff;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.cropImageBounds {
+  position: relative;
+}
+
+.cropImageBounds img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cropFrame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 2px solid #2684ff;
+  cursor: grab;
+  box-shadow:
+    0 0 0 999px rgba(23, 32, 42, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+  pointer-events: auto;
+  touch-action: none;
+  will-change: transform, width, height;
+}
+
+.cropFrame:active {
+  cursor: grabbing;
+}
+
+.cropHint {
+  margin: 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.avatarNameField input {
+  width: 168px;
+}
+
+.basicTextFields {
+  gap: 10px;
+}
+
+.basicTextFields .formField {
+  gap: 5px;
+}
+
+.basicTextFields .formField textarea {
+  height: 54px;
+  min-height: 54px;
+  padding: 7px 10px;
+  line-height: 1.35;
+}
+
+.formGrid.twoColumns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.llmConfigPanel {
+  align-content: start;
+}
+
+.llmSettingsForm {
+  max-width: 680px;
+}
+
+.llmSettingsForm .settingsField input,
+.llmSettingsForm .settingsField select {
+  min-height: 46px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.llmSettingsActions {
+  margin-top: 2px;
+}
+
+.formGrid.threeColumns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.formField {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  color: #344255;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.formField.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.formField input,
+.formField select,
+.formField textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(23, 32, 42, 0.12);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #fff;
+  color: #17202a;
+  outline: none;
+}
+
+.formField textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.formField input:focus,
+.formField select:focus,
+.formField textarea:focus {
+  border-color: rgba(38, 132, 255, 0.58);
+  box-shadow: 0 0 0 3px rgba(38, 132, 255, 0.14);
+}
+
+.formField input::placeholder,
+.formField textarea::placeholder {
+  color: #9aa7b4;
+  font-weight: 700;
+}
+
+.filePickRow,
+.positionInputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.positionInputs {
+  grid-template-columns: 1fr 1fr auto;
+}
+
+.positionInputs.labeled {
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.positionInputs.labeled span {
+  color: #607080;
+  font-size: 12px;
+  font-weight: 900;
+}

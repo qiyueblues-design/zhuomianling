@@ -1,0 +1,30 @@
+/* Global reset and native control defaults. */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 800px;
+  min-height: 540px;
+  background:
+    linear-gradient(135deg, rgba(41, 128, 185, 0.12), transparent 32%),
+    linear-gradient(315deg, rgba(39, 174, 96, 0.12), transparent 30%),
+    #f6f7f9;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}

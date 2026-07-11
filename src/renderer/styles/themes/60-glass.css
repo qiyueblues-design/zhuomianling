@@ -1,0 +1,1027 @@
+/* Glass UI redesign, web approximation using backdrop-filter. */
+:root {
+  --ui-bg: #eef3f7;
+  --ui-ink: #15202b;
+  --ui-muted: #627083;
+  --ui-soft: #7b8798;
+  --ui-line: rgba(54, 72, 91, 0.13);
+  --ui-line-strong: rgba(54, 72, 91, 0.2);
+  --ui-glass: rgba(255, 255, 255, 0.62);
+  --ui-glass-strong: rgba(255, 255, 255, 0.78);
+  --ui-accent: #2468d8;
+  --ui-accent-ink: #174eaa;
+  --ui-accent-soft: rgba(36, 104, 216, 0.12);
+  --ui-success: #16834f;
+  --ui-warning: #a05a00;
+  --ui-danger: #bd3028;
+  --ui-radius: 14px;
+  --ui-radius-sm: 10px;
+  --ui-shadow: 0 22px 60px rgba(38, 50, 65, 0.14);
+  --ui-shadow-soft: 0 14px 34px rgba(38, 50, 65, 0.1);
+  --ui-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  color: var(--ui-ink);
+  background: var(--ui-bg);
+  font-family:
+    "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  color: var(--ui-ink);
+  background:
+    radial-gradient(circle at 8% 10%, rgba(89, 151, 211, 0.2), transparent 30%),
+    radial-gradient(circle at 92% 12%, rgba(79, 190, 169, 0.16), transparent 28%),
+    linear-gradient(145deg, #f6f8fb 0%, #e8eff5 48%, #f8f3f7 100%);
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+input,
+select,
+textarea {
+  color: var(--ui-ink);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #96a2b1;
+}
+
+.appShell {
+  min-height: 100dvh;
+}
+
+.appTopbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 70px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.54);
+  padding: 0 30px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.48)),
+    rgba(247, 250, 252, 0.68);
+  backdrop-filter: blur(26px) saturate(170%);
+  -webkit-backdrop-filter: blur(26px) saturate(170%);
+  box-shadow: 0 14px 34px rgba(42, 55, 71, 0.08);
+}
+
+.brandBlock {
+  gap: 13px;
+  color: #101923;
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.brandMark {
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid rgba(169, 139, 222, 0.18);
+  border-radius: 14px;
+  background: rgba(239, 226, 255, 0.5);
+  box-shadow:
+    0 14px 30px rgba(128, 95, 184, 0.16),
+    var(--ui-highlight);
+}
+
+.statusBlock {
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ui-muted);
+  font-size: 13px;
+  font-weight: 750;
+  box-shadow: var(--ui-highlight);
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  background: #9aa7b5;
+}
+
+.statusDot.online {
+  background: var(--ui-success);
+  box-shadow: 0 0 0 5px rgba(22, 131, 79, 0.13);
+}
+
+.workspace,
+.pageShell {
+  gap: 18px;
+  padding: 22px;
+}
+
+.workspace {
+  grid-template-columns: minmax(380px, 640px);
+}
+
+.workspace.detailsOpen {
+  grid-template-columns: minmax(330px, 0.82fr) minmax(420px, 1.18fr);
+}
+
+.selectorPane,
+.stagePane,
+.editorTabs,
+.editorPanel,
+.voiceConfigPanel,
+.voiceStatusPanel,
+.editorPetIdentity,
+.settingsRowHeader,
+.voiceConfigCard,
+.stageVoiceSummary,
+.stageThemeSummary,
+.petCard,
+.emptyPets,
+.cropPanel,
+.avatarPreviewDialog,
+.unsavedDialog,
+.voiceConnectPopup,
+.live2dReadyCard,
+.importDropzone,
+.live2dImportSection,
+.live2dPreviewPanel,
+.eventTile,
+.mappingRow,
+.uiThemeCard,
+.resourceItem,
+.featureItem {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.42)),
+    var(--ui-glass);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  box-shadow:
+    var(--ui-highlight),
+    var(--ui-shadow-soft);
+}
+
+.selectorPane {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.stagePane,
+.editorPanel,
+.voiceConfigPanel,
+.voiceStatusPanel {
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.editorTabs {
+  top: 92px;
+  border-radius: 16px;
+  padding: 9px;
+}
+
+.pageHeader,
+.stageToolbar,
+.sectionHeader {
+  margin-bottom: 14px;
+}
+
+.editorPageHeader {
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.42)),
+    rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  box-shadow: var(--ui-highlight), 0 16px 36px rgba(38, 50, 65, 0.09);
+}
+
+.editorHeaderNav span,
+.eyebrow {
+  color: var(--ui-soft);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.editorHeaderNav strong {
+  color: var(--ui-ink);
+  font-size: 17px;
+}
+
+.editorHeaderNav small,
+.editorPetTitle small,
+.pageIntro,
+.panelTitleRow p,
+.voiceStatusPanel p,
+.settingsFieldNote,
+.avatarFormatHint,
+.voiceCardHeader p,
+.voiceEnableCopy p {
+  color: var(--ui-muted);
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.08;
+}
+
+h2,
+.panelTitleRow h2,
+.voiceSectionHeader h2,
+.voiceStatusPanel h2 {
+  color: var(--ui-ink);
+  font-size: 21px;
+  line-height: 1.12;
+}
+
+h3 {
+  color: var(--ui-ink);
+}
+
+.countBadge,
+.localBadge,
+.connectionBadge,
+.voiceStatusBadge,
+.activeBadge,
+.draftBadge,
+.featureStatus,
+.scenePill {
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ui-muted);
+  box-shadow: var(--ui-highlight);
+}
+
+.countBadge,
+.localBadge,
+.connectionBadge,
+.voiceStatusBadge {
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.connectionBadge.ok,
+.settingsResult.ok,
+.voiceStatusBadge.connected,
+.stageVoiceSummary.ready,
+.featureStatus.ready,
+.featureIcon.ready {
+  background: rgba(228, 247, 237, 0.72);
+  color: var(--ui-success);
+}
+
+.connectionBadge.wait,
+.settingsResult.error,
+.draftBadge,
+.featureStatus.planned,
+.featureIcon.planned {
+  background: rgba(255, 246, 229, 0.72);
+  color: var(--ui-warning);
+}
+
+.settingsResult.error {
+  background: rgba(255, 239, 237, 0.74);
+  color: var(--ui-danger);
+}
+
+.selectorSummary {
+  margin-bottom: 0;
+}
+
+.petGrid {
+  gap: 12px;
+}
+
+.petCard {
+  min-height: 108px;
+  border-radius: 16px;
+  padding: 12px;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.petCard:hover {
+  border-color: rgba(36, 104, 216, 0.28);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.56)),
+    rgba(255, 255, 255, 0.66);
+  box-shadow:
+    var(--ui-highlight),
+    0 22px 46px rgba(36, 104, 216, 0.13);
+  transform: translateY(-2px);
+}
+
+.petCard.selected {
+  border-color: rgba(36, 104, 216, 0.48);
+  background:
+    linear-gradient(135deg, rgba(235, 244, 255, 0.9), rgba(255, 255, 255, 0.56)),
+    rgba(255, 255, 255, 0.68);
+  box-shadow:
+    var(--ui-highlight),
+    0 22px 52px rgba(36, 104, 216, 0.17);
+}
+
+.avatar,
+.editorPetAvatar,
+.voiceAvatar,
+.avatarPickerFrame {
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.82), transparent 34%),
+    linear-gradient(145deg, #5ec5d2 0%, #2c69d1 54%, #c7568b 100%);
+  box-shadow: 0 16px 32px rgba(38, 50, 65, 0.16);
+}
+
+.avatar {
+  width: 66px;
+  height: 66px;
+}
+
+.petName {
+  color: var(--ui-ink);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.petDescription {
+  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.createPetHeroButton {
+  min-height: 86px;
+  margin-top: 0;
+  border-color: rgba(36, 104, 216, 0.22);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(36, 104, 216, 0.12), rgba(255, 255, 255, 0.38)),
+    rgba(255, 255, 255, 0.54);
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  box-shadow: var(--ui-highlight), 0 18px 44px rgba(36, 104, 216, 0.12);
+}
+
+.createPetHeroButton:hover {
+  border-color: rgba(36, 104, 216, 0.42);
+  background:
+    linear-gradient(135deg, rgba(36, 104, 216, 0.16), rgba(255, 255, 255, 0.5)),
+    rgba(255, 255, 255, 0.68);
+}
+
+.createPetHeroIcon,
+.readyIcon,
+.voiceConnectSpinner,
+.voiceConnectSuccess,
+.voiceFileIcon,
+.importDropzoneIcon {
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.76), transparent 34%),
+    linear-gradient(145deg, #3e8be4, #1859b5);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(36, 104, 216, 0.22);
+}
+
+.primaryAction,
+.secondaryAction,
+.activateButton,
+.iconButton,
+.navButton,
+.editorTab,
+.editorSubTab,
+.segment,
+.connectAction,
+.avatarChangeButton,
+.pillAddButton,
+.previewTrigger,
+.inlineFixButton,
+.uiThemeCard,
+.personaLanguageOption,
+.personaLengthOption {
+  border-radius: 12px;
+}
+
+.primaryAction,
+.activateButton {
+  border-color: rgba(21, 72, 158, 0.18);
+  background:
+    linear-gradient(145deg, #2f7de0, #174faa);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 14px 28px rgba(36, 104, 216, 0.22);
+}
+
+.primaryAction:hover,
+.activateButton:hover {
+  background:
+    linear-gradient(145deg, #3d8bea, #1959ba);
+}
+
+.primaryAction.danger,
+.activateButton.danger,
+.connectAction.disconnect {
+  border-color: rgba(189, 48, 40, 0.18);
+  background:
+    linear-gradient(145deg, #e25b50, #b32924);
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(189, 48, 40, 0.16);
+}
+
+.secondaryAction,
+.iconButton,
+.segment,
+.personaLanguageOption,
+.personaLengthOption,
+.avatarChangeButton,
+.pillAddButton,
+.previewTrigger,
+.inlineFixButton,
+.connectAction {
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.4)),
+    rgba(255, 255, 255, 0.46);
+  color: #2e3f55;
+  box-shadow:
+    var(--ui-highlight),
+    0 10px 22px rgba(38, 50, 65, 0.08);
+}
+
+.secondaryAction:hover,
+.iconButton:hover,
+.segment:hover,
+.personaLanguageOption:hover,
+.personaLengthOption:hover,
+.avatarChangeButton:hover,
+.pillAddButton:hover,
+.previewTrigger:hover,
+.inlineFixButton:hover,
+.connectAction:hover {
+  border-color: rgba(36, 104, 216, 0.3);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.52)),
+    rgba(255, 255, 255, 0.62);
+  color: var(--ui-accent-ink);
+}
+
+.secondaryAction.active,
+.segment.active,
+.previewTrigger.active,
+.personaLengthOption.active,
+.editorSubTab.active {
+  border-color: rgba(36, 104, 216, 0.3);
+  background: rgba(226, 239, 255, 0.72);
+  color: var(--ui-accent-ink);
+}
+
+.secondaryAction.dangerText,
+.secondaryAction.danger {
+  color: var(--ui-danger);
+}
+
+.activateButton {
+  width: 92px;
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.activateButton.danger {
+  width: 100px;
+}
+
+.activateButton:disabled,
+.activateButton:disabled:hover {
+  border-color: rgba(96, 112, 128, 0.18);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.58), rgba(236, 242, 248, 0.42)),
+    rgba(236, 242, 248, 0.48);
+  color: var(--ui-soft);
+  box-shadow: var(--ui-highlight);
+  transform: none;
+}
+
+.iconButton {
+  width: 40px;
+  height: 40px;
+}
+
+.stageSurface {
+  min-height: 356px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(255, 255, 255, 0.76), transparent 22%),
+    radial-gradient(circle at 12% 18%, rgba(92, 197, 210, 0.22), transparent 30%),
+    radial-gradient(circle at 92% 6%, rgba(202, 71, 125, 0.16), transparent 28%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.56), rgba(238, 244, 250, 0.5));
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.26);
+}
+
+.stageModelPlaceholder {
+  border-color: rgba(255, 255, 255, 0.62);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.4)),
+    rgba(255, 255, 255, 0.52);
+  box-shadow:
+    var(--ui-highlight),
+    0 18px 38px rgba(38, 50, 65, 0.09);
+}
+
+.stageModelPlaceholder strong {
+  color: var(--ui-ink);
+}
+
+.stageModelPlaceholder small {
+  color: var(--ui-muted);
+}
+
+.stageModelAvatar {
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.82), transparent 34%),
+    linear-gradient(145deg, #5ec5d2 0%, #2c69d1 54%, #c7568b 100%);
+  box-shadow:
+    var(--ui-highlight),
+    0 16px 32px rgba(38, 50, 65, 0.16);
+}
+
+.subtitlePreview {
+  right: 20px;
+  bottom: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.44);
+  border-radius: 999px;
+  background: rgba(21, 32, 43, 0.76);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  font-size: 13px;
+  box-shadow: 0 16px 34px rgba(21, 32, 43, 0.24);
+}
+
+.stageActions {
+  margin: 16px 0 14px;
+}
+
+.stageVoiceSummary,
+.stageThemeSummary {
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.36)),
+    rgba(255, 255, 255, 0.5);
+}
+
+.stageThemeSummary.theme-rock,
+.stageThemeSummary.theme-pixel,
+.stageThemeSummary.theme-journal,
+.stageThemeSummary.theme-cyber,
+.stageThemeSummary.theme-minimal,
+.stageThemeSummary.theme-custom {
+  border-radius: 14px;
+}
+
+.petInfoPanel {
+  border-top-color: rgba(255, 255, 255, 0.54);
+}
+
+.infoLead,
+.featureTitleRow,
+.voiceFileCopy strong,
+.stageVoiceSummary strong,
+.stageThemeSummary strong {
+  color: var(--ui-ink);
+}
+
+.infoText,
+.featureCopy,
+.stageVoiceSummary small,
+.stageThemeSummary small {
+  color: var(--ui-muted);
+}
+
+.scenePill {
+  padding: 7px 11px;
+  font-size: 12px;
+}
+
+.scenePill.selected {
+  border-color: rgba(36, 104, 216, 0.24);
+  background: rgba(226, 239, 255, 0.74);
+  color: var(--ui-accent-ink);
+}
+
+.editorViewShell .pageShell {
+  min-height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.editorLayout {
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.editorShell {
+  grid-template-rows: auto minmax(0, 1fr);
+  font-size: 13px;
+}
+
+.editorTab {
+  min-height: 40px;
+  color: var(--ui-muted);
+}
+
+.editorTab:hover {
+  background: rgba(233, 241, 251, 0.76);
+  color: #26364a;
+}
+
+.editorTab.active {
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.34), transparent 34%),
+    linear-gradient(145deg, #213247, #111a26);
+  color: #fff;
+  box-shadow: 0 12px 26px rgba(21, 32, 43, 0.2);
+}
+
+.editorSubTabs {
+  padding-left: 16px;
+}
+
+.editorSubTab {
+  min-height: 34px;
+  color: var(--ui-muted);
+}
+
+.editorContent {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  max-height: calc(100dvh - 148px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-color: rgba(76, 92, 112, 0.38) transparent;
+  scrollbar-width: thin;
+}
+
+.editorContent::-webkit-scrollbar {
+  width: 8px;
+}
+
+.editorContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editorContent::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(76, 92, 112, 0.32);
+  background-clip: content-box;
+}
+
+.editorContent::-webkit-scrollbar-thumb:hover {
+  background: rgba(76, 92, 112, 0.48);
+  background-clip: content-box;
+}
+
+.editorViewShell .editorTabs {
+  position: sticky;
+  top: 0;
+  max-height: calc(100dvh - 148px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panelTitleRow,
+.voiceSectionHeader,
+.voiceCardHeader {
+  align-items: center;
+}
+
+.panelSubtleNote {
+  color: var(--ui-muted);
+}
+
+.settingsForm,
+.formGrid,
+.speechOptions,
+.speechSettingsBlock,
+.voiceConfigPanel,
+.voiceSection,
+.dialogueSettings,
+.personaEditorPanel,
+.voiceEditorPanel,
+.llmConfigPanel {
+  gap: 16px;
+}
+
+.settingsField,
+.formField,
+.eventNumberField,
+.eventLinesField {
+  color: #26364a;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.settingsField input,
+.settingsField select,
+.formField input,
+.formField select,
+.formField textarea,
+.eventNumberField input,
+.eventLinesField textarea,
+.eventLineItem textarea,
+.expressionSourceInput,
+.mappingKeySelect,
+.mappingDescriptionInput,
+.personaTextArea,
+.customSceneControl input {
+  border: 1px solid rgba(54, 72, 91, 0.13);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.44)),
+    rgba(255, 255, 255, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 8px 20px rgba(38, 50, 65, 0.05);
+}
+
+.settingsField input:focus,
+.settingsField select:focus,
+.formField input:focus,
+.formField select:focus,
+.formField textarea:focus,
+.eventNumberField input:focus,
+.eventLinesField textarea:focus,
+.eventLineItem textarea:focus,
+.expressionSourceInput:focus,
+.mappingKeySelect:focus,
+.mappingDescriptionInput:focus,
+.personaTextArea:focus,
+.customSceneControl input:focus {
+  border-color: rgba(36, 104, 216, 0.44);
+  box-shadow:
+    0 0 0 4px rgba(36, 104, 216, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.settingsHint,
+.settingsResult {
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.46);
+  box-shadow: var(--ui-highlight);
+}
+
+.settingsHint {
+  color: var(--ui-muted);
+}
+
+.settingsRowHeader,
+.voiceConfigCard {
+  border-radius: 15px;
+}
+
+.settingsSwitch span,
+.voiceToggle i {
+  background: rgba(138, 151, 167, 0.48);
+  box-shadow:
+    inset 0 1px 3px rgba(38, 50, 65, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.settingsSwitch input:checked + span,
+.voiceToggle input:checked + i {
+  background: linear-gradient(145deg, #2f7de0, #174faa);
+  box-shadow: 0 0 0 5px rgba(36, 104, 216, 0.12);
+}
+
+.segmentedControl {
+  gap: 8px;
+}
+
+.basicEditorLayout {
+  grid-template-columns: 184px minmax(0, 1fr);
+}
+
+.avatarPickerFrame {
+  width: 124px;
+  height: 124px;
+  border-color: rgba(255, 255, 255, 0.62);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.42)),
+    rgba(255, 255, 255, 0.56);
+}
+
+.avatarPickerPlaceholder {
+  color: var(--ui-accent);
+}
+
+.cropOverlay,
+.avatarPreviewOverlay,
+.unsavedOverlay {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.16), transparent 26%),
+    rgba(26, 38, 52, 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.cropPanel,
+.avatarPreviewDialog,
+.unsavedDialog,
+.voiceConnectPopup {
+  border-radius: 18px;
+}
+
+.cropPreviewStage {
+  border-radius: 14px;
+}
+
+.live2dReadyCard,
+.importDropzone,
+.live2dImportSection,
+.live2dPreviewPanel {
+  border-radius: 16px;
+}
+
+.importStep {
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--ui-muted);
+}
+
+.importStep.active {
+  border-color: rgba(36, 104, 216, 0.28);
+  background: rgba(226, 239, 255, 0.74);
+  color: var(--ui-accent-ink);
+}
+
+.importDropzone.dragging {
+  border-color: rgba(36, 104, 216, 0.5);
+  background:
+    linear-gradient(135deg, rgba(226, 239, 255, 0.86), rgba(255, 255, 255, 0.5)),
+    rgba(255, 255, 255, 0.64);
+}
+
+.resourceChecklist {
+  gap: 10px;
+}
+
+.resourceItem {
+  border-radius: 14px;
+}
+
+.resourceItem.ready {
+  background:
+    linear-gradient(135deg, rgba(228, 247, 237, 0.8), rgba(255, 255, 255, 0.45)),
+    rgba(255, 255, 255, 0.52);
+}
+
+.live2dPreviewStage {
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.66), transparent 24%),
+    linear-gradient(145deg, rgba(226, 239, 255, 0.7), rgba(255, 255, 255, 0.4));
+}
+
+.mappingList,
+.eventGrid,
+.uiThemeGrid,
+.voiceFileList {
+  gap: 12px;
+}
+
+.mappingRow,
+.eventTile,
+.uiThemeCard,
+.voiceFileRow {
+  border-radius: 15px;
+}
+
+.eventTileHeader,
+.sectionMiniHeader,
+.live2dPreviewHeader {
+  color: var(--ui-ink);
+}
+
+.eventTileHeader p,
+.previewEmptyText,
+.mappingScanMessage {
+  color: var(--ui-muted);
+}
+
+.eventTimingGrid,
+.personaPreferenceGrid {
+  gap: 18px;
+}
+
+.uiThemeCard {
+  padding: 12px;
+}
+
+.uiThemeCard.selected {
+  border-color: rgba(36, 104, 216, 0.42);
+  background:
+    linear-gradient(135deg, rgba(226, 239, 255, 0.84), rgba(255, 255, 255, 0.46)),
+    rgba(255, 255, 255, 0.6);
+}
+
+.uiThemePreview {
+  border-radius: 14px;
+}
+
+.personaTextArea {
+  min-height: 220px;
+  line-height: 1.7;
+}
+
+.voiceLayout {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.voiceStatusPanel {
+  top: 92px;
+}
+
+.voiceEnabledOptions {
+  border-color: rgba(255, 255, 255, 0.54);
+  border-radius: 15px;
+  background:
+    linear-gradient(135deg, rgba(228, 247, 237, 0.66), rgba(255, 255, 255, 0.4)),
+    rgba(255, 255, 255, 0.48);
+}
+
+.voiceEnabledOptions.disabled,
+.dialogueSettings.disabled .settingsHint {
+  background: rgba(243, 247, 251, 0.56);
+}
+
+.voiceFileRow {
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: var(--ui-highlight);
+}
+
+.voiceConnectPopup {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.52)),
+    rgba(255, 255, 255, 0.7);
+}
+
+.unsavedIcon {
+  background: rgba(255, 246, 229, 0.76);
+  color: var(--ui-warning);
+}
+
+.launchToast {
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(21, 32, 43, 0.78);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  box-shadow: 0 22px 58px rgba(21, 32, 43, 0.26);
+}
+
+.stageLive2dPreview .live2dLoader,
+.live2dLoader {
+  background: rgba(255, 255, 255, 0.66);
+  border-color: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(16px) saturate(155%);
+  -webkit-backdrop-filter: blur(16px) saturate(155%);
+}
+
+.stageLive2dPreview .live2dError {
+  border-radius: 14px;
+  background: rgba(255, 239, 237, 0.84);
+  backdrop-filter: blur(18px) saturate(155%);
+  -webkit-backdrop-filter: blur(18px) saturate(155%);
+}

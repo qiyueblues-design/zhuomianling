@@ -1,0 +1,9 @@
+/* Foundation tokens. Theme passes later in the cascade intentionally refine them. */
+:root {
+  color: #17202a;
+  background: #f6f7f9;
+  font-family:
+    Inter, "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}

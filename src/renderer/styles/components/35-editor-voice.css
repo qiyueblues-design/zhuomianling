@@ -1,0 +1,449 @@
+/* Voice input/output configuration and connection feedback. */
+.voiceLayout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.voiceStatusPanel {
+  position: sticky;
+  top: 84px;
+  justify-items: center;
+  text-align: center;
+}
+
+.voiceAvatar {
+  display: grid;
+  width: 104px;
+  height: 104px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffb4d1, #55bfc0);
+  color: #fff;
+  font-size: 30px;
+  font-weight: 900;
+  box-shadow: 0 14px 28px rgba(23, 32, 42, 0.14);
+}
+
+.voiceAvatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.statusStack {
+  width: 100%;
+}
+
+.statusRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+  text-align: left;
+}
+
+.statusRow span {
+  color: #607080;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.statusRow strong {
+  color: #52606d;
+  font-size: 13px;
+}
+
+.statusRow strong.ok {
+  color: #24783b;
+}
+
+.statusRow strong.wait {
+  color: #a15c07;
+}
+
+.statusRow strong.off {
+  color: #b42318;
+}
+
+.voiceConfigPanel {
+  gap: 16px;
+}
+
+.voiceSection {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid rgba(23, 32, 42, 0.08);
+  padding-top: 16px;
+}
+
+.dialogueSettings {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid rgba(23, 32, 42, 0.08);
+  padding-top: 16px;
+}
+
+.dialogueSettings.disabled {
+  opacity: 0.56;
+}
+
+.dialogueSettings.disabled .settingsHint {
+  background: #f3f7fb;
+}
+
+.voiceConfigCard {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfdff;
+}
+
+.voiceConfigCard.disabled {
+  opacity: 0.62;
+}
+
+.voiceCardHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.voiceCardHeader > div {
+  display: grid;
+  gap: 5px;
+}
+
+.voiceCardHeader svg {
+  color: #2684ff;
+}
+
+.voiceCardHeader p,
+.voiceEnableCopy p {
+  margin: 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.sectionIconTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voiceServiceRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.voiceServiceActions {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.voiceStatusBadge {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(96, 112, 128, 0.22);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #f3f7fb;
+  color: #52606d;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.voiceStatusBadge.connected {
+  border-color: rgba(36, 120, 59, 0.2);
+  background: #e7f7ed;
+  color: #24783b;
+}
+
+.connectAction {
+  display: inline-flex;
+  height: 40px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  align-self: end;
+  border: 1px solid rgba(38, 132, 255, 0.24);
+  border-radius: 8px;
+  padding: 0 16px;
+  background: #eaf3ff;
+  color: #1766c2;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.connectAction.disconnect {
+  border-color: rgba(217, 45, 32, 0.22);
+  background: #fff0ef;
+  color: #b42318;
+}
+
+.connectAction:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.voiceConnectPopup {
+  position: fixed;
+  z-index: 80;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: min(320px, calc(100vw - 48px));
+  min-height: 150px;
+  place-items: center;
+  gap: 8px;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 70px rgba(23, 32, 42, 0.2);
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+.voiceConnectPopup strong {
+  color: #17202a;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.voiceConnectPopup p {
+  margin: 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.voiceConnectSpinner,
+.voiceConnectSuccess {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.voiceConnectSpinner {
+  background: #eaf3ff;
+  color: #1766c2;
+}
+
+.voiceConnectSpinner svg {
+  animation: voiceConnectSpin 780ms linear infinite;
+}
+
+.voiceConnectSuccess {
+  background: #eaf7ed;
+  color: #24783b;
+}
+
+@keyframes voiceConnectSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.voiceEditorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.voiceFileRow {
+  grid-template-columns: 38px minmax(0, 1fr) minmax(160px, auto) auto;
+}
+
+.voiceFileIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 8px;
+  background: #eaf3ff;
+  color: #1f6feb;
+}
+
+.voiceFileCopy {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.voiceFileCopy strong {
+  color: #17202a;
+}
+
+.voiceFileCopy span {
+  color: #607080;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.voiceFileRow code {
+  overflow: hidden;
+  color: #344255;
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceEnableSection {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.voiceEnableCopy {
+  display: grid;
+  gap: 5px;
+}
+
+.voiceEnableCopy h3 {
+  margin: 0;
+  color: #17202a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.voiceToggle {
+  display: grid;
+  grid-template-columns: auto 56px auto;
+  align-items: center;
+  gap: 9px;
+  color: #52606d;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.voiceToggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.voiceToggle i {
+  position: relative;
+  width: 56px;
+  height: 30px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  box-shadow: inset 0 0 0 1px rgba(23, 32, 42, 0.06);
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.voiceToggle i::after {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 4px 10px rgba(23, 32, 42, 0.16);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.voiceToggle input:checked + i {
+  background: #2f9e44;
+  box-shadow: inset 0 0 0 1px rgba(36, 120, 59, 0.12);
+}
+
+.voiceToggle input:checked + i::after {
+  transform: translateX(26px);
+}
+
+.voiceToggle.disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.voiceToggle.disabled i {
+  background: #d8dee7;
+}
+
+.voiceRuntimeGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.voiceEnabledOptions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  border: 1px solid rgba(47, 158, 68, 0.12);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #f7fcf8;
+}
+
+.voiceEnabledOptions.disabled {
+  border-color: rgba(23, 32, 42, 0.08);
+  background: #f5f7fa;
+  opacity: 0.68;
+}
+
+.voiceOptionToggle {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.voiceOptionToggle.compact {
+  grid-column: auto;
+  min-height: 65px;
+  align-self: end;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.voiceOptionToggle h3 {
+  margin: 0 0 4px;
+  color: #17202a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.voiceOptionToggle p {
+  margin: 0;
+  color: #607080;
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.settingsSwitch.disabled {
+  cursor: not-allowed;
+}
+
+.settingsSwitch.disabled span {
+  background: #d8dee7;
+}

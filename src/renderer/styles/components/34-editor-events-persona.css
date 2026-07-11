@@ -1,0 +1,300 @@
+/* Event binding and persona editor controls. */
+.eventGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.eventTile {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 13px;
+  background: #fff;
+}
+
+.eventTileHeader {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+  border-bottom: 1px solid rgba(23, 32, 42, 0.08);
+  padding-bottom: 9px;
+}
+
+.eventTileHeader strong {
+  color: #17202a;
+}
+
+.eventTileHeader select {
+  min-height: 34px;
+  border: 1px solid rgba(23, 32, 42, 0.12);
+  border-radius: 8px;
+  padding: 0 8px;
+  background: #fff;
+  color: #344255;
+  font-weight: 800;
+}
+
+.eventTileHeader select:disabled {
+  color: #8b98a7;
+  background: #f6f8fb;
+}
+
+.eventTimingGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.eventTimingGrid.single {
+  grid-template-columns: minmax(180px, 0.5fr);
+}
+
+.eventNumberField,
+.eventLinesField {
+  display: grid;
+  gap: 6px;
+  color: #52606d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.eventNumberField {
+  grid-template-columns: minmax(0, 1fr) 74px auto;
+  align-items: center;
+}
+
+.eventExpressionSection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.eventExpressionSection > span {
+  min-width: 0;
+  color: #52606d;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.eventNumberField input,
+.eventLinesField textarea,
+.eventLineItem textarea {
+  border: 1px solid rgba(23, 32, 42, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  color: #17202a;
+  font: inherit;
+  font-weight: 700;
+}
+
+.eventNumberField input {
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+}
+
+.eventNumberField small {
+  color: #8b98a7;
+}
+
+.eventLinesField textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 8px 9px;
+  line-height: 1.45;
+}
+
+.eventLinesHeader,
+.eventLineItem {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.eventLinesHeader {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.eventLineList {
+  display: grid;
+  gap: 8px;
+}
+
+.eventLineItem {
+  grid-template-columns: minmax(0, 1fr) 32px;
+}
+
+.eventLineItem textarea {
+  min-width: 0;
+  min-height: 34px;
+  padding: 8px 10px;
+  resize: none;
+  line-height: 1.35;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.eventAddLineButton,
+.eventRemoveLineButton {
+  display: inline-grid;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #52606d;
+  font-weight: 900;
+}
+
+.eventAddLineButton {
+  grid-template-columns: auto auto;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.eventRemoveLineButton {
+  width: 32px;
+  height: 32px;
+  color: #8b98a7;
+}
+
+.eventAddLineButton:hover,
+.eventRemoveLineButton:hover:not(:disabled) {
+  border-color: rgba(0, 122, 255, 0.24);
+  color: #007aff;
+}
+
+.eventRemoveLineButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.lineStack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.lineChip {
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: #f3f7fb;
+  color: #52606d;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personaTextArea {
+  height: 260px;
+  min-height: 220px;
+  max-height: 260px;
+  font-family: inherit;
+  font-size: 14px;
+  overflow-y: auto;
+}
+
+.personaEditorPanel {
+  gap: 16px;
+}
+
+.panelSubtleNote {
+  margin: 6px 0 0;
+  color: #607080;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.personaPromptField {
+  gap: 10px;
+}
+
+.personaPromptField > span,
+.personaLanguagePicker legend,
+.personaLengthPicker legend {
+  color: #17202a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.personaPreferenceGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.85fr);
+  gap: 34px;
+  align-items: start;
+}
+
+.personaLanguagePicker,
+.personaLengthPicker {
+  display: grid;
+  gap: 9px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.personaLanguageOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.personaLanguageOption,
+.personaLengthOption {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(23, 32, 42, 0.12);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+  color: #344255;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.personaLanguageOption input,
+.personaLengthOption input {
+  width: 14px;
+  height: 14px;
+  accent-color: #2684ff;
+}
+
+.personaLanguagePicker p,
+.personaLengthPicker p {
+  margin: 0;
+  color: #8b98a7;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.personaLengthOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.personaLengthOption:hover {
+  border-color: rgba(38, 132, 255, 0.36);
+  background: #f4f9ff;
+}
+
+.personaLengthOption.active {
+  border-color: rgba(38, 132, 255, 0.58);
+  background: #e8f2ff;
+  color: #1766c2;
+}
