@@ -1,4 +1,9 @@
-import type { PetDefinition } from "../../shared/types/pet";
+import type { LocalPetConfigCorruption, PetDefinition } from "../../shared/types/pet";
+
+export interface AvailablePetsLoadResult {
+  pets: PetDefinition[];
+  corruption?: LocalPetConfigCorruption;
+}
 
 export function hasUsableLive2DModel(pet: PetDefinition): boolean {
   if (!pet.modelPath.trim()) {
@@ -14,8 +19,12 @@ export function hasUsableLive2DModel(pet: PetDefinition): boolean {
   );
 }
 
-export async function loadAvailablePets(): Promise<PetDefinition[]> {
-  const localPets = (await window.desktopPet?.petConfig.listLocal()) ?? [];
+export async function loadAvailablePets(): Promise<AvailablePetsLoadResult> {
+  const result = await window.desktopPet?.petConfig.listLocal();
+  const localPets = result?.pets ?? [];
 
-  return localPets.filter((pet) => pet.isLocal || hasUsableLive2DModel(pet));
+  return {
+    pets: localPets.filter((pet) => pet.isLocal || hasUsableLive2DModel(pet)),
+    corruption: result?.corruption
+  };
 }

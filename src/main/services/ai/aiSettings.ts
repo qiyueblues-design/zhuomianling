@@ -1,5 +1,4 @@
 import { app } from "electron";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -21,6 +20,7 @@ import {
   SecureStorageUnavailableError,
   setSecureString
 } from "../config/secureConfigStore";
+import { writeJsonFileAtomically } from "../config/durableJsonFile";
 
 interface AiSettingsFile {
   version: 2;
@@ -168,20 +168,7 @@ async function readSettingsFile(): Promise<ParsedAiSettingsFile> {
 }
 
 async function writeSettingsFile(settings: AiSettingsFile): Promise<void> {
-  const settingsPath = getSettingsPath();
-  const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;
-  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-
-  try {
-    await fs.writeFile(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600
-    });
-    await fs.rename(temporaryPath, settingsPath);
-  } finally {
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
+  await writeJsonFileAtomically(getSettingsPath(), settings);
 }
 
 function runSettingsMutation<T>(mutation: () => Promise<T>): Promise<T> {

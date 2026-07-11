@@ -212,6 +212,28 @@ describe("AI API key storage", () => {
     expect(legacyContent).toContain("legacy-secret");
   });
 
+  it("keeps legacy AI metadata intact when its atomic rename fails", async () => {
+    await writeLegacySettings();
+    const settingsPath = path.join(temporaryDirectory, "ai-connections.json");
+    const originalContent = await fs.readFile(settingsPath, "utf8");
+    const originalRename = fs.rename.bind(fs);
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (source, target) => {
+      if (path.resolve(String(target)) === path.resolve(settingsPath)) {
+        throw Object.assign(new Error("fixture AI rename failure"), { code: "EIO" });
+      }
+
+      return originalRename(source, target);
+    });
+    const { migrateLegacyAiConnections } = await import("./aiSettings");
+
+    try {
+      await expect(migrateLegacyAiConnections()).rejects.toThrow("fixture AI rename failure");
+      expect(await fs.readFile(settingsPath, "utf8")).toBe(originalContent);
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
+
   it("does not contact the API when a new key cannot be stored safely", async () => {
     electronMock.encryptionAvailable = false;
     const { saveAiConnection } = await import("./aiSettings");

@@ -2,9 +2,25 @@ import { BrowserWindow, screen } from "electron";
 import path from "node:path";
 import type { PetDefinition, PetLineEvent } from "../shared/types/pet";
 import type { DesktopPetPayload, PetWindowDragPoint, PetWindowState } from "../shared/types/window";
+import type { WebContents } from "electron";
+import { hardenWindowNavigation } from "./windowSecurity";
 
 let petWindow: BrowserWindow | null = null;
 let currentPet: DesktopPetPayload | null = null;
+let petWindowOperationGeneration = 0;
+let pendingPetWindowLoad:
+  | {
+      generation: number;
+      window: BrowserWindow;
+      payload: DesktopPetPayload;
+    }
+  | undefined;
+let closeOperation:
+  | {
+      generation: number;
+      promise: Promise<PetWindowState>;
+    }
+  | undefined;
 let clickThrough = false;
 let clickThroughControlInteractive = false;
 let cursorTrackingTimer: NodeJS.Timeout | undefined;
@@ -121,9 +137,12 @@ function enforcePetWindowSize(): void {
 }
 
 function snapshot(): PetWindowState {
+  const visible = Boolean(petWindow && !petWindow.isDestroyed() && petWindow.isVisible());
+
   return {
-    visible: petWindow?.isVisible() ?? false,
-    clickThrough
+    visible,
+    clickThrough,
+    petId: visible ? currentPet?.id : undefined
   };
 }
 
@@ -180,7 +199,7 @@ export function onPetWindowStateChanged(listener: (state: PetWindowState) => voi
 }
 
 function createPetWindow(): BrowserWindow {
-  const preloadPath = path.join(__dirname, "../preload/index.js");
+  const preloadPath = path.join(__dirname, "../preload/pet.js");
   const display = screen.getPrimaryDisplay();
   const x = Math.round(display.workArea.x + display.workArea.width - petWindowWidth - 28);
   const y = Math.round(display.workArea.y + display.workArea.height - petWindowHeight - 28);
@@ -205,14 +224,25 @@ function createPetWindow(): BrowserWindow {
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false
     }
   });
+  hardenWindowNavigation(createdWindow);
 
   createdWindow.on("closed", () => {
+    if (petWindow !== createdWindow) {
+      return;
+    }
+
+    if (pendingPetWindowLoad?.window === createdWindow) {
+      pendingPetWindowLoad = undefined;
+    }
     stopCursorTracking();
     petWindow = null;
-    currentPet = null;
     clickThrough = false;
     clickThroughControlInteractive = false;
     dragStart = null;
@@ -230,11 +260,48 @@ function createPetWindow(): BrowserWindow {
 }
 
 export async function showPetWindow(payload: DesktopPetPayload): Promise<PetWindowState> {
-  currentPet = payload;
+  const generation = ++petWindowOperationGeneration;
   const targetWindow = petWindow ?? createPetWindow();
 
+  pendingPetWindowLoad = {
+    generation,
+    window: targetWindow,
+    payload
+  };
   enforcePetWindowSize();
-  await targetWindow.loadURL(getPetWindowUrl(payload));
+  try {
+    await targetWindow.loadURL(getPetWindowUrl(payload));
+  } catch (error: unknown) {
+    if (
+      pendingPetWindowLoad?.generation === generation &&
+      pendingPetWindowLoad.window === targetWindow
+    ) {
+      pendingPetWindowLoad = undefined;
+    }
+
+    if (
+      generation !== petWindowOperationGeneration ||
+      petWindow !== targetWindow ||
+      targetWindow.isDestroyed()
+    ) {
+      return snapshot();
+    }
+
+    throw error;
+  }
+
+  if (
+    generation !== petWindowOperationGeneration ||
+    petWindow !== targetWindow ||
+    targetWindow.isDestroyed()
+  ) {
+    return snapshot();
+  }
+
+  currentPet = payload;
+  if (pendingPetWindowLoad?.generation === generation) {
+    pendingPetWindowLoad = undefined;
+  }
   applyPetWindowState();
   enforcePetWindowSize();
   targetWindow.show();
@@ -244,13 +311,9 @@ export async function showPetWindow(payload: DesktopPetPayload): Promise<PetWind
   return emitStateChanged();
 }
 
-export function showExistingPetWindow(): PetWindowState {
+export async function showExistingPetWindow(): Promise<PetWindowState> {
   if (!petWindow && currentPet) {
-    void showPetWindow(currentPet);
-    return {
-      visible: true,
-      clickThrough
-    };
+    return showPetWindow(currentPet);
   }
 
   if (petWindow) {
@@ -262,31 +325,61 @@ export function showExistingPetWindow(): PetWindowState {
 }
 
 export async function closePetWindow(options: ClosePetWindowOptions = {}): Promise<PetWindowState> {
-  const playEffect =
-    options.playEffect ?? hasConfiguredPetEvent(currentPet?.definition, "closing");
+  const generation = petWindowOperationGeneration;
   const targetWindow = petWindow;
 
-  if (petWindow && !petWindow.isDestroyed()) {
-    petWindow.setIgnoreMouseEvents(false);
-    if (playEffect) {
-      petWindow.webContents.send("pet-window:play-close-effect");
-      await new Promise((resolve) => setTimeout(resolve, closeEffectDurationMs));
-    }
-    petWindow.destroy();
-  }
-
-  petWindow = null;
-  currentPet = null;
-  clickThrough = false;
-  clickThroughControlInteractive = false;
-  dragStart = null;
-  stopCursorTracking();
-
-  if (!targetWindow) {
+  if (!targetWindow || targetWindow.isDestroyed()) {
     return emitStateChanged();
   }
 
-  return emitStateChanged();
+  if (closeOperation?.generation === generation) {
+    return closeOperation.promise;
+  }
+
+  const playEffect =
+    options.playEffect ?? hasConfiguredPetEvent(currentPet?.definition, "closing");
+  const promise = (async (): Promise<PetWindowState> => {
+    targetWindow.setIgnoreMouseEvents(false);
+
+    if (playEffect) {
+      targetWindow.webContents.send("pet-window:play-close-effect");
+      await new Promise((resolve) => setTimeout(resolve, closeEffectDurationMs));
+    }
+
+    if (
+      generation !== petWindowOperationGeneration ||
+      petWindow !== targetWindow ||
+      targetWindow.isDestroyed()
+    ) {
+      return snapshot();
+    }
+
+    targetWindow.destroy();
+
+    if (petWindow === targetWindow) {
+      stopCursorTracking();
+      petWindow = null;
+      clickThrough = false;
+      clickThroughControlInteractive = false;
+      dragStart = null;
+      return emitStateChanged();
+    }
+
+    return snapshot();
+  })();
+
+  closeOperation = {
+    generation,
+    promise
+  };
+
+  try {
+    return await promise;
+  } finally {
+    if (closeOperation?.promise === promise) {
+      closeOperation = undefined;
+    }
+  }
 }
 
 export function setPetWindowClickThrough(value: boolean): PetWindowState {
@@ -305,17 +398,49 @@ export function getPetWindowState(): PetWindowState {
 }
 
 export function getCurrentPetWindowPayload(): DesktopPetPayload | undefined {
+  if (
+    pendingPetWindowLoad &&
+    pendingPetWindowLoad.generation === petWindowOperationGeneration &&
+    pendingPetWindowLoad.window === petWindow &&
+    !pendingPetWindowLoad.window.isDestroyed()
+  ) {
+    return pendingPetWindowLoad.payload;
+  }
+
   return currentPet ?? undefined;
 }
 
+export function isPetWindowWebContents(sender: WebContents): boolean {
+  return Boolean(petWindow && !petWindow.isDestroyed() && petWindow.webContents === sender);
+}
+
 export function updateCurrentPetWindowPayload(payload: DesktopPetPayload): DesktopPetPayload | undefined {
+  if (pendingPetWindowLoad?.payload.id === payload.id) {
+    pendingPetWindowLoad = {
+      ...pendingPetWindowLoad,
+      payload
+    };
+  }
+
   if (!currentPet || currentPet.id !== payload.id) {
-    return currentPet ?? undefined;
+    return getCurrentPetWindowPayload();
   }
 
   currentPet = payload;
 
   return currentPet;
+}
+
+export function clearCurrentPetWindowPayload(petId?: string): void {
+  if (pendingPetWindowLoad && (!petId || pendingPetWindowLoad.payload.id === petId)) {
+    pendingPetWindowLoad = undefined;
+  }
+
+  if (!currentPet || (petId && currentPet.id !== petId)) {
+    return;
+  }
+
+  currentPet = null;
 }
 
 export function setPetWindowClickThroughControlInteractive(value: boolean): PetWindowState {

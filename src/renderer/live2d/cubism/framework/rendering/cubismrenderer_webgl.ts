@@ -765,26 +765,24 @@ export class CubismRenderer_WebGL extends CubismRenderer {
    * Shaderの読み込みを行う
    * @param shaderPath シェーダのパス
    */
-  public loadShaders(shaderPath: string = null): void {
+  public loadShaders(
+    shaderPath: string = null,
+    signal?: AbortSignal
+  ): Promise<void> {
     if (this.gl == null) {
-      CubismLogError(
+      const error = new Error(
         "'gl' is null. WebGLRenderingContext is required.\nPlease call 'CubimRenderer_WebGL.startUp' function."
       );
-      return;
+      CubismLogError(error.message);
+      return Promise.reject(error);
     }
 
-    if (
-      CubismShaderManager_WebGL.getInstance().getShader(this.gl)._shaderSets
-        .length == 0 ||
-      !CubismShaderManager_WebGL.getInstance().getShader(this.gl)
-        ._isShaderLoaded
-    ) {
-      const shader = CubismShaderManager_WebGL.getInstance().getShader(this.gl);
-      if (shaderPath != null) {
-        shader.setShaderPath(shaderPath);
-      }
-      shader.generateShaders();
+    const shader = CubismShaderManager_WebGL.getInstance().getShader(this.gl);
+    if (shaderPath != null) {
+      shader.setShaderPath(shaderPath);
     }
+
+    return shader.generateShaders(signal);
   }
 
   /**
@@ -792,7 +790,12 @@ export class CubismRenderer_WebGL extends CubismRenderer {
    * @param shaderPath シェーダのパス
    */
   public doDrawModel(shaderPath: string = null): void {
-    this.loadShaders(shaderPath);
+    const shader = CubismShaderManager_WebGL.getInstance().getShader(this.gl);
+    if (!shader._isShaderLoaded) {
+      void this.loadShaders(shaderPath).catch(error => {
+        CubismLogError(`Failed to load shaders: ${String(error)}`);
+      });
+    }
     this.beforeDrawModelRenderTarget();
 
     const lastFbo = this.gl.getParameter(

@@ -1,9 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
-  AiChatRequest,
-  AiChatResponse,
-  AiChatStreamEvent,
-  AiChatStreamStartResult,
   AiConnectionDraft,
   AiModelListResult,
   AiConnectionSaveResult,
@@ -12,8 +8,6 @@ import type {
 import type {
   DesktopPetPayload,
   PetWindowCloseOptions,
-  PetWindowCursorPoint,
-  PetWindowDragPoint,
   PetWindowState
 } from "../shared/types/window";
 import type {
@@ -21,6 +15,7 @@ import type {
   LocalPetAvatarCropSaveRequest,
   LocalPetBasicInfoDraft,
   LocalPetDeleteResult,
+  LocalPetListResult,
   LocalPetEventSettingsDraft,
   LocalPetExpressionMappingDraft,
   LocalPetPersonaDraft,
@@ -35,17 +30,6 @@ import type {
   PetCustomThemeListResult,
   PetDefinition
 } from "../shared/types/pet";
-import type {
-  SpeechStreamAudioChunk,
-  SpeechStreamResultEvent,
-  SpeechStreamStartRequest,
-  SpeechStreamStartResult,
-  SpeechStreamStopRequest,
-  TextToSpeechRequest,
-  TextToSpeechResponse,
-  SpeechToTextRequest,
-  SpeechToTextResponse
-} from "../shared/types/speech";
 import type {
   Live2DFolderScanResult,
   Live2DFolderSelectResult,
@@ -77,7 +61,9 @@ const desktopPetApi = {
     }
   },
   petConfig: {
-    listLocal: () => ipcRenderer.invoke("pet-config:list-local") as Promise<PetDefinition[]>,
+    listLocal: () => ipcRenderer.invoke("pet-config:list-local") as Promise<LocalPetListResult>,
+    restoreBackup: (petId: string) =>
+      ipcRenderer.invoke("pet-config:restore-backup", petId) as Promise<LocalPetSaveResult>,
     listUiThemes: () =>
       ipcRenderer.invoke("pet-config:list-ui-themes") as Promise<PetCustomThemeListResult>,
     importUiTheme: () =>
@@ -137,23 +123,6 @@ const desktopPetApi = {
       ipcRenderer.invoke("live2d-import:scan-preview-sources", folderPath) as Promise<Live2DImportedSourceScanResult>,
     getDroppedFolderPath: (file: File) => webUtils.getPathForFile(file)
   },
-  aiChat: {
-    send: (request: AiChatRequest) =>
-      ipcRenderer.invoke("ai-chat:send", request) as Promise<AiChatResponse>,
-    stream: (request: AiChatRequest) =>
-      ipcRenderer.invoke("ai-chat:stream", request) as Promise<AiChatStreamStartResult>,
-    onStreamEvent: (callback: (event: AiChatStreamEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, result: AiChatStreamEvent): void => {
-        callback(result);
-      };
-
-      ipcRenderer.on("ai-chat:stream-event", listener);
-
-      return () => {
-        ipcRenderer.off("ai-chat:stream-event", listener);
-      };
-    }
-  },
   aiSettings: {
     list: () => ipcRenderer.invoke("ai-settings:list") as Promise<AiConnectionSummary[]>,
     get: (petId: string) =>
@@ -163,51 +132,12 @@ const desktopPetApi = {
     save: (draft: AiConnectionDraft) =>
       ipcRenderer.invoke("ai-settings:save", draft) as Promise<AiConnectionSaveResult>
   },
-  speechToText: {
-    transcribe: (request: SpeechToTextRequest) =>
-      ipcRenderer.invoke("speech-to-text:transcribe", request) as Promise<SpeechToTextResponse>
-  },
-  textToSpeech: {
-    speak: (request: TextToSpeechRequest) =>
-      ipcRenderer.invoke("text-to-speech:speak", request) as Promise<TextToSpeechResponse>,
-    stop: () => ipcRenderer.invoke("text-to-speech:stop") as Promise<{ ok: boolean; message: string }>
-  },
-  speechStream: {
-    start: (request: SpeechStreamStartRequest) =>
-      ipcRenderer.invoke("speech-stream:start", request) as Promise<SpeechStreamStartResult>,
-    audio: (chunk: SpeechStreamAudioChunk) => ipcRenderer.send("speech-stream:audio", chunk),
-    stop: (request: SpeechStreamStopRequest) => ipcRenderer.send("speech-stream:stop", request),
-    onResult: (callback: (event: SpeechStreamResultEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, result: SpeechStreamResultEvent): void => {
-        callback(result);
-      };
-
-      ipcRenderer.on("speech-stream:result", listener);
-
-      return () => {
-        ipcRenderer.off("speech-stream:result", listener);
-      };
-    }
-  },
   petWindow: {
     show: (payload: DesktopPetPayload) =>
       ipcRenderer.invoke("pet-window:show", payload) as Promise<PetWindowState>,
     close: (options?: PetWindowCloseOptions) =>
       ipcRenderer.invoke("pet-window:close", options) as Promise<PetWindowState>,
-    toggleClickThrough: () =>
-      ipcRenderer.invoke("pet-window:toggle-click-through") as Promise<PetWindowState>,
-    setClickThrough: (value: boolean) =>
-      ipcRenderer.invoke("pet-window:set-click-through", value) as Promise<PetWindowState>,
-    setClickThroughControlInteractive: (value: boolean) =>
-      ipcRenderer.invoke("pet-window:set-click-through-control-interactive", value) as Promise<PetWindowState>,
-    startDrag: (point: PetWindowDragPoint) =>
-      ipcRenderer.invoke("pet-window:start-drag", point) as Promise<void>,
-    moveDrag: (point: PetWindowDragPoint) =>
-      ipcRenderer.invoke("pet-window:move-drag", point) as Promise<void>,
-    endDrag: () => ipcRenderer.invoke("pet-window:end-drag") as Promise<void>,
     getState: () => ipcRenderer.invoke("pet-window:get-state") as Promise<PetWindowState>,
-    getPayload: () =>
-      ipcRenderer.invoke("pet-window:get-payload") as Promise<DesktopPetPayload | undefined>,
     onStateChanged: (callback: (state: PetWindowState) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, state: PetWindowState): void => {
         callback(state);
@@ -218,32 +148,10 @@ const desktopPetApi = {
       return () => {
         ipcRenderer.off("pet-window:state-changed", listener);
       };
-    },
-    onCursorMoved: (callback: (point: PetWindowCursorPoint) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, point: PetWindowCursorPoint): void => {
-        callback(point);
-      };
-
-      ipcRenderer.on("pet-window:cursor-moved", listener);
-
-      return () => {
-        ipcRenderer.off("pet-window:cursor-moved", listener);
-      };
-    },
-    onCloseEffect: (callback: () => void) => {
-      const listener = (): void => {
-        callback();
-      };
-
-      ipcRenderer.on("pet-window:play-close-effect", listener);
-
-      return () => {
-        ipcRenderer.off("pet-window:play-close-effect", listener);
-      };
     }
   }
 };
 
 contextBridge.exposeInMainWorld("desktopPet", desktopPetApi);
 
-export type DesktopPetApi = typeof desktopPetApi;
+export type MainDesktopPetApi = typeof desktopPetApi;

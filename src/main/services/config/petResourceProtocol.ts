@@ -2,6 +2,7 @@ import { app, net, protocol } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assertValidPetId } from "../../../shared/validation/petId";
 import { pathToFileURL } from "node:url";
 
 export const petResourceProtocol = "pet-resource";
@@ -37,7 +38,6 @@ export interface ResolvedResourcePath {
 function getPetsRootPath(): string {
   return path.join(app.getPath("userData"), "pets");
 }
-
 
 function decodeSafePathParts(pathname: string): string[] {
   return pathname
@@ -97,10 +97,10 @@ export function resolvePetResourcePathForProtocol(url: string): ResolvedResource
     throw new Error("Invalid pet resource host.");
   }
 
-  const [petId, resourceRootName, ...resourceParts] = decodeSafePathParts(parsedUrl.pathname);
+  const [rawPetId, resourceRootName, ...resourceParts] = decodeSafePathParts(parsedUrl.pathname);
 
   if (
-    !petId ||
+    !rawPetId ||
     !resourceRootName ||
     !resourceParts.length ||
     !localResourceRoots.has(resourceRootName)
@@ -108,17 +108,21 @@ export function resolvePetResourcePathForProtocol(url: string): ResolvedResource
     throw new Error("Unsupported local pet resource path.");
   }
 
+  const petId = assertValidPetId(rawPetId);
+
+  const userDataPath = path.resolve(app.getPath("userData"));
   const petsRootPath = path.resolve(getPetsRootPath());
   const petDirectoryPath = path.resolve(petsRootPath, petId);
   const resourceRootPath = path.resolve(petDirectoryPath, resourceRootName);
   const targetPath = path.resolve(resourceRootPath, ...resourceParts);
+  assertLexicallyContained(userDataPath, petsRootPath, "Invalid local pets root.");
   assertLexicallyContained(petsRootPath, petDirectoryPath, "Invalid pet resource directory.");
   assertLexicallyContained(petDirectoryPath, resourceRootPath, "Invalid pet resource root.");
   assertLexicallyContained(resourceRootPath, targetPath, "Invalid pet resource path.");
 
   return {
     filePath: targetPath,
-    containmentRoots: [petsRootPath, petDirectoryPath, resourceRootPath]
+    containmentRoots: [userDataPath, petsRootPath, petDirectoryPath, resourceRootPath]
   };
 }
 

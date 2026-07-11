@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import type { AiChatStreamEvent } from "../../shared/types/ai";
 import type {
   PetCustomTheme,
   PetExpressionKey,
@@ -32,6 +33,7 @@ import {
   splitVoiceTextIntoSegments,
   takeCompleteVoiceSegments
 } from "./aiReplyUtils";
+import { isCurrentAiStreamEvent } from "./aiStreamGuard";
 import {
   base64ToBlob,
   calculateAudioLevel,
@@ -318,6 +320,7 @@ export function PetWindow(): JSX.Element {
   });
   const syncVoiceRevealRef = useRef<SyncVoiceRevealState | undefined>();
   const voiceReplyRequestIdRef = useRef(0);
+  const textToSpeechRequestSequenceRef = useRef(0);
   const voiceReplySubtitleHoldRef = useRef<
     | {
         requestId: number;
@@ -342,13 +345,19 @@ export function PetWindow(): JSX.Element {
   const voiceAutoSendPendingRef = useRef(false);
   const sendRecognizedVoiceTextRef = useRef<() => void>(() => undefined);
   const aiChatStreamIdRef = useRef<string | undefined>();
+  const aiChatStreamRequestIdRef = useRef<string | undefined>();
   const aiChatStreamContextRef = useRef<
     | {
+        requestId: string;
+        petId: string;
         pendingMessageId: number;
         isVoiceTriggered: boolean;
+        streamedTextShown: boolean;
       }
     | undefined
   >();
+  const aiChatRequestSequenceRef = useRef(0);
+  const aiChatStreamEventHandlerRef = useRef<(event: AiChatStreamEvent) => void>(() => undefined);
   const voiceAutoSendTimerRef = useRef<number | undefined>();
   const voiceTranscriptionFinishTimerRef = useRef<number | undefined>();
   const voiceRestartTimerRef = useRef<number | undefined>();
@@ -360,6 +369,7 @@ export function PetWindow(): JSX.Element {
   const voiceRecordingLifecycleRef = useRef<VoiceRecordingLifecycle | null>(null);
   const voiceLifecycleMountedRef = useRef(true);
   const cancelVoiceInputRef = useRef<(options?: { updateUi?: boolean }) => void>(() => undefined);
+  const cancelAiChatStreamRef = useRef<(options?: { updateUi?: boolean }) => void>(() => undefined);
   const finishVoiceTranscriptionRef = useRef<(sessionId?: string) => void>(() => undefined);
   const chatOpenRef = useRef(false);
   const clickThroughRef = useRef(fallbackState.clickThrough);
@@ -579,6 +589,7 @@ export function PetWindow(): JSX.Element {
   useEffect(() => {
     return () => {
       clearChatMessageTypewriter();
+      cancelAiChatStreamRef.current({ updateUi: false });
       stopVoiceReplyPlayback();
     };
   }, []);
@@ -762,7 +773,9 @@ export function PetWindow(): JSX.Element {
 
     voiceReplyPendingUrlsRef.current.clear();
 
-    void window.desktopPet?.textToSpeech.stop();
+    void window.desktopPet?.textToSpeech.stop({
+      petId: petRef.current.petId
+    });
   };
 
   const releaseVoiceReplySubtitle = (requestId: number): void => {
@@ -805,6 +818,42 @@ export function PetWindow(): JSX.Element {
     }
 
     return extractStreamingVoiceText(content);
+  };
+
+  const showStreamingAiReply = (pendingMessageId: number, rawContent: string): boolean => {
+    const replyText = extractStreamingReplyText(rawContent);
+
+    if (!replyText) {
+      return false;
+    }
+
+    clearChatMessageTypewriter();
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === pendingMessageId
+          ? {
+              ...message,
+              text: replyText,
+              status: undefined
+            }
+          : message
+      )
+    );
+    subtitle.show({
+      text: replyText,
+      mode: "instant",
+      holdMs: Number.POSITIVE_INFINITY,
+      tone: petDefinitionRef.current?.subtitleStyle?.tone,
+      maxWidth: petDefinitionRef.current?.subtitleStyle?.maxWidth
+    });
+
+    const context = aiChatStreamContextRef.current;
+
+    if (context?.pendingMessageId === pendingMessageId) {
+      context.streamedTextShown = true;
+    }
+
+    return true;
   };
 
   const holdVoiceReplyExpression = (requestId: number, expression?: PetExpressionKey): void => {
@@ -859,6 +908,7 @@ export function PetWindow(): JSX.Element {
 
     revealState.revealed = true;
     queue.playbackBlocked = false;
+    showStreamingAiReply(revealState.pendingMessageId, revealState.latestContent);
     void drainVoiceReplyQueue(requestId);
 
     return true;
@@ -1112,6 +1162,8 @@ export function PetWindow(): JSX.Element {
     segment: string,
     requestId: number
   ): Promise<VoiceReplyAudio | undefined> => {
+    const textToSpeechRequestId = `voice-${requestId}-${++textToSpeechRequestSequenceRef.current}`;
+
     for (let attempt = 1; attempt <= voiceReplySegmentMaxAttempts; attempt += 1) {
       if (requestId !== voiceReplyRequestIdRef.current) {
         return undefined;
@@ -1119,14 +1171,19 @@ export function PetWindow(): JSX.Element {
 
       const response = await window.desktopPet?.textToSpeech.speak({
         petId: petRef.current.petId,
-        text: segment
+        text: segment,
+        requestId: textToSpeechRequestId
       });
 
       if (requestId !== voiceReplyRequestIdRef.current) {
         return undefined;
       }
 
-      if (response?.ok && response.audioBase64) {
+      if (
+        response?.ok &&
+        response.audioBase64 &&
+        (!response.requestId || response.requestId === textToSpeechRequestId)
+      ) {
         const mimeType = response.mimeType ?? "audio/wav";
         const audioUrl = window.URL.createObjectURL(base64ToBlob(response.audioBase64, mimeType));
         voiceReplyPendingUrlsRef.current.add(audioUrl);
@@ -1135,6 +1192,10 @@ export function PetWindow(): JSX.Element {
           audioUrl,
           mimeType
         };
+      }
+
+      if (response?.code === "CANCELED") {
+        return undefined;
       }
 
       if (attempt < voiceReplySegmentMaxAttempts) {
@@ -1149,8 +1210,10 @@ export function PetWindow(): JSX.Element {
     const applyWindowState = (nextState: PetWindowState): void => {
       clickThroughRef.current = nextState.clickThrough;
 
-      if (nextState.clickThrough) {
+      if (nextState.clickThrough || !nextState.visible) {
         cancelVoiceInputRef.current();
+        cancelAiChatStreamRef.current({ updateUi: nextState.visible });
+        stopVoiceReplyPlayback();
       }
 
       setState(nextState);
@@ -1223,6 +1286,8 @@ export function PetWindow(): JSX.Element {
       closingEffectRef.current = true;
       voiceRecordingLifecycleRef.current?.setAvailable(false);
       cancelVoiceInputRef.current();
+      cancelAiChatStreamRef.current();
+      stopVoiceReplyPlayback();
       setClosingEffect(true);
       setChatOpenState(false);
       setRadialMenuOpen(false);
@@ -1336,6 +1401,7 @@ export function PetWindow(): JSX.Element {
     return () => {
       voiceLifecycleMountedRef.current = false;
       cancelVoiceInputRef.current({ updateUi: false });
+      cancelAiChatStreamRef.current({ updateUi: false });
       window.clearTimeout(idleTimerRef.current);
     };
   }, []);
@@ -1345,6 +1411,8 @@ export function PetWindow(): JSX.Element {
 
     if (state.clickThrough) {
       cancelVoiceInputRef.current();
+      cancelAiChatStreamRef.current();
+      stopVoiceReplyPlayback();
       setChatOpenState(false);
       setRadialMenuOpen(true);
     }
@@ -1360,10 +1428,14 @@ export function PetWindow(): JSX.Element {
     const cancelWhenHidden = (): void => {
       if (document.hidden) {
         cancelVoiceInputRef.current();
+        cancelAiChatStreamRef.current();
+        stopVoiceReplyPlayback();
       }
     };
     const cancelOnPageHide = (): void => {
       cancelVoiceInputRef.current({ updateUi: false });
+      cancelAiChatStreamRef.current({ updateUi: false });
+      stopVoiceReplyPlayback();
     };
 
     document.addEventListener("visibilitychange", cancelWhenHidden);
@@ -1481,6 +1553,8 @@ export function PetWindow(): JSX.Element {
   const toggleClickThrough = async (): Promise<void> => {
     if (!clickThroughRef.current) {
       cancelVoiceInputRef.current();
+      cancelAiChatStreamRef.current();
+      stopVoiceReplyPlayback();
     }
 
     const nextState = await window.desktopPet?.petWindow.toggleClickThrough();
@@ -1490,6 +1564,8 @@ export function PetWindow(): JSX.Element {
 
       if (nextState.clickThrough) {
         cancelVoiceInputRef.current();
+        cancelAiChatStreamRef.current();
+        stopVoiceReplyPlayback();
         setChatOpenState(false);
       }
 
@@ -1538,6 +1614,8 @@ export function PetWindow(): JSX.Element {
 
   const closeChat = (): void => {
     cancelVoiceInputRef.current();
+    cancelAiChatStreamRef.current();
+    stopVoiceReplyPlayback();
     setChatOpenState(false);
     triggerEventExpression("chatClose", "normal", "crying");
     speakLine("chatClose", "好，我先安静陪着你。");
@@ -1564,6 +1642,8 @@ export function PetWindow(): JSX.Element {
     closingEffectRef.current = true;
     voiceRecordingLifecycleRef.current?.setAvailable(false);
     cancelVoiceInputRef.current();
+    cancelAiChatStreamRef.current();
+    stopVoiceReplyPlayback();
     setChatOpenState(false);
     const playCloseEffect = hasConfiguredEvent("closing");
 
@@ -1846,7 +1926,8 @@ export function PetWindow(): JSX.Element {
   const finishAiStreamReply = async (
     pendingMessageId: number,
     rawContent: string,
-    isVoiceTriggered: boolean
+    isVoiceTriggered: boolean,
+    streamedTextShown: boolean
   ): Promise<void> => {
     const parsedResponse = parseStructuredReplyFallback(rawContent);
     const replyText = parsedResponse.reply;
@@ -1923,10 +2004,27 @@ export function PetWindow(): JSX.Element {
       }
     }
 
-    showPetMessageWithTypewriter(pendingMessageId, replyText, {
-      voiceText: effectiveVoiceText,
-      aiRawContent: rawContent
-    });
+    if (streamedTextShown) {
+      clearChatMessageTypewriter();
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.id === pendingMessageId
+            ? {
+                ...message,
+                text: replyText,
+                status: undefined,
+                voiceText: effectiveVoiceText,
+                aiRawContent: rawContent
+              }
+            : message
+        )
+      );
+    } else {
+      showPetMessageWithTypewriter(pendingMessageId, replyText, {
+        voiceText: effectiveVoiceText,
+        aiRawContent: rawContent
+      });
+    }
 
     if (randomReplySource) {
       triggerExpressionSource(
@@ -1965,7 +2063,7 @@ export function PetWindow(): JSX.Element {
     }
 
     showAiReplySubtitle(replyText, {
-      mode: "typewriter",
+      mode: streamedTextShown ? "instant" : "typewriter",
       holdMs: shouldHoldSubtitleForVoice ? Number.POSITIVE_INFINITY : undefined,
     });
 
@@ -2027,58 +2125,117 @@ export function PetWindow(): JSX.Element {
     scheduleVoiceRestart(isVoiceTriggered);
   };
 
-  useEffect(() => {
-    return window.desktopPet?.aiChat.onStreamEvent((event) => {
-      if (event.streamId !== aiChatStreamIdRef.current) {
-        return;
+  const cancelActiveAiChatStream = (options?: { updateUi?: boolean }): void => {
+    const requestId = aiChatStreamRequestIdRef.current;
+    const streamId = aiChatStreamIdRef.current;
+    const context = aiChatStreamContextRef.current;
+
+    aiChatStreamRequestIdRef.current = undefined;
+    aiChatStreamIdRef.current = undefined;
+    aiChatStreamContextRef.current = undefined;
+    syncVoiceRevealRef.current = undefined;
+    voiceReplyQueueRef.current.playbackBlocked = false;
+
+    if (requestId || streamId) {
+      void window.desktopPet?.aiChat.cancel({
+        petId: context?.petId ?? petRef.current.petId,
+        requestId,
+        streamId
+      });
+    }
+
+    if (options?.updateUi ?? true) {
+      if (context) {
+        clearChatMessageTypewriter();
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === context.pendingMessageId
+              ? {
+                  ...message,
+                  text: "回复已取消。",
+                  status: "error"
+                }
+              : message
+          )
+        );
       }
 
-      const context = aiChatStreamContextRef.current;
+      setSendingState(false);
+    }
+  };
+  cancelAiChatStreamRef.current = cancelActiveAiChatStream;
 
-      if (!context) {
-        return;
-      }
+  aiChatStreamEventHandlerRef.current = (event: AiChatStreamEvent): void => {
+    const context = aiChatStreamContextRef.current;
 
-      if (event.type === "chunk") {
-        const content = event.content ?? "";
+    if (
+      !context ||
+      !isCurrentAiStreamEvent(event, {
+        requestId: aiChatStreamRequestIdRef.current,
+        streamId: aiChatStreamIdRef.current,
+        petId: context.petId
+      })
+    ) {
+      return;
+    }
 
-        if (speechSettingsRef.current.syncTextWithVoice) {
-          const revealState = syncVoiceRevealRef.current;
+    if (event.type === "chunk") {
+      const content = event.content ?? "";
 
-          if (revealState?.requestId === voiceReplyRequestIdRef.current) {
-            revealState.latestContent = content;
-          }
+      if (speechSettingsRef.current.syncTextWithVoice) {
+        const revealState = syncVoiceRevealRef.current;
 
-          enqueueStreamingVoiceText(
-            getStreamingVoiceSourceText(content),
-            voiceReplyRequestIdRef.current
-          );
-          revealSynchronizedVoiceOutput(voiceReplyRequestIdRef.current);
-          return;
+        if (revealState?.requestId === voiceReplyRequestIdRef.current) {
+          revealState.latestContent = content;
         }
 
         enqueueStreamingVoiceText(
-          extractStreamingVoiceText(content),
+          getStreamingVoiceSourceText(content),
           voiceReplyRequestIdRef.current
         );
+        revealSynchronizedVoiceOutput(voiceReplyRequestIdRef.current);
+
+        if (revealState?.revealed) {
+          showStreamingAiReply(context.pendingMessageId, content);
+        }
+
         return;
       }
 
-      aiChatStreamIdRef.current = undefined;
-      aiChatStreamContextRef.current = undefined;
-
-      if (event.type === "done" && event.ok && event.content) {
-        void finishAiStreamReply(context.pendingMessageId, event.content, context.isVoiceTriggered);
-        return;
-      }
-
-      failAiStreamReply(
-        context.pendingMessageId,
-        event.message ?? "AI 暂时没有回应，请稍后再试。",
-        context.isVoiceTriggered
+      enqueueStreamingVoiceText(
+        extractStreamingVoiceText(content),
+        voiceReplyRequestIdRef.current
       );
+      showStreamingAiReply(context.pendingMessageId, content);
+      return;
+    }
+
+    aiChatStreamRequestIdRef.current = undefined;
+    aiChatStreamIdRef.current = undefined;
+    aiChatStreamContextRef.current = undefined;
+
+    if (event.type === "done" && event.ok && event.content) {
+      void finishAiStreamReply(
+        context.pendingMessageId,
+        event.content,
+        context.isVoiceTriggered,
+        context.streamedTextShown
+      );
+      return;
+    }
+
+    failAiStreamReply(
+      context.pendingMessageId,
+      event.message ?? (event.type === "canceled" ? "回复已取消。" : "AI 暂时没有回应，请稍后再试。"),
+      context.isVoiceTriggered
+    );
+  };
+
+  useEffect(() => {
+    return window.desktopPet?.aiChat.onStreamEvent((event) => {
+      aiChatStreamEventHandlerRef.current(event);
     });
-  });
+  }, []);
 
   const sendMessageText = async (text: string): Promise<void> => {
     const nextText = text.trim();
@@ -2089,6 +2246,7 @@ export function PetWindow(): JSX.Element {
       return;
     }
 
+    cancelActiveAiChatStream({ updateUi: false });
     stopVoiceReplyPlayback();
     clearChatMessageTypewriter();
     pendingVoiceReplyExpressionRef.current = undefined;
@@ -2100,6 +2258,7 @@ export function PetWindow(): JSX.Element {
     );
     const userMessageId = Date.now();
     const pendingMessageId = userMessageId + 1;
+    const aiChatRequestId = `chat-${Date.now()}-${++aiChatRequestSequenceRef.current}`;
     const shouldSyncTextWithVoice =
       speechSettingsRef.current.voiceReplyEnabled && speechSettingsRef.current.syncTextWithVoice;
 
@@ -2114,6 +2273,15 @@ export function PetWindow(): JSX.Element {
           watchingFirstAudio: false
         }
       : undefined;
+    aiChatStreamRequestIdRef.current = aiChatRequestId;
+    aiChatStreamIdRef.current = undefined;
+    aiChatStreamContextRef.current = {
+      requestId: aiChatRequestId,
+      petId: currentPet.petId,
+      pendingMessageId,
+      isVoiceTriggered,
+      streamedTextShown: false
+    };
 
     const aiMessages = buildAiMessages({
       petDefinition: currentPetDefinition,
@@ -2147,10 +2315,28 @@ export function PetWindow(): JSX.Element {
     try {
       const streamResult = await window.desktopPet?.aiChat.stream({
         petId: currentPet.petId,
+        requestId: aiChatRequestId,
         messages: aiMessages
       });
 
+      if (
+        aiChatStreamRequestIdRef.current !== aiChatRequestId ||
+        aiChatStreamContextRef.current?.requestId !== aiChatRequestId
+      ) {
+        if (streamResult?.streamId) {
+          void window.desktopPet?.aiChat.cancel({
+            petId: currentPet.petId,
+            requestId: aiChatRequestId,
+            streamId: streamResult.streamId
+          });
+        }
+
+        return;
+      }
+
       if (!streamResult?.ok || !streamResult.streamId) {
+        aiChatStreamRequestIdRef.current = undefined;
+        aiChatStreamContextRef.current = undefined;
         failAiStreamReply(
           pendingMessageId,
           streamResult?.message ?? "AI 暂时没有回应，请稍后再试。",
@@ -2159,12 +2345,27 @@ export function PetWindow(): JSX.Element {
         return;
       }
 
+      if (streamResult.requestId && streamResult.requestId !== aiChatRequestId) {
+        aiChatStreamRequestIdRef.current = undefined;
+        aiChatStreamContextRef.current = undefined;
+        void window.desktopPet?.aiChat.cancel({
+          petId: currentPet.petId,
+          requestId: streamResult.requestId,
+          streamId: streamResult.streamId
+        });
+        failAiStreamReply(pendingMessageId, "AI 请求标识不一致，请稍后再试。", isVoiceTriggered);
+        return;
+      }
+
       aiChatStreamIdRef.current = streamResult.streamId;
-      aiChatStreamContextRef.current = {
-        pendingMessageId,
-        isVoiceTriggered
-      };
     } catch {
+      if (aiChatStreamRequestIdRef.current !== aiChatRequestId) {
+        return;
+      }
+
+      aiChatStreamRequestIdRef.current = undefined;
+      aiChatStreamIdRef.current = undefined;
+      aiChatStreamContextRef.current = undefined;
       failAiStreamReply(pendingMessageId, "无法连接 AI 服务，请检查网络或本地服务状态。", isVoiceTriggered);
     }
   };

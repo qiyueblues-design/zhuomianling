@@ -18,6 +18,11 @@ import { CubismRenderTarget_WebGL } from './cubismrendertarget_webgl';
 import { CubismOffscreenRenderTarget_WebGL } from './cubismoffscreenrendertarget_webgl';
 import { CubismBlendMode, CubismTextureColor } from './cubismrenderer';
 import { CubismRenderer_WebGL } from './cubismrenderer_webgl';
+import {
+  fetchLive2DText,
+  raceLive2DLoadWithSignal,
+  throwIfLive2DLoadAborted
+} from '../../../live2dResourceLoader';
 
 // Shader
 const VertShaderSrcPath = 'vertshadersrc.vert';
@@ -66,15 +71,14 @@ export class CubismShader_WebGL {
    *
    * @return シェーダーのソースコード
    */
-  private async loadShader(url: string): Promise<string> {
-    const response = await fetch(url);
-    return await response.text();
+  private loadShader(url: string, signal?: AbortSignal): Promise<string> {
+    return fetchLive2DText(url, signal);
   }
 
   /**
    * ブレンドモード用のシェーダーを読み込む
    */
-  private async loadShaders(): Promise<void> {
+  private async loadShaders(signal?: AbortSignal): Promise<void> {
     // _shaderPathがnullまたはundefinedの場合はデフォルトパスを使用
     const shaderDir = this._shaderPath ?? this._defaultShaderPath;
 
@@ -123,15 +127,12 @@ export class CubismShader_WebGL {
 
     // シェーダーファイルを非同期で読み込み、結果をプロパティに設定
     const results = await Promise.all(
-      shaderFiles.map(file =>
-        this.loadShader(file.path)
-          .then(data => ({ prop: file.prop, data }))
-          .catch(error => {
-            console.error(`Error loading ${file.path} shader:`, error);
-            return { prop: file.prop, data: '' };
-          })
-      )
+      shaderFiles.map(async file => ({
+        prop: file.prop,
+        data: await this.loadShader(file.path, signal)
+      }))
     );
+    throwIfLive2DLoadAborted(signal);
 
     // 変数に内容を登録
     results.forEach(result => {
@@ -146,6 +147,7 @@ export class CubismShader_WebGL {
     this._shaderSets = new Array<CubismShaderSet>();
     this._isShaderLoading = false;
     this._isShaderLoaded = false;
+    this._shaderLoadPromise = null;
 
     // カラーブレンド用のマップ
     this._colorBlendMap = new Map<CubismColorBlend, string>();
@@ -1064,8 +1066,14 @@ export class CubismShader_WebGL {
    */
   public releaseShaderProgram(): void {
     for (let i = 0; i < this._shaderSets.length; i++) {
-      this.gl.deleteProgram(this._shaderSets[i].shaderProgram);
-      this._shaderSets[i].shaderProgram = 0;
+      const shaderSet = this._shaderSets[i];
+      if (!shaderSet) {
+        continue;
+      }
+      if (shaderSet.shaderProgram) {
+        this.gl.deleteProgram(shaderSet.shaderProgram);
+      }
+      shaderSet.shaderProgram = 0;
       this._shaderSets[i] = void 0;
       this._shaderSets[i] = null;
     }
@@ -1077,10 +1085,27 @@ export class CubismShader_WebGL {
    * @param vertShaderSrc 頂点シェーダのソース
    * @param fragShaderSrc フラグメントシェーダのソース
    */
-  public generateShaders(): void {
-    if (this._isShaderLoading) {
-      return;
+  public generateShaders(signal?: AbortSignal): Promise<void> {
+    if (this._isShaderLoaded) {
+      return Promise.resolve();
     }
+
+    if (this._shaderLoadPromise) {
+      const pendingLoad = this._shaderLoadPromise;
+      return raceLive2DLoadWithSignal(pendingLoad, signal).catch(error => {
+        throwIfLive2DLoadAborted(signal);
+
+        if (this._shaderLoadPromise === pendingLoad) {
+          return pendingLoad
+            .catch(() => undefined)
+            .then(() => this.generateShaders(signal));
+        }
+
+        return this.generateShaders(signal);
+      });
+    }
+
+    throwIfLive2DLoadAborted(signal);
     this._isShaderLoading = true;
     this._isShaderLoaded = false;
     this._shaderSets.length = this._shaderCount;
@@ -1089,18 +1114,32 @@ export class CubismShader_WebGL {
     }
 
     // シェーダーのソースの読み込み
-    this.loadShaders()
+    const loadPromise = this.loadShaders(signal)
       .then(() => {
+        throwIfLive2DLoadAborted(signal);
         // NOTE: ファイルの読み込みを待つ必要があるためこのようにする
         this.registerShader(); // 通常シェーダーの登録
         this.registerBlendShader(); // ブレンドモードシェーダーの登録
+        if (this._shaderSets.some(shaderSet => !shaderSet?.shaderProgram)) {
+          throw new Error('Failed to compile or link one or more Cubism shaders.');
+        }
         this._isShaderLoading = false;
         this._isShaderLoaded = true;
       })
       .catch(error => {
         this._isShaderLoading = false;
-        console.error('Failed to load shaders:', error);
+        this._isShaderLoaded = false;
+        this.releaseShaderProgram();
+        this._shaderSets.length = 0;
+        throw error;
+      })
+      .finally(() => {
+        if (this._shaderLoadPromise === loadPromise) {
+          this._shaderLoadPromise = null;
+        }
       });
+    this._shaderLoadPromise = loadPromise;
+    return loadPromise;
   }
 
   /**
@@ -1772,6 +1811,9 @@ export class CubismShader_WebGL {
 
     if (!vertShader) {
       CubismLogError('Vertex shader compile error!');
+      if (shaderProgram) {
+        this.gl.deleteProgram(shaderProgram);
+      }
       return 0;
     }
 
@@ -1781,6 +1823,10 @@ export class CubismShader_WebGL {
     );
     if (!fragShader) {
       CubismLogError('Fragment shader compile error!');
+      this.gl.deleteShader(vertShader);
+      if (shaderProgram) {
+        this.gl.deleteProgram(shaderProgram);
+      }
       return 0;
     }
 
@@ -1916,6 +1962,7 @@ export class CubismShader_WebGL {
   _fragShaderSrcBlend: string; // フラグメントシェーダーのソース
   _isShaderLoading: boolean; // シェーダーの読み込み中かどうか
   _isShaderLoaded: boolean; // シェーダーの読み込みが完了したかどうか
+  _shaderLoadPromise: Promise<void> | null; // シェーダー読み込みの共有Promise
   _defaultShaderPath: string; // デフォルトのシェーダーパス
   _shaderPath: string; // シェーダーパス
 }

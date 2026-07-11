@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   PetExpressionEffectMap,
   PetExpressionKey,
@@ -14,6 +14,12 @@ import {
   Cubism2Live2DModel,
   isCubism2ModelPath
 } from "./live2dRuntimeV2";
+import {
+  NeutralResetFrames,
+  PreviewActionReplayGuard,
+  waitForHostSize,
+  type AnimationFrameScheduler
+} from "./live2dCanvasLifecycle";
 
 type Live2DModelRuntime = CubismLive2DModel | Cubism2Live2DModel;
 
@@ -90,6 +96,11 @@ const priorityValue: Record<ExpressionPriority, number> = {
   high: 2
 };
 
+const animationFrameScheduler: AnimationFrameScheduler = {
+  request: (callback) => window.requestAnimationFrame(callback),
+  cancel: (frameId) => window.cancelAnimationFrame(frameId)
+};
+
 function toMotionPriority(priority: ExpressionPriority): CubismMotionPriority {
   if (priority === "high") {
     return "force";
@@ -131,7 +142,26 @@ export function Live2DCanvas({
   const resetTimerRef = useRef<number | undefined>();
   const forcedEffectFrameRef = useRef<number | undefined>();
   const loadSequenceRef = useRef(0);
+  const previewActionRef = useRef<Live2DPreviewAction | undefined>(previewAction);
+  const expressionEventRef = useRef<PetExpressionEvent | undefined>(expressionEvent);
+  const explodeEventIdRef = useRef<number | undefined>(explodeEventId);
+  const previewActionReplayGuardRef = useRef(new PreviewActionReplayGuard());
+  const expressionEventReplayGuardRef = useRef(new PreviewActionReplayGuard());
+  const explodeEventReplayGuardRef = useRef(new PreviewActionReplayGuard());
+  const neutralResetFramesRef = useRef<NeutralResetFrames | undefined>();
   const [loadState, setLoadState] = useState<LoadState>(modelPath ? "loading" : "idle");
+
+  useLayoutEffect(() => {
+    previewActionRef.current = previewAction;
+  }, [previewAction]);
+
+  useLayoutEffect(() => {
+    expressionEventRef.current = expressionEvent;
+  }, [expressionEvent]);
+
+  useLayoutEffect(() => {
+    explodeEventIdRef.current = explodeEventId;
+  }, [explodeEventId]);
 
   useEffect(() => {
     expressionMapRef.current = expressions;
@@ -197,6 +227,21 @@ export function Live2DCanvas({
     forcedEffectFrameRef.current = undefined;
   };
 
+  const runRuntimeAction = (
+    model: Live2DModelRuntime,
+    kind: "motion" | "expression",
+    action: Promise<boolean>,
+    onResult?: (result: boolean) => void
+  ): void => {
+    void action
+      .then((result) => onResult?.(result))
+      .catch((error: unknown) => {
+        if (modelRef.current === model) {
+          console.warn(`Live2D ${kind} failed`, error);
+        }
+      });
+  };
+
   const playExpression = (
     expression: PetExpressionKey,
     priority: ExpressionPriority = "normal",
@@ -235,7 +280,7 @@ export function Live2DCanvas({
       })) ?? [];
     scheduleForcedEffects();
 
-    void model.expression(expressionName).then((ok) => {
+    runRuntimeAction(model, "expression", model.expression(expressionName), (ok) => {
       if (!ok) {
         console.warn("Live2D expression did not play", {
           expression,
@@ -250,10 +295,16 @@ export function Live2DCanvas({
         clearForcedEffects();
         const normalExpression = expressionMapRef.current?.normal;
 
-        if (normalExpression !== undefined && modelRef.current) {
-          void modelRef.current.expression(normalExpression);
+        const currentModel = modelRef.current;
+
+        if (normalExpression !== undefined && currentModel) {
+          runRuntimeAction(
+            currentModel,
+            "expression",
+            currentModel.expression(normalExpression)
+          );
         } else {
-          modelRef.current?.resetToNeutralFace();
+          currentModel?.resetToNeutralFace();
         }
       }, durationMs);
     }
@@ -283,11 +334,15 @@ export function Live2DCanvas({
     activePriorityRef.current = priority;
 
     if (source.sourceKind === "motion") {
-      void model.motion(String(source.runtimeName), source.index ?? 0, toMotionPriority(priority));
+      runRuntimeAction(
+        model,
+        "motion",
+        model.motion(String(source.runtimeName), source.index ?? 0, toMotionPriority(priority))
+      );
       return;
     }
 
-    void model.expression(source.runtimeName);
+    runRuntimeAction(model, "expression", model.expression(source.runtimeName));
 
     if (Number.isFinite(durationMs)) {
       resetTimerRef.current = window.setTimeout(() => {
@@ -297,63 +352,93 @@ export function Live2DCanvas({
     }
   };
 
-  useEffect(() => {
-    if (!expressionEvent) {
-      return;
+  const applyPreviewActionOnce = (
+    action: Live2DPreviewAction | undefined,
+    model: Live2DModelRuntime | null = modelRef.current,
+    replayGuard: PreviewActionReplayGuard = previewActionReplayGuardRef.current
+  ): boolean => {
+    if (!action || !model || !replayGuard.shouldApply(action.id)) {
+      return false;
     }
 
-    if (expressionEvent.source) {
-      playExpressionSource(
-        expressionEvent.source,
-        expressionEvent.priority ?? "normal",
-        expressionEvent.durationMs
-      );
-      return;
-    }
-
-    if (expressionEvent.expression) {
-      playExpression(
-        expressionEvent.expression,
-        expressionEvent.priority ?? "normal",
-        expressionEvent.durationMs,
-        expressionEvent.hold
-      );
-    }
-  }, [expressionEvent]);
-
-  useEffect(() => {
-    const model = modelRef.current;
-
-    if (!previewAction || !model) {
-      return;
-    }
-
+    neutralResetFramesRef.current?.cancel();
     window.clearTimeout(resetTimerRef.current);
     clearForcedEffects();
-    activePriorityRef.current = previewAction.kind === "reset" ? "low" : "high";
+    activePriorityRef.current = action.kind === "reset" ? "low" : "high";
 
-    if (previewAction.kind === "reset") {
+    if (action.kind === "reset") {
       resetPreviewRuntime(model, true);
-      return;
+      return true;
     }
 
-    if (previewAction.kind === "expression") {
-      void model.expression(previewAction.name);
-      return;
+    if (action.kind === "expression") {
+      runRuntimeAction(model, "expression", model.expression(action.name));
+      return true;
     }
 
-    void model.motion(previewAction.group, previewAction.index ?? 0, "force");
-  }, [previewAction]);
+    runRuntimeAction(model, "motion", model.motion(action.group, action.index ?? 0, "force"));
+    return true;
+  };
 
-  useEffect(() => {
-    if (!explodeEventId || !modelRef.current) {
-      return;
+  const applyExpressionEventOnce = (
+    event: PetExpressionEvent | undefined,
+    model: Live2DModelRuntime | null = modelRef.current,
+    replayGuard: PreviewActionReplayGuard = expressionEventReplayGuardRef.current
+  ): boolean => {
+    if (!event || !model || !replayGuard.shouldApply(event.id)) {
+      return false;
     }
 
+    neutralResetFramesRef.current?.cancel();
+
+    if (event.source) {
+      playExpressionSource(
+        event.source,
+        event.priority ?? "normal",
+        event.durationMs
+      );
+      return true;
+    }
+
+    if (event.expression) {
+      playExpression(
+        event.expression,
+        event.priority ?? "normal",
+        event.durationMs,
+        event.hold
+      );
+    }
+
+    return true;
+  };
+
+  const applyExplodeEventOnce = (
+    eventId: number | undefined,
+    model: Live2DModelRuntime | null = modelRef.current,
+    replayGuard: PreviewActionReplayGuard = explodeEventReplayGuardRef.current
+  ): boolean => {
+    if (!eventId || !model || !replayGuard.shouldApply(eventId)) {
+      return false;
+    }
+
+    neutralResetFramesRef.current?.cancel();
     window.clearTimeout(resetTimerRef.current);
     clearForcedEffects();
     activePriorityRef.current = "high";
-    void modelRef.current.motion("Tap", 0, toMotionPriority("high"));
+    runRuntimeAction(model, "motion", model.motion("Tap", 0, toMotionPriority("high")));
+    return true;
+  };
+
+  useEffect(() => {
+    applyExpressionEventOnce(expressionEvent);
+  }, [expressionEvent]);
+
+  useEffect(() => {
+    applyPreviewActionOnce(previewAction);
+  }, [previewAction]);
+
+  useEffect(() => {
+    applyExplodeEventOnce(explodeEventId);
   }, [explodeEventId]);
 
   useEffect(() => {
@@ -368,14 +453,19 @@ export function Live2DCanvas({
     }
 
     let disposed = false;
-    let startupFrame = 0;
-    let neutralResetFrame = 0;
-    let neutralResetSecondFrame = 0;
-    let neutralResetThirdFrame = 0;
     let cleanupResize: (() => void) | undefined;
     let cleanupLookAt: (() => void) | undefined;
     let loadedModel: Live2DModelRuntime | undefined;
     const abortController = new AbortController();
+    const previewActionReplayGuard = new PreviewActionReplayGuard();
+    const expressionEventReplayGuard = new PreviewActionReplayGuard();
+    const explodeEventReplayGuard = new PreviewActionReplayGuard();
+    const neutralResetFrames = new NeutralResetFrames(animationFrameScheduler);
+    const hostSizeWait = waitForHostSize(host, abortController.signal, animationFrameScheduler);
+    previewActionReplayGuardRef.current = previewActionReplayGuard;
+    expressionEventReplayGuardRef.current = expressionEventReplayGuard;
+    explodeEventReplayGuardRef.current = explodeEventReplayGuard;
+    neutralResetFramesRef.current = neutralResetFrames;
 
     modelRef.current = null;
     activePriorityRef.current = "low";
@@ -386,23 +476,9 @@ export function Live2DCanvas({
 
     const isCurrentLoad = (): boolean => !disposed && loadSequenceRef.current === loadSequence;
 
-    const waitForHostSize = (): Promise<void> =>
-      new Promise((resolve) => {
-        const checkSize = (): void => {
-          if (!isCurrentLoad() || (host.clientWidth > 0 && host.clientHeight > 0)) {
-            resolve();
-            return;
-          }
-
-          startupFrame = window.requestAnimationFrame(checkSize);
-        };
-
-        checkSize();
-      });
-
-    void waitForHostSize()
-      .then(async () => {
-        if (!isCurrentLoad()) {
+    void hostSizeWait.promise
+      .then(async (hostReady) => {
+        if (!hostReady || !isCurrentLoad()) {
           return;
         }
 
@@ -433,26 +509,22 @@ export function Live2DCanvas({
         resetPreviewRuntime(model, true);
 
         if (neutralPreview || !autoIdle) {
-          neutralResetFrame = window.requestAnimationFrame(() => {
+          neutralResetFrames.schedule(() => {
             if (!isCurrentLoad() || modelRef.current !== model) {
               return;
             }
 
             resetPreviewRuntime(model, true);
-            neutralResetSecondFrame = window.requestAnimationFrame(() => {
-              if (!isCurrentLoad() || modelRef.current !== model) {
-                return;
-              }
-
-              resetPreviewRuntime(model, true);
-              neutralResetThirdFrame = window.requestAnimationFrame(() => {
-                if (isCurrentLoad() && modelRef.current === model) {
-                  resetPreviewRuntime(model, true);
-                }
-              });
-            });
           });
         }
+
+        applyPreviewActionOnce(previewActionRef.current, model, previewActionReplayGuard);
+        applyExpressionEventOnce(
+          expressionEventRef.current,
+          model,
+          expressionEventReplayGuard
+        );
+        applyExplodeEventOnce(explodeEventIdRef.current, model, explodeEventReplayGuard);
 
         cleanupLookAt = subscribeLookAtPointRef.current?.((point) => {
           if (isCurrentLoad() && modelRef.current === model) {
@@ -491,8 +563,13 @@ export function Live2DCanvas({
     return () => {
       disposed = true;
       abortController.abort();
+      hostSizeWait.cancel();
+      neutralResetFrames.cancel();
       if (loadSequenceRef.current === loadSequence) {
         loadSequenceRef.current += 1;
+      }
+      if (neutralResetFramesRef.current === neutralResetFrames) {
+        neutralResetFramesRef.current = undefined;
       }
       cleanupLookAt?.();
       cleanupResize?.();
@@ -500,10 +577,6 @@ export function Live2DCanvas({
         modelRef.current = null;
       }
       loadedModel?.destroy();
-      window.cancelAnimationFrame(startupFrame);
-      window.cancelAnimationFrame(neutralResetFrame);
-      window.cancelAnimationFrame(neutralResetSecondFrame);
-      window.cancelAnimationFrame(neutralResetThirdFrame);
       window.clearTimeout(resetTimerRef.current);
       clearForcedEffects();
     };

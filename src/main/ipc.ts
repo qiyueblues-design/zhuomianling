@@ -1,6 +1,10 @@
-import type { IpcMain } from "electron";
+import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { app, BrowserWindow } from "electron";
-import type { AiChatRequest, AiConnectionDraft } from "../shared/types/ai";
+import type {
+  AiChatStreamCancelRequest,
+  AiChatStreamRequest,
+  AiConnectionDraft
+} from "../shared/types/ai";
 import type {
   LocalPetAvatarCropSaveRequest,
   LocalPetBasicInfoDraft,
@@ -17,10 +21,13 @@ import type {
   SpeechStreamStartRequest,
   SpeechStreamStopRequest,
   SpeechToTextRequest,
-  TextToSpeechRequest
+  TextToSpeechRequest,
+  TextToSpeechStopRequest
 } from "../shared/types/speech";
 import type { DesktopPetPayload, PetWindowDragPoint } from "../shared/types/window";
-import { sendAiChat, startAiChatStream } from "./services/ai/aiChat";
+import type { PetWindowCloseOptions } from "../shared/types/window";
+import type { Live2DModelImportRequest } from "../shared/types/live2dImport";
+import { cancelAiChatStreams, startAiChatStream } from "./services/ai/aiChat";
 import {
   getAiConnectionSummary,
   deleteAiConnection,
@@ -31,6 +38,7 @@ import {
 import {
   getPetWindowState,
   getCurrentPetWindowPayload,
+  clearCurrentPetWindowPayload,
   closePetWindow,
   endPetWindowDrag,
   movePetWindowDrag,
@@ -40,7 +48,8 @@ import {
   showPetWindow,
   startPetWindowDrag,
   togglePetWindowClickThrough,
-  updateCurrentPetWindowPayload
+  updateCurrentPetWindowPayload,
+  isPetWindowWebContents
 } from "./petWindow";
 import {
   sendSpeechStreamAudio,
@@ -54,7 +63,7 @@ import {
   deleteLocalPet,
   importLocalUiTheme,
   listLocalUiThemes,
-  listLocalPets,
+  scanLocalPetsForRecovery,
   saveLocalPetAvatarCrop,
   saveLocalPetBasicInfo,
   saveLocalPetEventSettings,
@@ -65,6 +74,7 @@ import {
   saveLocalPetVoiceModel,
   pickLocalPetVoiceModelFile,
   resetLocalPetVoiceRuntimeState,
+  restoreLocalPetConfigBackup,
   stopManagedGptSoVitsApi,
   testLocalPetVoiceModelConnection,
   toPublicPetDefinition
@@ -79,8 +89,55 @@ import {
   validateLive2DFolder
 } from "./services/config/live2dImportService";
 import { revealMainWindowStartupSurface } from "./window";
+import { validateIpcArguments } from "./ipcValidation";
+import { assertIpcSenderAllowed, type IpcAccess } from "./ipcAccess";
 
 export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow | null): void {
+  const assertSenderAllowed = (
+    channel: string,
+    event: IpcMainEvent | IpcMainInvokeEvent,
+    access: IpcAccess
+  ): void => {
+    assertIpcSenderAllowed(
+      channel,
+      access,
+      event.sender,
+      getMainWindow()?.webContents,
+      isPetWindowWebContents(event.sender)
+    );
+  };
+
+  const handle = <Args extends unknown[], Result>(
+    channel: string,
+    access: IpcAccess,
+    listener: (event: IpcMainInvokeEvent, ...args: Args) => Result
+  ): void => {
+    ipcMain.handle(channel, (event, ...args) => {
+      assertSenderAllowed(channel, event, access);
+      validateIpcArguments(channel, args);
+      return listener(event, ...(args as unknown as Args));
+    });
+  };
+
+  const on = <Args extends unknown[]>(
+    channel: string,
+    access: IpcAccess,
+    listener: (event: IpcMainEvent, ...args: Args) => void
+  ): void => {
+    ipcMain.on(channel, (event, ...args) => {
+      try {
+        assertSenderAllowed(channel, event, access);
+        validateIpcArguments(channel, args);
+        listener(event, ...(args as unknown as Args));
+      } catch (error: unknown) {
+        console.warn(
+          `Rejected one-way IPC ${channel}.`,
+          error instanceof Error ? error.message : "Unknown IPC validation error."
+        );
+      }
+    });
+  };
+
   const emitPetConfigChanged = (pet?: DesktopPetPayload["definition"]): void => {
     const publicPet = pet ? toPublicPetDefinition(pet) : undefined;
 
@@ -105,27 +162,49 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     }
   });
 
-  ipcMain.handle("app:get-version", () => app.getVersion());
+  handle("app:get-version", "main", () => app.getVersion());
 
-  ipcMain.handle("app-window:is-shown", () => getMainWindow()?.isVisible() ?? false);
+  handle("app-window:is-shown", "main", () => getMainWindow()?.isVisible() ?? false);
 
-  ipcMain.on("app-window:startup-surface-ready", (event, reason?: string) => {
-    if (event.sender !== getMainWindow()?.webContents) {
-      return;
-    }
-
+  on("app-window:startup-surface-ready", "main", (event, reason?: string) => {
     const safeReason = typeof reason === "string" ? reason.slice(0, 120) : "renderer";
 
     revealMainWindowStartupSurface(safeReason);
   });
 
-  ipcMain.handle("pet-config:list-local", () => listLocalPets());
+  handle("pet-config:list-local", "main", async () => {
+    const result = await scanLocalPetsForRecovery();
+    const corruption = result.corruptions[0];
 
-  ipcMain.handle("pet-config:list-ui-themes", () => listLocalUiThemes());
+    return {
+      ok: !corruption,
+      pets: result.pets,
+      corruption: corruption
+        ? {
+            code: corruption.code,
+            petId: corruption.petId,
+            backupAvailable: corruption.backupAvailable,
+            message: corruption.message
+          }
+        : undefined
+    };
+  });
 
-  ipcMain.handle("pet-config:import-ui-theme", () => importLocalUiTheme());
+  handle("pet-config:restore-backup", "main", async (_event, petId: string) => {
+    const result = await restoreLocalPetConfigBackup(petId);
 
-  ipcMain.handle("pet-config:save-basic-info", async (_event, draft: LocalPetBasicInfoDraft) => {
+    if (result.ok) {
+      emitPetConfigChanged(result.pet);
+    }
+
+    return result;
+  });
+
+  handle("pet-config:list-ui-themes", "main", () => listLocalUiThemes());
+
+  handle("pet-config:import-ui-theme", "main", () => importLocalUiTheme());
+
+  handle("pet-config:save-basic-info", "main", async (_event, draft: LocalPetBasicInfoDraft) => {
     const result = await saveLocalPetBasicInfo(draft);
 
     if (result.ok) {
@@ -135,7 +214,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:save-persona", async (_event, draft: LocalPetPersonaDraft) => {
+  handle("pet-config:save-persona", "main", async (_event, draft: LocalPetPersonaDraft) => {
     const result = await saveLocalPetPersona(draft);
 
     if (result.ok) {
@@ -145,7 +224,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:save-expression-mappings", async (_event, draft: LocalPetExpressionMappingDraft) => {
+  handle("pet-config:save-expression-mappings", "main", async (_event, draft: LocalPetExpressionMappingDraft) => {
     const result = await saveLocalPetExpressionMappings(draft);
 
     if (result.ok) {
@@ -155,7 +234,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:save-event-settings", async (_event, draft: LocalPetEventSettingsDraft) => {
+  handle("pet-config:save-event-settings", "main", async (_event, draft: LocalPetEventSettingsDraft) => {
     const result = await saveLocalPetEventSettings(draft);
 
     if (result.ok) {
@@ -165,7 +244,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:save-ui-settings", async (_event, draft: LocalPetUiSettingsDraft) => {
+  handle("pet-config:save-ui-settings", "main", async (_event, draft: LocalPetUiSettingsDraft) => {
     const result = await saveLocalPetUiSettings(draft);
 
     if (result.ok) {
@@ -175,7 +254,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:save-voice-input", async (_event, draft: LocalPetVoiceInputDraft) => {
+  handle("pet-config:save-voice-input", "main", async (_event, draft: LocalPetVoiceInputDraft) => {
     const result = await saveLocalPetVoiceInput(draft);
 
     if (result.ok) {
@@ -185,15 +264,15 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:pick-voice-model-file", (_event, kind: LocalPetVoiceResourceKind) =>
+  handle("pet-config:pick-voice-model-file", "main", (_event, kind: LocalPetVoiceResourceKind) =>
     pickLocalPetVoiceModelFile(kind)
   );
 
-  ipcMain.handle("pet-config:test-voice-model-connection", (_event, draft: LocalPetVoiceModelDraft) =>
+  handle("pet-config:test-voice-model-connection", "main", (_event, draft: LocalPetVoiceModelDraft) =>
     testLocalPetVoiceModelConnection(draft)
   );
 
-  ipcMain.handle("pet-config:disconnect-voice-model", async () => {
+  handle("pet-config:disconnect-voice-model", "main", async () => {
     stopManagedGptSoVitsApi();
     await resetLocalPetVoiceRuntimeState();
 
@@ -205,7 +284,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     };
   });
 
-  ipcMain.handle("pet-config:save-voice-model", async (_event, draft: LocalPetVoiceModelDraft) => {
+  handle("pet-config:save-voice-model", "main", async (_event, draft: LocalPetVoiceModelDraft) => {
     const result = await saveLocalPetVoiceModel(draft);
 
     if (result.ok) {
@@ -215,40 +294,55 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return result;
   });
 
-  ipcMain.handle("pet-config:import-avatar", (_event, petId?: string) =>
+  handle("pet-config:import-avatar", "main", (_event, petId?: string) =>
     importLocalPetAvatar(petId)
   );
 
-  ipcMain.handle("pet-config:save-avatar-crop", (_event, request: LocalPetAvatarCropSaveRequest) =>
+  handle("pet-config:save-avatar-crop", "main", (_event, request: LocalPetAvatarCropSaveRequest) =>
     saveLocalPetAvatarCrop(request)
   );
 
-  ipcMain.handle("pet-config:delete", async (_event, petId: string) => {
+  handle("pet-config:delete", "main", async (_event, petId: string) => {
+    const currentPayload = getCurrentPetWindowPayload();
+
+    if (currentPayload?.id === petId) {
+      const closeState = await closePetWindow({ playEffect: false });
+
+      if (closeState.visible && closeState.petId === petId) {
+        return {
+          ok: false,
+          message: "桌宠窗口尚未关闭，未执行删除。请重试。",
+          petId
+        };
+      }
+    }
+
     const result = await deleteLocalPet(petId);
 
     if (result.ok) {
       await deleteAiConnection(result.petId);
+      clearCurrentPetWindowPayload(result.petId);
       emitPetConfigChanged();
     }
 
     return result;
   });
 
-  ipcMain.handle("live2d-import:select-folder", () => selectLive2DFolder());
+  handle("live2d-import:select-folder", "main", () => selectLive2DFolder());
 
-  ipcMain.handle("live2d-import:validate-folder", (_event, folderPath: string) =>
+  handle("live2d-import:validate-folder", "main", (_event, folderPath: string) =>
     validateLive2DFolder(folderPath)
   );
 
-  ipcMain.handle("live2d-import:generate-entry", (_event, folderPath: string) =>
+  handle("live2d-import:generate-entry", "main", (_event, folderPath: string) =>
     generateLive2DEntry(folderPath)
   );
 
-  ipcMain.handle("live2d-import:create-preview-model", (_event, folderPath: string) =>
+  handle("live2d-import:create-preview-model", "main", (_event, folderPath: string) =>
     createLive2DPreviewModel(folderPath)
   );
 
-  ipcMain.handle("live2d-import:import-model", async (_event, request) => {
+  handle("live2d-import:import-model", "main", async (_event, request: Live2DModelImportRequest) => {
     const result = await importLive2DModel(request);
     const publicResult = result.pet
       ? {
@@ -264,99 +358,128 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     return publicResult;
   });
 
-  ipcMain.handle("live2d-import:scan-imported-sources", (_event, petId: string) =>
+  handle("live2d-import:scan-imported-sources", "main", (_event, petId: string) =>
     scanImportedLive2DSources(petId)
   );
 
-  ipcMain.handle("live2d-import:scan-preview-sources", (_event, folderPath: string) =>
+  handle("live2d-import:scan-preview-sources", "main", (_event, folderPath: string) =>
     scanLive2DPreviewSources(folderPath)
   );
 
-  ipcMain.handle("ai-settings:list", () => listAiConnectionSummaries());
+  handle("ai-settings:list", "main", () => listAiConnectionSummaries());
 
-  ipcMain.handle("ai-settings:get", (_event, petId: string) => getAiConnectionSummary(petId));
+  handle("ai-settings:get", "main", (_event, petId: string) => getAiConnectionSummary(petId));
 
-  ipcMain.handle("ai-settings:list-models", (_event, draft: AiConnectionDraft) =>
+  handle("ai-settings:list-models", "main", (_event, draft: AiConnectionDraft) =>
     listAiModels(draft)
   );
 
-  ipcMain.handle("ai-settings:save", (_event, draft: AiConnectionDraft) =>
+  handle("ai-settings:save", "main", (_event, draft: AiConnectionDraft) =>
     saveAiConnection(draft)
   );
 
-  ipcMain.handle("ai-chat:send", (_event, request: AiChatRequest) => sendAiChat(request));
+  handle("ai-chat:stream", "pet", (event, request: AiChatStreamRequest) => {
+    if (
+      !request ||
+      typeof request.requestId !== "string" ||
+      !/^[A-Za-z0-9._:-]{1,128}$/.test(request.requestId)
+    ) {
+      return {
+        ok: false,
+        message: "AI 请求标识无效。"
+      };
+    }
 
-  ipcMain.handle("ai-chat:stream", (event, request: AiChatRequest) => {
     const streamId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     void startAiChatStream(event.sender, request, streamId);
 
     return {
       ok: true,
       message: "ok",
+      requestId: request.requestId,
       streamId
     };
   });
 
-  ipcMain.handle("speech-to-text:transcribe", (_event, request: SpeechToTextRequest) =>
+  handle("ai-chat:cancel", "pet", (event, request?: AiChatStreamCancelRequest) =>
+    cancelAiChatStreams(event.sender, request)
+  );
+
+  handle("speech-to-text:transcribe", "pet", (_event, request: SpeechToTextRequest) =>
     transcribeSpeech(request)
   );
 
-  ipcMain.handle("text-to-speech:speak", (_event, request: TextToSpeechRequest) =>
-    speakText(request)
+  handle("text-to-speech:speak", "pet", (event, request: TextToSpeechRequest) => {
+    if (
+      !request ||
+      typeof request.requestId !== "string" ||
+      !/^[A-Za-z0-9._:-]{1,128}$/.test(request.requestId)
+    ) {
+      return {
+        ok: false,
+        message: "语音请求标识无效。"
+      };
+    }
+
+    return speakText(event.sender, request);
+  });
+
+  handle("text-to-speech:stop", "pet", (event, request?: TextToSpeechStopRequest) =>
+    stopSpeechPlayback(event.sender, request)
   );
 
-  ipcMain.handle("text-to-speech:stop", () => stopSpeechPlayback());
-
-  ipcMain.handle("speech-stream:start", (event, request: SpeechStreamStartRequest) =>
+  handle("speech-stream:start", "pet", (event, request: SpeechStreamStartRequest) =>
     startSpeechStream(event.sender, request)
   );
 
-  ipcMain.on("speech-stream:audio", (_event, chunk: SpeechStreamAudioChunk) => {
+  on("speech-stream:audio", "pet", (_event, chunk: SpeechStreamAudioChunk) => {
     sendSpeechStreamAudio(chunk);
   });
 
-  ipcMain.on("speech-stream:stop", (_event, request: SpeechStreamStopRequest) => {
+  on("speech-stream:stop", "pet", (_event, request: SpeechStreamStopRequest) => {
     stopSpeechStream(request);
   });
 
-  ipcMain.on("window:minimize", () => {
+  on("window:minimize", "main", () => {
     getMainWindow()?.minimize();
   });
 
-  ipcMain.on("window:close", () => {
+  on("window:close", "main", () => {
     getMainWindow()?.close();
   });
 
-  ipcMain.handle("pet-window:show", (_event, payload: DesktopPetPayload) =>
+  handle("pet-window:show", "main", (_event, payload: DesktopPetPayload) =>
     showPetWindow({
       ...payload,
       definition: payload.definition ? toPublicPetDefinition(payload.definition) : undefined
     })
   );
 
-  ipcMain.handle("pet-window:close", (_event, options) => closePetWindow(options));
+  handle("pet-window:close", "both", (_event, options?: PetWindowCloseOptions) =>
+    closePetWindow(options)
+  );
 
-  ipcMain.handle("pet-window:toggle-click-through", () => togglePetWindowClickThrough());
+  handle("pet-window:toggle-click-through", "pet", () => togglePetWindowClickThrough());
 
-  ipcMain.handle("pet-window:set-click-through", (_event, value: boolean) =>
+  handle("pet-window:set-click-through", "pet", (_event, value: boolean) =>
     setPetWindowClickThrough(value)
   );
 
-  ipcMain.handle("pet-window:set-click-through-control-interactive", (_event, value: boolean) =>
+  handle("pet-window:set-click-through-control-interactive", "pet", (_event, value: boolean) =>
     setPetWindowClickThroughControlInteractive(value)
   );
 
-  ipcMain.handle("pet-window:start-drag", (_event, point: PetWindowDragPoint) =>
+  handle("pet-window:start-drag", "pet", (_event, point: PetWindowDragPoint) =>
     startPetWindowDrag(point)
   );
 
-  ipcMain.handle("pet-window:move-drag", (_event, point: PetWindowDragPoint) =>
+  handle("pet-window:move-drag", "pet", (_event, point: PetWindowDragPoint) =>
     movePetWindowDrag(point)
   );
 
-  ipcMain.handle("pet-window:end-drag", () => endPetWindowDrag());
+  handle("pet-window:end-drag", "pet", () => endPetWindowDrag());
 
-  ipcMain.handle("pet-window:get-state", () => getPetWindowState());
+  handle("pet-window:get-state", "both", () => getPetWindowState());
 
-  ipcMain.handle("pet-window:get-payload", () => getCurrentPetWindowPayload());
+  handle("pet-window:get-payload", "pet", () => getCurrentPetWindowPayload());
 }

@@ -28,6 +28,15 @@ import {
 } from "./cubism/framework/motion/cubismmotionqueuemanager";
 import { CubismPhysics } from "./cubism/framework/physics/cubismphysics";
 import { CubismRenderer_WebGL } from "./cubism/framework/rendering/cubismrenderer_webgl";
+import {
+  DeferredLive2DAssetCache,
+  fetchLive2DArrayBuffer,
+  isLive2DLoadAborted,
+  loadLive2DElementImage,
+  loadLive2DImage,
+  raceLive2DLoadWithSignal,
+  throwIfLive2DLoadAborted
+} from "./live2dResourceLoader";
 
 export type CubismMotionPriority = "idle" | "normal" | "force";
 export type Live2DFitMode = "stage" | "previewContain";
@@ -113,7 +122,10 @@ function loadScript(src: string): Promise<void> {
     script.async = true;
     script.dataset.runtimeSrc = src;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+    script.onerror = () => {
+      script.remove();
+      reject(new Error(`Failed to load script: ${src}`));
+    };
     document.head.appendChild(script);
   });
 }
@@ -127,7 +139,11 @@ function resolveShaderPath(): string {
 }
 
 export function loadLive2DRuntime(): Promise<void> {
-  runtimePromise ??= Promise.resolve()
+  if (runtimePromise) {
+    return runtimePromise;
+  }
+
+  const pendingRuntime = Promise.resolve()
     .then(() => {
       if (typeof Live2DCubismCore !== "undefined") {
         return undefined;
@@ -153,6 +169,15 @@ export function loadLive2DRuntime(): Promise<void> {
         CubismFramework.initialize();
       }
     });
+  let retryableRuntime: Promise<void>;
+  retryableRuntime = pendingRuntime.catch((error) => {
+    if (runtimePromise === retryableRuntime) {
+      runtimePromise = undefined;
+    }
+
+    throw error;
+  });
+  runtimePromise = retryableRuntime;
 
   return runtimePromise;
 }
@@ -165,16 +190,6 @@ function releaseRuntime(): void {
   activeModelCount = Math.max(0, activeModelCount - 1);
 }
 
-async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load ${url}: ${response.status}`);
-  }
-
-  return response.arrayBuffer();
-}
-
 function resolveModelEntryUrl(modelPath: string): string {
   return new URL(modelPath, window.location.href).href;
 }
@@ -185,41 +200,6 @@ function createModelBaseUrl(modelPath: string): string {
 
 function resolveModelResource(baseUrl: string, path: string): string {
   return new URL(path, baseUrl).href;
-}
-
-async function loadImage(url: string): Promise<{ image: HTMLImageElement; objectUrl?: string }> {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load texture ${url}: ${response.status}`);
-  }
-
-  const objectUrl = window.URL.createObjectURL(await response.blob());
-
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const nextImage = new Image();
-      nextImage.decoding = "async";
-      nextImage.onload = () => resolve(nextImage);
-      nextImage.onerror = () => reject(new Error(`Failed to decode texture: ${url}`));
-      nextImage.src = objectUrl;
-    });
-
-    return { image, objectUrl };
-  } catch (error) {
-    window.URL.revokeObjectURL(objectUrl);
-    throw error;
-  }
-}
-
-function loadElementImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error(`Failed to load texture: ${url}`));
-    image.src = url;
-  });
 }
 
 function createTexture(
@@ -271,7 +251,8 @@ function getFirstAvailableMotionGroup(setting: ICubismModelSetting): string | un
 
 export class CubismLive2DModel {
   static async from(options: CubismLive2DModelOptions): Promise<CubismLive2DModel> {
-    await loadLive2DRuntime();
+    await raceLive2DLoadWithSignal(loadLive2DRuntime(), options.abortSignal);
+    throwIfLive2DLoadAborted(options.abortSignal);
     retainRuntime();
 
     const model = new CubismLive2DModel(options);
@@ -290,7 +271,9 @@ export class CubismLive2DModel {
   private readonly modelBaseUrl: string;
   private readonly autoIdle: boolean;
   private readonly fitMode: Live2DFitMode;
-  private readonly abortSignal?: AbortSignal;
+  private readonly resourceAbortController = new AbortController();
+  private readonly externalAbortSignal?: AbortSignal;
+  private readonly abortSignal = this.resourceAbortController.signal;
   private readonly onHit?: () => void;
   private readonly onError?: (error: unknown) => void;
   private gl: WebGLRenderingContext | WebGL2RenderingContext;
@@ -308,8 +291,8 @@ export class CubismLive2DModel {
   private breath?: CubismBreath;
   private motionManager = new CubismMotionManager();
   private expressionManager = new CubismExpressionMotionManager();
-  private motions = new Map<string, CubismMotion>();
-  private expressions = new Map<string, ACubismMotion>();
+  private motions = new DeferredLive2DAssetCache<CubismMotion>();
+  private expressions = new DeferredLive2DAssetCache<ACubismMotion>();
   private eyeBlinkIds: CubismIdHandle[] = [];
   private lipSyncIds: CubismIdHandle[] = [];
   private textures: LoadedTexture[] = [];
@@ -319,6 +302,11 @@ export class CubismLive2DModel {
   private userTimeSeconds = 0;
   private reservedPriority = 0;
   private idleGroup?: string;
+  private pendingIdleMotion?: Promise<boolean>;
+  private pendingMotionOperationSequence?: number;
+  private idleRetryAt = 0;
+  private motionOperationSequence = 0;
+  private expressionOperationSequence = 0;
   private width = 1;
   private height = 1;
   private targetLookX = 0;
@@ -334,7 +322,14 @@ export class CubismLive2DModel {
     this.modelBaseUrl = createModelBaseUrl(options.modelPath);
     this.autoIdle = options.autoIdle ?? false;
     this.fitMode = options.fitMode ?? "stage";
-    this.abortSignal = options.abortSignal;
+    this.externalAbortSignal = options.abortSignal;
+    if (this.externalAbortSignal?.aborted) {
+      this.abortResourceLoads(this.externalAbortSignal.reason);
+    } else {
+      this.externalAbortSignal?.addEventListener("abort", this.handleExternalAbort, {
+        once: true
+      });
+    }
     this.onHit = options.onHit;
     this.onError = options.onError;
 
@@ -366,7 +361,7 @@ export class CubismLive2DModel {
 
   async load(): Promise<void> {
     this.throwIfAborted();
-    const settingBuffer = await fetchArrayBuffer(this.modelPath);
+    const settingBuffer = await fetchLive2DArrayBuffer(this.modelPath, this.abortSignal);
     this.throwIfAborted();
     this.setting = new CubismModelSettingJson(settingBuffer, settingBuffer.byteLength);
 
@@ -376,9 +371,13 @@ export class CubismLive2DModel {
       throw new Error("model3.json does not reference a .moc3 file.");
     }
 
-    const mocBuffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, modelFileName));
+    const mocBuffer = await fetchLive2DArrayBuffer(
+      resolveModelResource(this.modelBaseUrl, modelFileName),
+      this.abortSignal
+    );
     this.throwIfAborted();
     this.moc = CubismMoc.create(mocBuffer, true);
+    this.throwIfAborted();
     const rawModel = this.moc.createModel();
 
     if (!rawModel) {
@@ -394,20 +393,22 @@ export class CubismLive2DModel {
     this.setupLayout();
     this.model.update();
     this.modelBounds = this.measureModelBounds();
-    await Promise.all([
-      this.loadExpressions(),
-      this.loadPhysics(),
-      this.loadPose()
-    ]);
+    await this.loadPose();
     this.throwIfAborted();
     this.setupEffects();
-    await this.loadMotions();
-    this.throwIfAborted();
+    // Motion and expression files stay off the first-frame path and load on first use.
+    this.idleGroup = getFirstAvailableMotionGroup(this.setting);
     await this.setupRendererAndTextures();
     this.throwIfAborted();
     this.resetToNeutralFace();
+    this.pose?.updateParameters(this.model, 0);
+    this.model.update();
     this.resize();
+    this.draw();
+    this.throwIfAborted();
     this.startLoop();
+    // Physics is optional and starts only after a real neutral frame has been drawn.
+    this.loadPhysicsAfterFirstDraw();
   }
 
   resize(): void {
@@ -446,30 +447,73 @@ export class CubismLive2DModel {
       return false;
     }
 
-    const motion = await this.getMotion(group, index);
+    const operationSequence = ++this.motionOperationSequence;
+    this.pendingMotionOperationSequence = operationSequence;
+    this.reservedPriority = motionPriority;
 
-    if (!motion || this.disposed) {
+    try {
+      const motion = await this.getMotion(group, index);
+
+      if (this.disposed || operationSequence !== this.motionOperationSequence) {
+        return false;
+      }
+
+      this.pendingMotionOperationSequence = undefined;
+
+      if (!motion) {
+        this.reservedPriority = 0;
+        return false;
+      }
+
+      this.motionManager.startMotion(motion, false);
+      return true;
+    } catch (error) {
+      if (operationSequence === this.motionOperationSequence) {
+        this.pendingMotionOperationSequence = undefined;
+        this.reservedPriority = 0;
+      }
+
+      if (!isLive2DLoadAborted(error, this.abortSignal) && !this.disposed) {
+        console.warn("Failed to load Live2D motion", { group, index, error });
+      }
+
       return false;
     }
-
-    this.reservedPriority = motionPriority;
-    this.motionManager.startMotion(motion, false);
-    return true;
   }
 
   async expression(id?: string | number): Promise<boolean> {
-    if (id === undefined || id === null || this.disposed) {
+    if (
+      id === undefined ||
+      id === null ||
+      !this.setting ||
+      !this.model ||
+      this.disposed
+    ) {
       return false;
     }
 
-    const expression = this.expressions.get(String(id)) ?? this.expressions.get(`index:${id}`);
+    const operationSequence = ++this.expressionOperationSequence;
 
-    if (!expression) {
+    try {
+      const expression = await this.getExpression(id);
+
+      if (
+        !expression ||
+        this.disposed ||
+        operationSequence !== this.expressionOperationSequence
+      ) {
+        return false;
+      }
+
+      this.expressionManager.startMotion(expression, false);
+      return true;
+    } catch (error) {
+      if (!isLive2DLoadAborted(error, this.abortSignal) && !this.disposed) {
+        console.warn("Failed to load Live2D expression", { id, error });
+      }
+
       return false;
     }
-
-    this.expressionManager.startMotion(expression, false);
-    return true;
   }
 
   resetToNeutralFace(): void {
@@ -479,6 +523,10 @@ export class CubismLive2DModel {
 
     this.motionManager.stopAllMotions();
     this.expressionManager.stopAllMotions();
+    this.motionOperationSequence += 1;
+    this.expressionOperationSequence += 1;
+    this.pendingMotionOperationSequence = undefined;
+    this.pendingIdleMotion = undefined;
     this.reservedPriority = 0;
     this.targetLookX = 0;
     this.targetLookY = 0;
@@ -517,7 +565,13 @@ export class CubismLive2DModel {
       return;
     }
 
+    this.externalAbortSignal?.removeEventListener("abort", this.handleExternalAbort);
+    this.abortResourceLoads();
     this.disposed = true;
+    this.motionOperationSequence += 1;
+    this.expressionOperationSequence += 1;
+    this.pendingIdleMotion = undefined;
+    this.pendingMotionOperationSequence = undefined;
     window.cancelAnimationFrame(this.animationFrame);
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
@@ -537,6 +591,8 @@ export class CubismLive2DModel {
     this.textures = [];
     this.motionManager.release();
     this.expressionManager.release();
+    this.motions.clear((motion) => motion.release());
+    this.expressions.clear((expression) => expression.release());
     if (this.physics) {
       CubismPhysics.delete(this.physics);
     }
@@ -669,32 +725,78 @@ export class CubismLive2DModel {
     };
   }
 
-  private async loadExpressions(): Promise<void> {
+  private resolveExpressionIndex(id: string | number): number | undefined {
     if (!this.setting) {
-      return;
+      return undefined;
     }
 
-    const expressionCount = this.setting.getExpressionCount();
-    const entries = Array.from({ length: expressionCount }, (_, index) => index);
+    const requestedId = String(id);
 
-    await Promise.all(
-      entries.map(async (index) => {
-        const name = this.setting?.getExpressionName(index);
-        const fileName = this.setting?.getExpressionFileName(index);
+    for (let index = 0; index < this.setting.getExpressionCount(); index += 1) {
+      if (this.setting.getExpressionName(index) === requestedId) {
+        return index;
+      }
+    }
 
-        if (!name || !fileName) {
-          return;
-        }
+    const indexMatch = /^index:(\d+)$/.exec(requestedId);
+    const numericIndex = indexMatch
+      ? Number(indexMatch[1])
+      : /^\d+$/.test(requestedId)
+        ? Number(requestedId)
+        : Number.NaN;
 
-        const buffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, fileName));
-        const expression = CubismExpressionMotion.create(buffer, buffer.byteLength);
+    return Number.isInteger(numericIndex) &&
+      numericIndex >= 0 &&
+      numericIndex < this.setting.getExpressionCount()
+      ? numericIndex
+      : undefined;
+  }
 
-        if (expression) {
-          this.expressions.set(name, expression);
-          this.expressions.set(`index:${index}`, expression);
-        }
-      })
-    );
+  private async getExpression(id: string | number): Promise<ACubismMotion | undefined> {
+    const setting = this.setting;
+    const index = this.resolveExpressionIndex(id);
+
+    if (!setting || index === undefined) {
+      return undefined;
+    }
+
+    const key = `index:${index}`;
+
+    return this.expressions.getOrLoad(key, async () => {
+      const name = setting.getExpressionName(index);
+      const fileName = setting.getExpressionFileName(index);
+
+      if (!name || !fileName) {
+        return undefined;
+      }
+
+      const buffer = await fetchLive2DArrayBuffer(
+        resolveModelResource(this.modelBaseUrl, fileName),
+        this.abortSignal
+      );
+      this.throwIfAborted();
+      const expression = CubismExpressionMotion.create(buffer, buffer.byteLength);
+
+      if (!expression) {
+        return undefined;
+      }
+
+      try {
+        this.throwIfAborted();
+        return expression;
+      } catch (error) {
+        expression.release();
+        throw error;
+      }
+    });
+  }
+
+  private loadPhysicsAfterFirstDraw(): void {
+    void this.loadPhysics().catch((error: unknown) => {
+      if (!isLive2DLoadAborted(error, this.abortSignal) && !this.disposed) {
+        console.warn("Failed to load optional Live2D physics", error);
+      }
+    });
   }
 
   private async loadPhysics(): Promise<void> {
@@ -704,8 +806,20 @@ export class CubismLive2DModel {
       return;
     }
 
-    const buffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, physicsFileName));
-    this.physics = CubismPhysics.create(buffer, buffer.byteLength);
+    const buffer = await fetchLive2DArrayBuffer(
+      resolveModelResource(this.modelBaseUrl, physicsFileName),
+      this.abortSignal
+    );
+    this.throwIfAborted();
+    const physics = CubismPhysics.create(buffer, buffer.byteLength);
+
+    try {
+      this.throwIfAborted();
+      this.physics = physics;
+    } catch (error) {
+      CubismPhysics.delete(physics);
+      throw error;
+    }
   }
 
   private async loadPose(): Promise<void> {
@@ -715,80 +829,74 @@ export class CubismLive2DModel {
       return;
     }
 
-    const buffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, poseFileName));
-    this.pose = CubismPose.create(buffer, buffer.byteLength);
-  }
+    const buffer = await fetchLive2DArrayBuffer(
+      resolveModelResource(this.modelBaseUrl, poseFileName),
+      this.abortSignal
+    );
+    this.throwIfAborted();
+    const pose = CubismPose.create(buffer, buffer.byteLength);
 
-  private async loadMotions(): Promise<void> {
-    if (!this.setting) {
-      return;
-    }
-
-    const motionLoaders: Array<Promise<void>> = [];
-
-    for (let groupIndex = 0; groupIndex < this.setting.getMotionGroupCount(); groupIndex += 1) {
-      const groupName = this.setting.getMotionGroupName(groupIndex);
-
-      for (let motionIndex = 0; motionIndex < this.setting.getMotionCount(groupName); motionIndex += 1) {
-        motionLoaders.push(this.loadMotion(groupName, motionIndex));
-      }
-    }
-
-    await Promise.all(motionLoaders);
-    this.idleGroup = getFirstAvailableMotionGroup(this.setting);
-  }
-
-  private async loadMotion(group: string, index: number): Promise<void> {
-    const motion = await this.getMotion(group, index);
-
-    if (motion) {
-      this.motions.set(normalizeMotionKey(group, index), motion);
+    try {
+      this.throwIfAborted();
+      this.pose = pose;
+    } catch (error) {
+      CubismPose.delete(pose);
+      throw error;
     }
   }
 
   private async getMotion(group: string, index: number): Promise<CubismMotion | undefined> {
-    if (!this.setting) {
+    const setting = this.setting;
+
+    if (!setting) {
       return undefined;
     }
 
     const key = normalizeMotionKey(group, index);
-    const cachedMotion = this.motions.get(key);
 
-    if (cachedMotion) {
-      return cachedMotion;
-    }
-
-    if (index < 0 || index >= this.setting.getMotionCount(group)) {
+    if (index < 0 || index >= setting.getMotionCount(group)) {
       return undefined;
     }
 
-    const motionFileName = this.setting.getMotionFileName(group, index);
+    const motionFileName = setting.getMotionFileName(group, index);
 
     if (!motionFileName) {
       return undefined;
     }
 
-    const buffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, motionFileName));
-    const motion = CubismMotion.create(buffer, buffer.byteLength);
+    const fadeInTime = setting.getMotionFadeInTimeValue(group, index);
+    const fadeOutTime = setting.getMotionFadeOutTimeValue(group, index);
 
-    if (!motion) {
-      return undefined;
-    }
+    return this.motions.getOrLoad(key, async () => {
+      const buffer = await fetchLive2DArrayBuffer(
+        resolveModelResource(this.modelBaseUrl, motionFileName),
+        this.abortSignal
+      );
+      this.throwIfAborted();
+      const motion = CubismMotion.create(buffer, buffer.byteLength);
 
-    const fadeInTime = this.setting.getMotionFadeInTimeValue(group, index);
-    const fadeOutTime = this.setting.getMotionFadeOutTimeValue(group, index);
+      if (!motion) {
+        return undefined;
+      }
 
-    if (fadeInTime >= 0) {
-      motion.setFadeInTime(fadeInTime);
-    }
+      try {
+        this.throwIfAborted();
 
-    if (fadeOutTime >= 0) {
-      motion.setFadeOutTime(fadeOutTime);
-    }
+        if (fadeInTime >= 0) {
+          motion.setFadeInTime(fadeInTime);
+        }
 
-    motion.setEffectIds(this.eyeBlinkIds, this.lipSyncIds);
-    this.motions.set(key, motion);
-    return motion;
+        if (fadeOutTime >= 0) {
+          motion.setFadeOutTime(fadeOutTime);
+        }
+
+        motion.setEffectIds(this.eyeBlinkIds, this.lipSyncIds);
+        return motion;
+      } catch (error) {
+        motion.release();
+        throw error;
+      }
+    });
   }
 
   private applyNeutralFaceParameters(): void {
@@ -877,8 +985,18 @@ export class CubismLive2DModel {
     this.renderer = new CubismRenderer_WebGL(this.canvas.width, this.canvas.height);
     this.renderer.initialize(this.model);
     this.renderer.startUp(this.gl);
-    this.renderer.loadShaders(this.shaderPath);
     this.renderer.setIsPremultipliedAlpha(true);
+    await Promise.all([
+      this.renderer.loadShaders(this.shaderPath, this.abortSignal),
+      this.loadTextures()
+    ]);
+    this.throwIfAborted();
+  }
+
+  private async loadTextures(): Promise<void> {
+    if (!this.setting || !this.renderer) {
+      return;
+    }
 
     const textureCount = this.setting.getTextureCount();
 
@@ -890,25 +1008,64 @@ export class CubismLive2DModel {
       }
 
       const texturePath = resolveModelResource(this.modelBaseUrl, textureFileName);
-      const { image, objectUrl } = await loadImage(texturePath).catch(async (error: unknown) => {
+      const { image, objectUrl } = await loadLive2DImage(
+        texturePath,
+        this.abortSignal
+      ).catch(async (error: unknown) => {
+        if (isLive2DLoadAborted(error, this.abortSignal)) {
+          throw error;
+        }
+
         console.warn("Falling back to element texture loading", {
           texturePath,
           error
         });
 
         return {
-          image: await loadElementImage(texturePath),
+          image: await loadLive2DElementImage(texturePath, this.abortSignal),
           objectUrl: undefined
         };
       });
-      const texture = createTexture(this.gl, image);
-      this.textures.push({ id: texture, image, path: texturePath, objectUrl });
-      this.renderer.bindTexture(index, texture);
+      let texture: WebGLTexture | undefined;
+
+      try {
+        this.throwIfAborted();
+        texture = createTexture(this.gl, image);
+        this.throwIfAborted();
+        this.renderer.bindTexture(index, texture);
+        this.textures.push({ id: texture, image, path: texturePath, objectUrl });
+      } catch (error) {
+        if (texture) {
+          this.gl.deleteTexture(texture);
+        }
+        if (objectUrl) {
+          window.URL.revokeObjectURL(objectUrl);
+        }
+        throw error;
+      }
     }
   }
 
+  private abortResourceLoads(reason?: unknown): void {
+    if (this.resourceAbortController.signal.aborted) {
+      return;
+    }
+
+    if (reason === undefined) {
+      this.resourceAbortController.abort();
+    } else {
+      this.resourceAbortController.abort(reason);
+    }
+  }
+
+  private readonly handleExternalAbort = (): void => {
+    this.abortResourceLoads(this.externalAbortSignal?.reason);
+  };
+
   private throwIfAborted(): void {
-    if (this.abortSignal?.aborted || this.disposed) {
+    throwIfLive2DLoadAborted(this.abortSignal);
+
+    if (this.disposed) {
       throw new Error("Live2D model load was canceled.");
     }
   }
@@ -945,11 +1102,31 @@ export class CubismLive2DModel {
     let motionUpdated = false;
 
     if (this.motionManager.isFinished()) {
-      this.reservedPriority = 0;
-      if (this.autoIdle && this.idleGroup) {
+      if (this.pendingMotionOperationSequence === undefined) {
+        this.reservedPriority = 0;
+      }
+
+      if (
+        this.autoIdle &&
+        this.idleGroup &&
+        !this.pendingIdleMotion &&
+        this.pendingMotionOperationSequence === undefined &&
+        window.performance.now() >= this.idleRetryAt
+      ) {
         const idleCount = this.setting?.getMotionCount(this.idleGroup) ?? 0;
         const index = idleCount > 1 ? Math.floor(Math.random() * idleCount) : 0;
-        void this.motion(this.idleGroup, index, "idle");
+        const idleMotion = this.motion(this.idleGroup, index, "idle");
+        this.pendingIdleMotion = idleMotion;
+        void idleMotion.then((started) => {
+          if (this.pendingIdleMotion !== idleMotion) {
+            return;
+          }
+
+          this.pendingIdleMotion = undefined;
+          if (!started && !this.disposed) {
+            this.idleRetryAt = window.performance.now() + 2000;
+          }
+        });
       }
     } else {
       motionUpdated = this.motionManager.updateMotion(this.model, deltaTimeSeconds);

@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, session } from "electron";
 import path from "node:path";
 import { createMainWindow } from "./window";
 import { registerIpc } from "./ipc";
-import { closePetWindow } from "./petWindow";
+import { closePetWindow, isPetWindowWebContents } from "./petWindow";
 import { createAppTray } from "./tray";
 import {
   petResourceProtocol,
@@ -71,6 +71,22 @@ if (!gotLock) {
     }
 
     registerPetResourceProtocol();
+    session.defaultSession.setPermissionRequestHandler(
+      (webContents, permission, callback, details) => {
+        const mediaTypes =
+          permission === "media" && "mediaTypes" in details && Array.isArray(details.mediaTypes)
+            ? details.mediaTypes
+            : [];
+        const isAudioOnlyRequest =
+          mediaTypes.length > 0 && mediaTypes.every((mediaType) => mediaType === "audio");
+
+        callback(
+          permission === "media" &&
+            isAudioOnlyRequest &&
+            isPetWindowWebContents(webContents)
+        );
+      }
+    );
     mainWindow = createMainWindow();
     registerIpc(ipcMain, () => mainWindow);
     createAppTray(() => mainWindow);

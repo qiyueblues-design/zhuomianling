@@ -11,6 +11,7 @@ export interface DesktopPetPayload {
 export interface PetWindowState {
   visible: boolean;
   clickThrough: boolean;
+  petId?: string;
 }
 
 export interface PetWindowDragPoint {

@@ -85,19 +85,39 @@ export interface AiChatRequest {
   messages: AiChatMessage[];
 }
 
+export interface AiChatStreamRequest extends AiChatRequest {
+  requestId: string;
+}
+
+export interface AiChatStreamCancelRequest {
+  petId?: string;
+  requestId?: string;
+  streamId?: string;
+}
+
+export interface AiChatStreamCancelResult {
+  ok: boolean;
+  message: string;
+  canceled: number;
+}
+
 export interface AiChatStreamStartResult {
   ok: boolean;
   message: string;
+  requestId?: string;
   streamId?: string;
 }
 
 export interface AiChatStreamEvent {
   streamId: string;
+  requestId: string;
+  petId: string;
   ok: boolean;
-  type: "chunk" | "done" | "error";
+  type: "chunk" | "done" | "error" | "canceled";
   delta?: string;
   content?: string;
   message?: string;
+  reason?: "renderer" | "replaced" | "owner-destroyed" | "connect-timeout" | "idle-timeout" | "total-timeout";
 }
 
 export interface AiChatResponse {

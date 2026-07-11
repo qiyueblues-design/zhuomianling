@@ -14,6 +14,8 @@ const forbiddenSuffixes = [
   ".ogg",
   ".aac",
   ".local.json",
+  ".bak",
+  ".tmp",
   ".test.js",
   ".spec.js"
 ];
@@ -22,12 +24,15 @@ const forbiddenFileNames = new Set([
   "ai-connections.json",
   "secure-secrets.json",
   "speech.local.json",
-  "gpt-sovits.generated.yaml"
+  "gpt-sovits.generated.yaml",
+  ".desktop-pet-import-transaction.json"
 ]);
 const forbiddenPathSegments = [
   "/gpt-sovits/",
   "/voice-model/",
-  "/reference-audio/"
+  "/reference-audio/",
+  "/.live2d-staging-",
+  "/.live2d-backup-"
 ];
 
 export function normalizeReleasePath(filePath) {

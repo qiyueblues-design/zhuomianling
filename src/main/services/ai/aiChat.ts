@@ -3,6 +3,9 @@ import type {
   AiChatMessage,
   AiChatRequest,
   AiChatResponse,
+  AiChatStreamCancelRequest,
+  AiChatStreamCancelResult,
+  AiChatStreamRequest,
   AiChatStreamEvent
 } from "../../../shared/types/ai";
 import {
@@ -236,6 +239,225 @@ function sendStreamEvent(target: WebContents, event: AiChatStreamEvent): void {
   }
 }
 
+export interface AiChatStreamTimeouts {
+  connectTimeoutMs: number;
+  idleTimeoutMs: number;
+  totalTimeoutMs: number;
+}
+
+type AiChatAbortReason = NonNullable<AiChatStreamEvent["reason"]>;
+
+interface AiChatStreamEntry {
+  target: WebContents;
+  streamId: string;
+  requestId: string;
+  petId: string;
+  controller: AbortController;
+  active: boolean;
+  connectTimer?: NodeJS.Timeout;
+  idleTimer?: NodeJS.Timeout;
+  totalTimer?: NodeJS.Timeout;
+  reader?: ReadableStreamDefaultReader<Uint8Array>;
+}
+
+interface AiChatOwnerState {
+  streams: Map<string, AiChatStreamEntry>;
+  ownerGoneListener: () => void;
+}
+
+const defaultAiChatStreamTimeouts: AiChatStreamTimeouts = {
+  connectTimeoutMs: 15_000,
+  idleTimeoutMs: 30_000,
+  totalTimeoutMs: 120_000
+};
+const aiChatOwners = new WeakMap<WebContents, AiChatOwnerState>();
+
+function emitEntryEvent(
+  entry: AiChatStreamEntry,
+  event: Omit<AiChatStreamEvent, "streamId" | "requestId" | "petId">
+): void {
+  if (!entry.active) {
+    return;
+  }
+
+  sendStreamEvent(entry.target, {
+    ...event,
+    streamId: entry.streamId,
+    requestId: entry.requestId,
+    petId: entry.petId
+  });
+}
+
+function clearEntryTimers(entry: AiChatStreamEntry): void {
+  clearTimeout(entry.connectTimer);
+  clearTimeout(entry.idleTimer);
+  clearTimeout(entry.totalTimer);
+  entry.connectTimer = undefined;
+  entry.idleTimer = undefined;
+  entry.totalTimer = undefined;
+}
+
+function detachEntry(entry: AiChatStreamEntry, abortReason?: AiChatAbortReason): boolean {
+  if (!entry.active) {
+    return false;
+  }
+
+  entry.active = false;
+  clearEntryTimers(entry);
+
+  const ownerState = aiChatOwners.get(entry.target);
+  ownerState?.streams.delete(entry.streamId);
+
+  if (ownerState && ownerState.streams.size === 0) {
+    entry.target.removeListener("render-process-gone", ownerState.ownerGoneListener);
+    entry.target.removeListener("destroyed", ownerState.ownerGoneListener);
+    aiChatOwners.delete(entry.target);
+  }
+
+  if (abortReason && !entry.controller.signal.aborted) {
+    entry.controller.abort(abortReason);
+  }
+
+  if (abortReason && entry.reader) {
+    void entry.reader.cancel(abortReason).catch(() => undefined);
+  }
+
+  return true;
+}
+
+function completeEntry(
+  entry: AiChatStreamEntry,
+  event: Omit<AiChatStreamEvent, "streamId" | "requestId" | "petId">
+): void {
+  emitEntryEvent(entry, event);
+  detachEntry(entry);
+}
+
+function abortEntry(entry: AiChatStreamEntry, reason: AiChatAbortReason): boolean {
+  if (!entry.active) {
+    return false;
+  }
+
+  if (reason === "connect-timeout" || reason === "idle-timeout" || reason === "total-timeout") {
+    const timeoutLabel =
+      reason === "connect-timeout"
+        ? "连接超时"
+        : reason === "idle-timeout"
+          ? "等待回复超时"
+          : "总时长超时";
+    emitEntryEvent(entry, {
+      ok: false,
+      type: "error",
+      reason,
+      message: `AI ${timeoutLabel}，请检查网络或服务状态后重试。`
+    });
+  } else if (reason !== "owner-destroyed") {
+    emitEntryEvent(entry, {
+      ok: false,
+      type: "canceled",
+      reason,
+      message: reason === "replaced" ? "旧回复已由新请求替换。" : "AI 回复已取消。"
+    });
+  }
+
+  return detachEntry(entry, reason);
+}
+
+function getOrCreateOwnerState(target: WebContents): AiChatOwnerState {
+  const existingState = aiChatOwners.get(target);
+
+  if (existingState) {
+    return existingState;
+  }
+
+  const ownerState: AiChatOwnerState = {
+    streams: new Map(),
+    ownerGoneListener: () => {
+      for (const entry of [...ownerState.streams.values()]) {
+        abortEntry(entry, "owner-destroyed");
+      }
+    }
+  };
+  aiChatOwners.set(target, ownerState);
+  target.on("render-process-gone", ownerState.ownerGoneListener);
+  target.once("destroyed", ownerState.ownerGoneListener);
+
+  return ownerState;
+}
+
+function createStreamEntry(
+  target: WebContents,
+  request: AiChatStreamRequest,
+  streamId: string,
+  timeouts: AiChatStreamTimeouts
+): AiChatStreamEntry {
+  const currentOwnerState = getOrCreateOwnerState(target);
+
+  for (const existingEntry of [...currentOwnerState.streams.values()]) {
+    if (existingEntry.petId === request.petId) {
+      abortEntry(existingEntry, "replaced");
+    }
+  }
+
+  const ownerState = getOrCreateOwnerState(target);
+
+  const entry: AiChatStreamEntry = {
+    target,
+    streamId,
+    requestId: request.requestId,
+    petId: request.petId,
+    controller: new AbortController(),
+    active: true
+  };
+  ownerState.streams.set(streamId, entry);
+
+  entry.connectTimer = setTimeout(() => {
+    abortEntry(entry, "connect-timeout");
+  }, timeouts.connectTimeoutMs);
+  entry.totalTimer = setTimeout(() => {
+    abortEntry(entry, "total-timeout");
+  }, timeouts.totalTimeoutMs);
+
+  return entry;
+}
+
+function resetIdleTimeout(entry: AiChatStreamEntry, idleTimeoutMs: number): void {
+  clearTimeout(entry.idleTimer);
+  entry.idleTimer = setTimeout(() => {
+    abortEntry(entry, "idle-timeout");
+  }, idleTimeoutMs);
+}
+
+export function cancelAiChatStreams(
+  target: WebContents,
+  request: AiChatStreamCancelRequest = {}
+): AiChatStreamCancelResult {
+  const ownerState = aiChatOwners.get(target);
+  let canceled = 0;
+
+  for (const entry of [...(ownerState?.streams.values() ?? [])]) {
+    if (request.petId && entry.petId !== request.petId) {
+      continue;
+    }
+
+    if (request.requestId && entry.requestId !== request.requestId) {
+      continue;
+    }
+
+    if (request.streamId && entry.streamId !== request.streamId) {
+      continue;
+    }
+
+    canceled += Number(abortEntry(entry, "renderer"));
+  }
+
+  return {
+    ok: true,
+    message: "ok",
+    canceled
+  };
+}
+
 function readStreamChunkDelta(line: string): { delta?: string; error?: string } {
   try {
     const parsed = JSON.parse(line) as ChatCompletionStreamChunk;
@@ -251,16 +473,21 @@ function readStreamChunkDelta(line: string): { delta?: string; error?: string } 
 
 export async function startAiChatStream(
   target: WebContents,
-  request: AiChatRequest,
-  streamId: string
+  request: AiChatStreamRequest,
+  streamId: string,
+  timeoutOverrides: Partial<AiChatStreamTimeouts> = {}
 ): Promise<void> {
+  const timeouts = {
+    ...defaultAiChatStreamTimeouts,
+    ...timeoutOverrides
+  };
+  const entry = createStreamEntry(target, request, streamId, timeouts);
   let config: Awaited<ReturnType<typeof getAiConnectionConfig>>;
 
   try {
     config = await getAiConnectionConfig(request.petId);
   } catch (error: unknown) {
-    sendStreamEvent(target, {
-      streamId,
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message: getAiSettingsErrorMessage(error)
@@ -268,9 +495,12 @@ export async function startAiChatStream(
     return;
   }
 
+  if (!entry.active) {
+    return;
+  }
+
   if (!config?.baseUrl || !config.model || !config.apiKey) {
-    sendStreamEvent(target, {
-      streamId,
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message: "请先在 AI 设置中保存该桌宠的服务商、模型和 API Key。"
@@ -281,8 +511,7 @@ export async function startAiChatStream(
   const messages = normalizeMessages(request.messages);
 
   if (!messages.length) {
-    sendStreamEvent(target, {
-      streamId,
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message: "请输入聊天内容。"
@@ -300,6 +529,7 @@ export async function startAiChatStream(
         "Content-Type": "application/json",
         Accept: "text/event-stream"
       },
+      signal: entry.controller.signal,
       body: JSON.stringify({
         model: config.model,
         messages,
@@ -312,14 +542,24 @@ export async function startAiChatStream(
       })
     });
   } catch {
-    sendStreamEvent(target, {
-      streamId,
+    if (!entry.active) {
+      return;
+    }
+
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message: "无法连接 AI 服务，请检查网络或本地服务状态。"
     });
     return;
   }
+
+  if (!entry.active) {
+    return;
+  }
+
+  clearTimeout(entry.connectTimer);
+  entry.connectTimer = undefined;
 
   if (!response.ok || !response.body) {
     let message = `AI 请求失败，状态码 ${response.status}。`;
@@ -331,8 +571,11 @@ export async function startAiChatStream(
       // Keep the status-based message.
     }
 
-    sendStreamEvent(target, {
-      streamId,
+    if (!entry.active) {
+      return;
+    }
+
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message
@@ -342,16 +585,24 @@ export async function startAiChatStream(
 
   const decoder = new TextDecoder();
   const reader = response.body.getReader();
+  entry.reader = reader;
   let buffer = "";
   let content = "";
+  resetIdleTimeout(entry, timeouts.idleTimeoutMs);
 
   try {
     while (true) {
       const { value, done } = await reader.read();
 
+      if (!entry.active) {
+        return;
+      }
+
       if (done) {
         break;
       }
+
+      resetIdleTimeout(entry, timeouts.idleTimeoutMs);
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r?\n/);
@@ -373,8 +624,7 @@ export async function startAiChatStream(
         const { delta, error } = readStreamChunkDelta(data);
 
         if (error) {
-          sendStreamEvent(target, {
-            streamId,
+          completeEntry(entry, {
             ok: false,
             type: "error",
             message: error
@@ -387,8 +637,7 @@ export async function startAiChatStream(
         }
 
         content += delta;
-        sendStreamEvent(target, {
-          streamId,
+        emitEntryEvent(entry, {
           ok: true,
           type: "chunk",
           delta,
@@ -397,8 +646,11 @@ export async function startAiChatStream(
       }
     }
   } catch {
-    sendStreamEvent(target, {
-      streamId,
+    if (!entry.active) {
+      return;
+    }
+
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message: "AI 流式回复中断，请稍后再试。"
@@ -407,8 +659,7 @@ export async function startAiChatStream(
   }
 
   if (!content.trim()) {
-    sendStreamEvent(target, {
-      streamId,
+    completeEntry(entry, {
       ok: false,
       type: "error",
       message: "AI 没有返回可显示的回复。"
@@ -416,8 +667,7 @@ export async function startAiChatStream(
     return;
   }
 
-  sendStreamEvent(target, {
-    streamId,
+  completeEntry(entry, {
     ok: true,
     type: "done",
     content

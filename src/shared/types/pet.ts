@@ -344,3 +344,16 @@ export interface LocalPetDeleteResult {
   message: string;
   petId: string;
 }
+
+export interface LocalPetConfigCorruption {
+  code: "PET_CONFIG_CORRUPTED";
+  petId: string;
+  backupAvailable: boolean;
+  message: string;
+}
+
+export interface LocalPetListResult {
+  ok: boolean;
+  pets: PetDefinition[];
+  corruption?: LocalPetConfigCorruption;
+}

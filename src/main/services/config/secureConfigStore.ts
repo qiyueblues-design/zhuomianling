@@ -1,7 +1,7 @@
 import { app, safeStorage } from "electron";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFileAtomically } from "./durableJsonFile";
 
 interface SecureSecretsFile {
   version: 1;
@@ -120,20 +120,7 @@ async function readSecureSecretsFile(): Promise<SecureSecretsFile> {
 }
 
 async function writeSecureSecretsFile(settings: SecureSecretsFile): Promise<void> {
-  const settingsPath = getSecureSecretsPath();
-  const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;
-  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-
-  try {
-    await fs.writeFile(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, {
-      encoding: "utf8",
-      flag: "wx",
-      mode: 0o600
-    });
-    await fs.rename(temporaryPath, settingsPath);
-  } finally {
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
+  await writeJsonFileAtomically(getSecureSecretsPath(), settings);
 }
 
 function runSerializedMutation<T>(mutation: () => Promise<T>): Promise<T> {

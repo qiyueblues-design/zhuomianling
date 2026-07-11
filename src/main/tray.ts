@@ -39,8 +39,7 @@ export function createAppTray(getMainWindow: () => BrowserWindow | null): Tray {
           if (getPetWindowState().visible) {
             void closePetWindow().then(refreshMenu);
           } else {
-            showExistingPetWindow();
-            refreshMenu();
+            void showExistingPetWindow().then(refreshMenu);
           }
         }
       },

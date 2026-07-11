@@ -44,11 +44,25 @@ export interface SpeechStreamResultEvent {
 export interface TextToSpeechRequest {
   petId: string;
   text: string;
+  requestId: string;
+}
+
+export interface TextToSpeechStopRequest {
+  petId?: string;
+  requestId?: string;
+}
+
+export interface TextToSpeechStopResponse {
+  ok: boolean;
+  message: string;
+  canceled: number;
 }
 
 export interface TextToSpeechResponse {
   ok: boolean;
   message: string;
+  requestId?: string;
+  code?: "CANCELED" | "TIMEOUT";
   audioBase64?: string;
   mimeType?: string;
 }

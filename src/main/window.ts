@@ -1,6 +1,7 @@
 import { BrowserWindow, Menu } from "electron";
 import path from "node:path";
 import { getAppIconPath } from "./appIcon";
+import { hardenWindowNavigation } from "./windowSecurity";
 
 let startupSurfaceWindow: BrowserWindow | undefined;
 let hasRevealedStartupSurface = false;
@@ -45,9 +46,14 @@ export function createMainWindow(): BrowserWindow {
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false
     }
   });
+  hardenWindowNavigation(mainWindow);
   startupSurfaceWindow = mainWindow;
   hasRevealedStartupSurface = false;
   hasSentStartupShownEvent = false;

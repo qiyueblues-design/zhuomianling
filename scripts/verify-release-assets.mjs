@@ -7,6 +7,13 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..");
 const distRoot = path.join(projectRoot, "dist");
 const rendererLive2DRoot = path.join(distRoot, "renderer", "live2d");
+const requiredReleaseFiles = [
+  path.join(distRoot, "main", "index.js"),
+  path.join(distRoot, "preload", "index.js"),
+  path.join(distRoot, "preload", "pet.js"),
+  path.join(distRoot, "renderer", "index.html"),
+  path.join(distRoot, "renderer", "pet.html")
+];
 
 async function pathExists(targetPath) {
   try {
@@ -45,6 +52,12 @@ if (!await pathExists(distRoot)) {
 
 const distFiles = await collectFiles(distRoot);
 const violations = new Set();
+
+for (const requiredFile of requiredReleaseFiles) {
+  if (!await pathExists(requiredFile)) {
+    violations.add(`${path.relative(projectRoot, requiredFile)} (required file missing)`);
+  }
+}
 
 if (await pathExists(rendererLive2DRoot)) {
   for (const filePath of await collectFiles(rendererLive2DRoot)) {

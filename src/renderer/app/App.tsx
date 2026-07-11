@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FolderOpen, MousePointer2, Plus, Sparkles, Trash2 } from "lucide-react";
-import type { PetDefinition } from "../../shared/types/pet";
+import type { LocalPetConfigCorruption, PetDefinition } from "../../shared/types/pet";
 import type { PetWindowState } from "../../shared/types/window";
 import { PetEditor } from "../components/PetEditor/PetEditor";
 import { PetSelector } from "../components/PetSelector/PetSelector";
@@ -70,6 +70,53 @@ function DeletePetDialog({
           >
             {deleting ? "删除中" : finalStep ? "确认删除" : "继续"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfigRecoveryDialog({
+  corruption,
+  restoring,
+  onDismiss,
+  onRestore
+}: {
+  corruption: LocalPetConfigCorruption;
+  restoring: boolean;
+  onDismiss: () => void;
+  onRestore: () => void | Promise<void>;
+}): JSX.Element {
+  return (
+    <div className="unsavedOverlay" role="dialog" aria-modal="true" aria-label="桌宠配置损坏">
+      <div className="unsavedDialog deletePetDialog">
+        <span className="unsavedIcon deletePetIcon" aria-hidden="true">
+          <AlertTriangle size={22} />
+        </span>
+        <div className="unsavedText deletePetText">
+          <h2>桌宠配置需要恢复</h2>
+          <p>{corruption.message}</p>
+          <strong className="deletePetName">{corruption.petId}</strong>
+          <p>
+            {corruption.backupAvailable
+              ? "程序没有覆盖损坏文件。你可以明确选择恢复最近一次有效备份。"
+              : "程序没有覆盖损坏文件。当前没有可用备份，请从外部备份恢复后再重试。"}
+          </p>
+        </div>
+        <div className="unsavedActions">
+          <button className="secondaryAction" type="button" disabled={restoring} onClick={onDismiss}>
+            稍后处理
+          </button>
+          {corruption.backupAvailable ? (
+            <button
+              className="primaryAction"
+              type="button"
+              disabled={restoring}
+              onClick={() => void onRestore()}
+            >
+              {restoring ? "恢复中" : "恢复最近备份"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -166,22 +213,39 @@ export function App(): JSX.Element {
   const [deleteTargetPet, setDeleteTargetPet] = useState<PetDefinition | undefined>();
   const [deleteConfirmStep, setDeleteConfirmStep] = useState<1 | 2>(1);
   const [deletingPet, setDeletingPet] = useState(false);
+  const [configCorruption, setConfigCorruption] = useState<LocalPetConfigCorruption | undefined>();
+  const [restoringConfig, setRestoringConfig] = useState(false);
   const [petWindowState, setPetWindowState] = useState<PetWindowState>({
     visible: false,
     clickThrough: false
   });
   const currentViewRef = useRef<AppView>(currentView);
+  const activePetIdRef = useRef<string | undefined>();
+  const petOperationSequenceRef = useRef(0);
+  const petRefreshSequenceRef = useRef(0);
 
   useEffect(() => {
     currentViewRef.current = currentView;
   }, [currentView]);
+
+  useEffect(() => {
+    activePetIdRef.current = activePetId;
+  }, [activePetId]);
 
   const selectedPet = useMemo<PetDefinition | undefined>(() => {
     return availablePets.find((pet) => pet.id === selectedPetId);
   }, [availablePets, selectedPetId]);
 
   const refreshPets = useCallback(async (): Promise<void> => {
-    setAvailablePets(await loadAvailablePets());
+    const refreshSequence = ++petRefreshSequenceRef.current;
+    const result = await loadAvailablePets();
+
+    if (refreshSequence !== petRefreshSequenceRef.current) {
+      return;
+    }
+
+    setAvailablePets(result.pets);
+    setConfigCorruption(result.corruption);
   }, []);
 
   useEffect(() => {
@@ -323,13 +387,23 @@ export function App(): JSX.Element {
   }, [isStartupSplashLeaving]);
 
   useEffect(() => {
-    return window.desktopPet?.petWindow.onStateChanged((nextState) => {
+    const applyPetWindowState = (nextState: PetWindowState): void => {
       setPetWindowState(nextState);
+      const nextActivePetId = nextState.visible ? nextState.petId : undefined;
+      activePetIdRef.current = nextActivePetId;
+      setActivePetId(nextActivePetId);
+    };
+    const petWindowApi = window.desktopPet?.petWindow;
 
-      if (!nextState.visible) {
-        setActivePetId(undefined);
-      }
+    if (!petWindowApi) {
+      return;
+    }
+
+    void petWindowApi.getState().then(applyPetWindowState).catch((error) => {
+      console.error("Failed to read desktop pet window state.", error);
     });
+
+    return petWindowApi.onStateChanged(applyPetWindowState);
   }, []);
 
   useEffect(() => {
@@ -385,6 +459,7 @@ export function App(): JSX.Element {
   };
 
   const activatePet = async (petId: string): Promise<void> => {
+    const operationSequence = ++petOperationSequenceRef.current;
     const targetPet = availablePets.find((pet) => pet.id === petId);
 
     if (!targetPet) {
@@ -394,39 +469,69 @@ export function App(): JSX.Element {
     setSelectedPetId(petId);
 
     if (!hasUsableLive2DModel(targetPet)) {
-      setActivePetId(undefined);
       setToastText("请先导入 Live2D 模型。");
       return;
     }
 
-    setActivePetId(petId);
+    try {
+      const nextState = await window.desktopPet?.petWindow.show({
+        id: targetPet.id,
+        name: targetPet.name,
+        modelPath: targetPet.modelPath,
+        avatar: targetPet.avatar,
+        definition: targetPet
+      });
 
-    const nextState = await window.desktopPet?.petWindow.show({
-      id: targetPet.id,
-      name: targetPet.name,
-      modelPath: targetPet.modelPath,
-      avatar: targetPet.avatar,
-      definition: targetPet
-    });
+      if (operationSequence !== petOperationSequenceRef.current) {
+        return;
+      }
 
-    if (nextState) {
+      if (!nextState?.visible || nextState.petId !== targetPet.id) {
+        throw new Error("桌宠窗口没有成功显示。");
+      }
+
       setPetWindowState(nextState);
-    }
+      activePetIdRef.current = targetPet.id;
+      setActivePetId(targetPet.id);
+      setToastText(`${targetPet.name} 已上线`);
+    } catch (error: unknown) {
+      if (operationSequence !== petOperationSequenceRef.current) {
+        return;
+      }
 
-    setToastText(`${targetPet.name} 已上线`);
+      setToastText(error instanceof Error ? error.message : "启用桌宠失败，请重试。");
+    }
   };
 
-  const deactivatePet = async (): Promise<void> => {
-    setActivePetId(undefined);
-    const nextState = await window.desktopPet?.petWindow.close();
+  const deactivatePet = async (): Promise<boolean> => {
+    const operationSequence = ++petOperationSequenceRef.current;
 
-    if (nextState) {
+    try {
+      const nextState = await window.desktopPet?.petWindow.close();
+
+      if (operationSequence !== petOperationSequenceRef.current) {
+        return false;
+      }
+
+      if (!nextState || nextState.visible) {
+        throw new Error("桌宠窗口尚未关闭，请重试。");
+      }
+
       setPetWindowState(nextState);
+      activePetIdRef.current = undefined;
+      setActivePetId(undefined);
+      return true;
+    } catch (error: unknown) {
+      if (operationSequence === petOperationSequenceRef.current) {
+        setToastText(error instanceof Error ? error.message : "关闭桌宠失败，请重试。");
+      }
+
+      return false;
     }
   };
 
   const togglePet = async (petId: string): Promise<void> => {
-    if (activePetId === petId) {
+    if (activePetIdRef.current === petId) {
       await deactivatePet();
       return;
     }
@@ -452,25 +557,62 @@ export function App(): JSX.Element {
     }
 
     setDeletingPet(true);
-    if (activePetId === pet.id) {
-      await deactivatePet();
-    }
+    try {
+      if (activePetIdRef.current === pet.id && !(await deactivatePet())) {
+        return;
+      }
 
-    const result = await window.desktopPet?.petConfig.delete(pet.id);
+      const result = await window.desktopPet?.petConfig.delete(pet.id);
 
-    if (!result) {
+      if (!result) {
+        throw new Error("删除请求没有返回结果，请重试。");
+      }
+
+      setToastText(result.message);
+
+      if (!result.ok) {
+        return;
+      }
+
+      setDeleteTargetPet(undefined);
+      setDeleteConfirmStep(1);
+      setSelectedPetId(undefined);
+      await refreshPets();
+    } catch (error: unknown) {
+      setToastText(error instanceof Error ? error.message : "删除桌宠失败，请重试。");
+    } finally {
       setDeletingPet(false);
+    }
+  };
+
+  const restoreCorruptedConfig = async (): Promise<void> => {
+    const corruption = configCorruption;
+
+    if (!corruption || restoringConfig) {
       return;
     }
 
-    setToastText(result.message);
-    setDeletingPet(false);
-    setDeleteTargetPet(undefined);
-    setDeleteConfirmStep(1);
+    setRestoringConfig(true);
 
-    if (result.ok) {
-      setSelectedPetId(undefined);
+    try {
+      const result = await window.desktopPet?.petConfig.restoreBackup(corruption.petId);
+
+      if (!result) {
+        throw new Error("配置恢复请求没有返回结果，请重试。");
+      }
+
+      setToastText(result.message);
+
+      if (!result.ok) {
+        return;
+      }
+
+      setConfigCorruption(undefined);
       await refreshPets();
+    } catch (error: unknown) {
+      setToastText(error instanceof Error ? error.message : "配置备份恢复失败，请重试。");
+    } finally {
+      setRestoringConfig(false);
     }
   };
 
@@ -484,6 +626,14 @@ export function App(): JSX.Element {
           onBack={closeEditorPage}
         />
         {toastText ? <div className="launchToast">{toastText}</div> : null}
+        {configCorruption ? (
+          <ConfigRecoveryDialog
+            corruption={configCorruption}
+            restoring={restoringConfig}
+            onDismiss={() => setConfigCorruption(undefined)}
+            onRestore={restoreCorruptedConfig}
+          />
+        ) : null}
         {isStartupSplashVisible ? <StartupSplash leaving={isStartupSplashLeaving} /> : null}
       </main>
     );
@@ -523,7 +673,9 @@ export function App(): JSX.Element {
               isActive={selectedPet.id === activePetId}
               petWindowState={petWindowState}
               onActivate={() => activatePet(selectedPet.id)}
-              onDeactivate={deactivatePet}
+              onDeactivate={async () => {
+                await deactivatePet();
+              }}
               onEditPet={() => openEditorPage({ mode: "edit", petId: selectedPet.id })}
               onDeletePet={() => deletePet(selectedPet)}
               onCloseDetails={() => setSelectedPetId(undefined)}
@@ -556,6 +708,14 @@ export function App(): JSX.Element {
           }}
           onContinue={() => setDeleteConfirmStep(2)}
           onConfirm={confirmDeletePet}
+        />
+      ) : null}
+      {configCorruption ? (
+        <ConfigRecoveryDialog
+          corruption={configCorruption}
+          restoring={restoringConfig}
+          onDismiss={() => setConfigCorruption(undefined)}
+          onRestore={restoreCorruptedConfig}
         />
       ) : null}
       {isStartupSplashVisible ? <StartupSplash leaving={isStartupSplashLeaving} /> : null}

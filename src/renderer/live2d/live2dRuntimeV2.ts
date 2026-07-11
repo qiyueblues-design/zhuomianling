@@ -1,4 +1,13 @@
 import type { CubismLive2DModelOptions, CubismMotionPriority, Live2DFitMode } from "./live2dRuntime";
+import {
+  DeferredLive2DAssetCache,
+  fetchLive2DArrayBuffer,
+  fetchLive2DJson,
+  isLive2DLoadAborted,
+  loadLive2DImage,
+  raceLive2DLoadWithSignal,
+  throwIfLive2DLoadAborted
+} from "./live2dResourceLoader";
 
 interface Cubism2ModelJson {
   model?: string;
@@ -194,6 +203,7 @@ const identityMatrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const lookSmoothing = 12;
 
 let runtimePromise: Promise<Live2DFrameworkExports> | undefined;
+let runtimeInitialized = false;
 let activeCubism2ModelCount = 0;
 
 function retainCubism2Runtime(): void {
@@ -203,8 +213,9 @@ function retainCubism2Runtime(): void {
 function releaseCubism2Runtime(): void {
   activeCubism2ModelCount = Math.max(0, activeCubism2ModelCount - 1);
 
-  if (activeCubism2ModelCount === 0) {
+  if (activeCubism2ModelCount === 0 && runtimeInitialized) {
     window.Live2D?.dispose?.();
+    runtimeInitialized = false;
   }
 }
 
@@ -220,7 +231,10 @@ function loadScript(src: string): Promise<void> {
     script.async = true;
     script.dataset.runtimeSrc = src;
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+    script.onerror = () => {
+      script.remove();
+      reject(new Error(`Failed to load script: ${src}`));
+    };
     document.head.appendChild(script);
   });
 }
@@ -249,51 +263,6 @@ export function isCubism2ModelPath(modelPath: string): boolean {
   }
 }
 
-async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load ${url}: ${response.status}`);
-  }
-
-  return response.arrayBuffer();
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load ${url}: ${response.status}`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function loadImage(url: string): Promise<{ image: HTMLImageElement; objectUrl?: string }> {
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to load texture ${url}: ${response.status}`);
-  }
-
-  const objectUrl = window.URL.createObjectURL(await response.blob());
-
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const nextImage = new Image();
-      nextImage.decoding = "async";
-      nextImage.onload = () => resolve(nextImage);
-      nextImage.onerror = () => reject(new Error(`Failed to decode texture: ${url}`));
-      nextImage.src = objectUrl;
-    });
-
-    return { image, objectUrl };
-  } catch (error) {
-    window.URL.revokeObjectURL(objectUrl);
-    throw error;
-  }
-}
-
 function getFrameworkExports(): Live2DFrameworkExports {
   const runtimeWindow = window as Cubism2FrameworkWindow;
   const framework = window.Cubism2Framework ?? runtimeWindow.module?.exports;
@@ -307,8 +276,8 @@ function getFrameworkExports(): Live2DFrameworkExports {
 }
 
 export async function loadLive2DV2Runtime(): Promise<Live2DFrameworkExports> {
-  runtimePromise ??= Promise.resolve()
-    .then(async () => {
+  if (!runtimePromise) {
+    const bootstrap = Promise.resolve().then(async () => {
       if (!window.Live2D || !window.Live2DModelWebGL || !window.Live2DMotion) {
         await loadScript(resolveVendorUrl("coreV2.min.js"));
       }
@@ -321,27 +290,45 @@ export async function loadLive2DV2Runtime(): Promise<Live2DFrameworkExports> {
         const runtimeWindow = window as Cubism2FrameworkWindow;
         const previousModule = runtimeWindow.module;
         runtimeWindow.module = { exports: undefined };
-        await loadScript(resolveVendorUrl("Live2DFramework.js"));
-        window.Cubism2Framework = runtimeWindow.module?.exports;
-        runtimeWindow.module = previousModule;
+
+        try {
+          await loadScript(resolveVendorUrl("Live2DFramework.js"));
+          window.Cubism2Framework = runtimeWindow.module?.exports;
+        } finally {
+          runtimeWindow.module = previousModule;
+        }
       }
 
-      const framework = getFrameworkExports();
-      window.Live2D.init();
-      framework.Live2DFramework.setPlatformManager(new Cubism2PlatformManagerImpl());
-      return framework;
+      return getFrameworkExports();
     });
+    const retryableBootstrap = bootstrap.catch((error: unknown) => {
+      if (runtimePromise === retryableBootstrap) {
+        runtimePromise = undefined;
+      }
 
-  return runtimePromise;
+      throw error;
+    });
+    runtimePromise = retryableBootstrap;
+  }
+
+  const framework = await runtimePromise;
+
+  if (!runtimeInitialized) {
+    window.Live2D?.init();
+    framework.Live2DFramework.setPlatformManager(new Cubism2PlatformManagerImpl());
+    runtimeInitialized = true;
+  }
+
+  return framework;
 }
 
 class Cubism2PlatformManagerImpl implements Cubism2PlatformManager {
   loadBytes(path: string, callback: (buffer: ArrayBuffer) => void): void {
-    void fetchArrayBuffer(path).then(callback);
+    void fetchLive2DArrayBuffer(path).then(callback);
   }
 
   loadLive2DModel(path: string, callback: (model: Cubism2RawModel) => void): void {
-    void fetchArrayBuffer(path).then((buffer) => {
+    void fetchLive2DArrayBuffer(path).then((buffer) => {
       const model = window.Live2DModelWebGL?.loadModel(buffer);
 
       if (!model) {
@@ -433,7 +420,10 @@ function getFirstAvailableMotionGroup(modelJson: Cubism2ModelJson): string | und
 
 export class Cubism2Live2DModel {
   static async from(options: CubismLive2DModelOptions): Promise<Cubism2Live2DModel> {
-    const framework = await loadLive2DV2Runtime();
+    const framework = await raceLive2DLoadWithSignal(
+      loadLive2DV2Runtime(),
+      options.abortSignal
+    );
     const model = new Cubism2Live2DModel(options, framework);
 
     try {
@@ -451,14 +441,18 @@ export class Cubism2Live2DModel {
   private readonly framework: Live2DFrameworkExports;
   private readonly autoIdle: boolean;
   private readonly fitMode: Live2DFitMode;
-  private readonly abortSignal?: AbortSignal;
+  private readonly externalAbortSignal?: AbortSignal;
+  private readonly resourceAbortController = new AbortController();
   private readonly onHit?: () => void;
   private readonly onError?: (error: unknown) => void;
+  private readonly motionCache = new DeferredLive2DAssetCache<Cubism2Motion>();
+  private readonly expressionCache = new DeferredLive2DAssetCache<Cubism2Motion>();
   private gl: WebGLRenderingContext;
   private baseModel: Cubism2BaseModel;
   private modelJson?: Cubism2ModelJson;
   private viewProjectionMatrix = identityMatrix;
   private animationFrame = 0;
+  private deferredPhysicsFrame = 0;
   private disposed = false;
   private runtimeRetained = false;
   private idleGroup?: string;
@@ -467,6 +461,10 @@ export class Cubism2Live2DModel {
   private initialParameterSnapshot: number[] = [];
   private initialSavedParameterSnapshot: number[] = [];
   private eyeBlink?: Cubism2EyeBlink;
+  private autoIdlePending?: Promise<void>;
+  private autoIdleRetryAfter = 0;
+  private motionOperationSequence = 0;
+  private expressionOperationSequence = 0;
   private targetLookX = 0;
   private targetLookY = 0;
   private lookX = 0;
@@ -479,7 +477,7 @@ export class Cubism2Live2DModel {
     this.framework = framework;
     this.autoIdle = options.autoIdle ?? false;
     this.fitMode = options.fitMode ?? "stage";
-    this.abortSignal = options.abortSignal;
+    this.externalAbortSignal = options.abortSignal;
     this.onHit = options.onHit;
     this.onError = options.onError;
 
@@ -502,18 +500,32 @@ export class Cubism2Live2DModel {
     this.canvas.addEventListener("pointermove", this.handlePointerMove);
     this.canvas.addEventListener("pointerleave", this.handlePointerLeave);
     this.canvas.addEventListener("pointerup", this.handlePointerUp);
+
+    if (this.externalAbortSignal?.aborted) {
+      this.abortResources(this.externalAbortSignal.reason);
+    } else {
+      this.externalAbortSignal?.addEventListener("abort", this.handleExternalAbort, {
+        once: true
+      });
+    }
   }
 
   async load(): Promise<void> {
     this.throwIfAborted();
-    this.modelJson = await fetchJson<Cubism2ModelJson>(this.modelPath);
+    this.modelJson = await fetchLive2DJson<Cubism2ModelJson>(
+      this.modelPath,
+      this.resourceAbortController.signal
+    );
     this.throwIfAborted();
 
     if (!this.modelJson.model) {
       throw new Error("model.json does not reference a .moc file.");
     }
 
-    const modelBuffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, this.modelJson.model));
+    const modelBuffer = await fetchLive2DArrayBuffer(
+      resolveModelResource(this.modelBaseUrl, this.modelJson.model),
+      this.resourceAbortController.signal
+    );
     this.throwIfAborted();
     this.bindGL();
     const rawModel = window.Live2DModelWebGL?.loadModel(modelBuffer);
@@ -532,13 +544,7 @@ export class Cubism2Live2DModel {
     this.baseModel.modelMatrix.setWidth(2);
     applyLayout(this.baseModel.modelMatrix, this.modelJson.layout);
 
-    await this.loadTextures();
-    this.throwIfAborted();
-    await this.loadExpressions();
-    this.throwIfAborted();
-    await this.loadPhysicsAndPose();
-    this.throwIfAborted();
-    await this.loadMotions();
+    await Promise.all([this.loadTextures(), this.loadPose()]);
     this.throwIfAborted();
     this.stopMotionManagers();
     this.idleGroup = getFirstAvailableMotionGroup(this.modelJson);
@@ -546,7 +552,9 @@ export class Cubism2Live2DModel {
     this.saveNeutralParameterBase();
     this.resetToNeutralFace();
     this.resize();
+    this.render();
     this.startLoop();
+    this.scheduleDeferredPhysicsLoad();
   }
 
   resize(): void {
@@ -581,22 +589,53 @@ export class Cubism2Live2DModel {
       return false;
     }
 
-    const motion = await this.getMotion(group, index);
+    const operationSequence = ++this.motionOperationSequence;
+    let motion: Cubism2Motion | undefined;
 
-    if (!motion) {
+    try {
+      motion = await this.getMotion(group, index);
+    } catch (error) {
+      if (!isLive2DLoadAborted(error, this.resourceAbortController.signal)) {
+        this.reportOptionalAssetError("motion", error);
+      }
+
       return false;
     }
 
-    const motionPriority = motionPriorities[priority];
-
-    if (priority === "force") {
-      this.baseModel.mainMotionManager.setReservePriority?.(motionPriority);
-    } else if (this.baseModel.mainMotionManager.reserveMotion && !this.baseModel.mainMotionManager.reserveMotion(motionPriority)) {
+    if (
+      !motion ||
+      this.disposed ||
+      this.resourceAbortController.signal.aborted ||
+      operationSequence !== this.motionOperationSequence
+    ) {
       return false;
     }
 
-    this.baseModel.mainMotionManager.startMotionPrio?.(motion, motionPriority);
-    return true;
+    try {
+      const motionPriority = motionPriorities[priority];
+
+      if (priority === "force") {
+        this.baseModel.mainMotionManager.setReservePriority?.(motionPriority);
+      } else if (
+        this.baseModel.mainMotionManager.reserveMotion &&
+        !this.baseModel.mainMotionManager.reserveMotion(motionPriority)
+      ) {
+        return false;
+      }
+
+      if (this.baseModel.mainMotionManager.startMotionPrio) {
+        this.baseModel.mainMotionManager.startMotionPrio(motion, motionPriority);
+      } else {
+        this.baseModel.mainMotionManager.startMotion(motion, false);
+      }
+      return true;
+    } catch (error) {
+      if (!isLive2DLoadAborted(error, this.resourceAbortController.signal)) {
+        this.reportOptionalAssetError("motion", error);
+      }
+
+      return false;
+    }
   }
 
   async expression(id?: string | number): Promise<boolean> {
@@ -604,14 +643,38 @@ export class Cubism2Live2DModel {
       return false;
     }
 
-    const expression = this.baseModel.expressions[String(id)] ?? this.baseModel.expressions[`index:${id}`];
+    const operationSequence = ++this.expressionOperationSequence;
+    let expression: Cubism2Motion | undefined;
 
-    if (!expression) {
+    try {
+      expression = await this.getExpression(id);
+    } catch (error) {
+      if (!isLive2DLoadAborted(error, this.resourceAbortController.signal)) {
+        this.reportOptionalAssetError("expression", error);
+      }
+
       return false;
     }
 
-    this.baseModel.expressionManager.startMotion(expression, false);
-    return true;
+    if (
+      !expression ||
+      this.disposed ||
+      this.resourceAbortController.signal.aborted ||
+      operationSequence !== this.expressionOperationSequence
+    ) {
+      return false;
+    }
+
+    try {
+      this.baseModel.expressionManager.startMotion(expression, false);
+      return true;
+    } catch (error) {
+      if (!isLive2DLoadAborted(error, this.resourceAbortController.signal)) {
+        this.reportOptionalAssetError("expression", error);
+      }
+
+      return false;
+    }
   }
 
   resetToNeutralFace(): void {
@@ -621,6 +684,8 @@ export class Cubism2Live2DModel {
       return;
     }
 
+    this.motionOperationSequence += 1;
+    this.expressionOperationSequence += 1;
     this.stopMotionManagers();
     this.baseModel.lipSync = false;
     this.baseModel.lipSyncValue = 0;
@@ -654,7 +719,12 @@ export class Cubism2Live2DModel {
     }
 
     this.disposed = true;
+    this.motionOperationSequence += 1;
+    this.expressionOperationSequence += 1;
+    this.externalAbortSignal?.removeEventListener("abort", this.handleExternalAbort);
+    this.abortResources();
     window.cancelAnimationFrame(this.animationFrame);
+    window.cancelAnimationFrame(this.deferredPhysicsFrame);
     this.canvas.removeEventListener("pointermove", this.handlePointerMove);
     this.canvas.removeEventListener("pointerleave", this.handlePointerLeave);
     this.canvas.removeEventListener("pointerup", this.handlePointerUp);
@@ -674,6 +744,11 @@ export class Cubism2Live2DModel {
 
     this.textures = [];
     this.textureObjectUrls = [];
+    this.autoIdlePending = undefined;
+    this.motionCache.clear();
+    this.expressionCache.clear();
+    this.baseModel.motions = {};
+    this.baseModel.expressions = {};
     this.bindGL();
     this.baseModel.live2DModel?.deleteTextures?.();
     this.baseModel.live2DModel = null;
@@ -693,13 +768,16 @@ export class Cubism2Live2DModel {
   private async loadTexture(textureIndex: number, texturePath: string): Promise<void> {
     const rawModel = this.baseModel.live2DModel;
 
-    if (!rawModel || this.disposed || this.abortSignal?.aborted) {
+    if (!rawModel || this.disposed || this.resourceAbortController.signal.aborted) {
       return;
     }
 
-    const { image, objectUrl } = await loadImage(resolveModelResource(this.modelBaseUrl, texturePath));
+    const { image, objectUrl } = await loadLive2DImage(
+      resolveModelResource(this.modelBaseUrl, texturePath),
+      this.resourceAbortController.signal
+    );
 
-    if (this.disposed || this.abortSignal?.aborted) {
+    if (this.disposed || this.resourceAbortController.signal.aborted) {
       if (objectUrl) {
         window.URL.revokeObjectURL(objectUrl);
       }
@@ -734,91 +812,174 @@ export class Cubism2Live2DModel {
     this.textures.push(texture);
   }
 
-  private async loadExpressions(): Promise<void> {
-    const expressions = this.modelJson?.expressions ?? [];
+  private async loadPose(): Promise<void> {
+    const poseFile = this.modelJson?.pose;
 
-    await Promise.all(
-      expressions.map(async (entry, index) => {
-        const expressionFile = getExpressionFileName(entry);
+    if (!poseFile) {
+      return;
+    }
 
-        if (!expressionFile) {
-          return;
+    const poseBuffer = await fetchLive2DArrayBuffer(
+      resolveModelResource(this.modelBaseUrl, poseFile),
+      this.resourceAbortController.signal
+    );
+    this.throwIfAborted();
+    this.baseModel.pose = this.framework.L2DPose.load(poseBuffer);
+
+    if (this.baseModel.live2DModel) {
+      this.baseModel.pose.updateParam(this.baseModel.live2DModel);
+    }
+  }
+
+  private scheduleDeferredPhysicsLoad(): void {
+    if (!this.modelJson?.physics || this.disposed) {
+      return;
+    }
+
+    this.deferredPhysicsFrame = window.requestAnimationFrame(() => {
+      this.deferredPhysicsFrame = 0;
+      void this.loadPhysics().catch((error: unknown) => {
+        if (!isLive2DLoadAborted(error, this.resourceAbortController.signal)) {
+          this.reportOptionalAssetError("physics", error);
         }
-
-        const name = getExpressionName(entry, index);
-        const buffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, expressionFile));
-        this.throwIfAborted();
-        const expression = this.framework.L2DExpressionMotion.loadJson(buffer);
-        this.baseModel.expressions[name] = expression;
-        this.baseModel.expressions[`index:${index}`] = expression;
-      })
-    );
+      });
+    });
   }
 
-  private async loadPhysicsAndPose(): Promise<void> {
-    if (this.modelJson?.physics) {
-      const physicsBuffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, this.modelJson.physics));
-      this.throwIfAborted();
-      this.baseModel.physics = this.framework.L2DPhysics.load(physicsBuffer);
+  private async loadPhysics(): Promise<void> {
+    const physicsFile = this.modelJson?.physics;
+
+    if (!physicsFile) {
+      return;
     }
 
-    if (this.modelJson?.pose) {
-      const poseBuffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, this.modelJson.pose));
-      this.throwIfAborted();
-      this.baseModel.pose = this.framework.L2DPose.load(poseBuffer);
-      if (this.baseModel.live2DModel) {
-        this.baseModel.pose.updateParam(this.baseModel.live2DModel);
-      }
-    }
-  }
-
-  private async loadMotions(): Promise<void> {
-    const motionGroups = this.modelJson?.motions ?? {};
-    const loaders = Object.entries(motionGroups).flatMap(([group, entries]) =>
-      (entries ?? []).map((_entry, index) => this.getMotion(group, index))
+    const physicsBuffer = await fetchLive2DArrayBuffer(
+      resolveModelResource(this.modelBaseUrl, physicsFile),
+      this.resourceAbortController.signal
     );
-
-    await Promise.all(loaders);
+    this.throwIfAborted();
+    this.baseModel.physics = this.framework.L2DPhysics.load(physicsBuffer);
   }
 
   private async getMotion(group: string, index: number): Promise<Cubism2Motion | undefined> {
     const key = normalizeMotionKey(group, index);
-    const cachedMotion = this.baseModel.motions[key];
+    const cachedMotion = this.baseModel.motions[key] ?? this.motionCache.get(key);
 
     if (cachedMotion) {
+      this.motionCache.set(key, cachedMotion);
       return cachedMotion;
     }
 
-    const entry = this.modelJson?.motions?.[group]?.[index];
+    return this.motionCache.getOrLoad(key, async () => {
+      const entry = this.modelJson?.motions?.[group]?.[index];
+
+      if (!entry) {
+        return undefined;
+      }
+
+      const motionFile = getMotionFileName(entry);
+
+      if (!motionFile) {
+        return undefined;
+      }
+
+      const buffer = await fetchLive2DArrayBuffer(
+        resolveModelResource(this.modelBaseUrl, motionFile),
+        this.resourceAbortController.signal
+      );
+      this.throwIfAborted();
+      const motion = window.Live2DMotion?.loadMotion(buffer);
+
+      if (!motion) {
+        return undefined;
+      }
+
+      if (entry.fade_in !== undefined) {
+        motion.setFadeIn?.(entry.fade_in);
+      }
+
+      if (entry.fade_out !== undefined) {
+        motion.setFadeOut?.(entry.fade_out);
+      }
+
+      this.throwIfAborted();
+      this.baseModel.motions[key] = motion;
+      return motion;
+    });
+  }
+
+  private async getExpression(id: string | number): Promise<Cubism2Motion | undefined> {
+    const resolved = this.resolveExpressionEntry(id);
+
+    if (!resolved) {
+      return undefined;
+    }
+
+    const { entry, index, name } = resolved;
+    const indexKey = `index:${index}`;
+    const aliases = [name, indexKey, String(index)];
+
+    for (const alias of aliases) {
+      const cachedExpression =
+        this.baseModel.expressions[alias] ?? this.expressionCache.get(alias);
+
+      if (cachedExpression) {
+        this.expressionCache.setAliases(aliases, cachedExpression);
+        return cachedExpression;
+      }
+    }
+
+    return this.expressionCache.getOrLoad(indexKey, async () => {
+      const expressionFile = getExpressionFileName(entry);
+
+      if (!expressionFile) {
+        return undefined;
+      }
+
+      const buffer = await fetchLive2DArrayBuffer(
+        resolveModelResource(this.modelBaseUrl, expressionFile),
+        this.resourceAbortController.signal
+      );
+      this.throwIfAborted();
+      const expression = this.framework.L2DExpressionMotion.loadJson(buffer);
+      this.throwIfAborted();
+      this.baseModel.expressions[name] = expression;
+      this.baseModel.expressions[indexKey] = expression;
+      this.expressionCache.setAliases(aliases, expression);
+      return expression;
+    });
+  }
+
+  private resolveExpressionEntry(
+    id: string | number
+  ): { entry: Cubism2ExpressionEntry; index: number; name: string } | undefined {
+    const expressions = this.modelJson?.expressions ?? [];
+    const requestedId = String(id);
+    const namedIndex =
+      typeof id === "string"
+        ? expressions.findIndex((entry, entryIndex) =>
+            [getExpressionName(entry, entryIndex), entry.name, entry.Name]
+              .filter(Boolean)
+              .includes(requestedId)
+          )
+        : -1;
+    const indexMatch = /^(?:index:)?(\d+)$/.exec(requestedId);
+    const index = namedIndex >= 0 ? namedIndex : indexMatch ? Number(indexMatch[1]) : -1;
+    const entry = expressions[index];
 
     if (!entry) {
       return undefined;
     }
 
-    const motionFile = getMotionFileName(entry);
+    return {
+      entry,
+      index,
+      name: getExpressionName(entry, index)
+    };
+  }
 
-    if (!motionFile) {
-      return undefined;
-    }
-
-    const buffer = await fetchArrayBuffer(resolveModelResource(this.modelBaseUrl, motionFile));
-    this.throwIfAborted();
-    const motion = window.Live2DMotion?.loadMotion(buffer);
-
-    if (!motion) {
-      return undefined;
-    }
-
-    if (entry.fade_in !== undefined) {
-      motion.setFadeIn?.(entry.fade_in);
-    }
-
-    if (entry.fade_out !== undefined) {
-      motion.setFadeOut?.(entry.fade_out);
-    }
-
-    this.baseModel.motions[key] = motion;
-    return motion;
+  private reportOptionalAssetError(kind: string, error: unknown): void {
+    console.warn(`Failed to load optional Cubism 2 ${kind}.`, error);
   }
 
   private captureInitialParameterSnapshot(): void {
@@ -941,10 +1102,24 @@ export class Cubism2Live2DModel {
 
     this.bindGL();
 
-    if (this.autoIdle && this.baseModel.mainMotionManager.isFinished() && this.idleGroup) {
+    if (
+      this.autoIdle &&
+      !this.autoIdlePending &&
+      window.performance.now() >= this.autoIdleRetryAfter &&
+      this.baseModel.mainMotionManager.isFinished() &&
+      this.idleGroup
+    ) {
       const motionCount = this.modelJson?.motions?.[this.idleGroup]?.length ?? 0;
       const index = motionCount > 1 ? Math.floor(Math.random() * motionCount) : 0;
-      void this.motion(this.idleGroup, index, "idle");
+      const pending = this.motion(this.idleGroup, index, "idle").then((started) => {
+        this.autoIdleRetryAfter = started ? 0 : window.performance.now() + 1000;
+      });
+      const trackedPending = pending.finally(() => {
+        if (this.autoIdlePending === trackedPending) {
+          this.autoIdlePending = undefined;
+        }
+      });
+      this.autoIdlePending = trackedPending;
     }
 
     const timeSeconds = (window.performance.now() - this.baseModel.startTimeMSec) / 1000;
@@ -992,10 +1167,20 @@ export class Cubism2Live2DModel {
     window.Live2D?.setGL(this.gl);
   }
 
-  private throwIfAborted(): void {
-    if (this.abortSignal?.aborted || this.disposed) {
-      throw new Error("Live2D model load was canceled.");
+  private abortResources(reason?: unknown): void {
+    if (!this.resourceAbortController.signal.aborted) {
+      this.resourceAbortController.abort(reason);
     }
+  }
+
+  private readonly handleExternalAbort = (): void => {
+    this.motionOperationSequence += 1;
+    this.expressionOperationSequence += 1;
+    this.abortResources(this.externalAbortSignal?.reason);
+  };
+
+  private throwIfAborted(): void {
+    throwIfLive2DLoadAborted(this.resourceAbortController.signal);
   }
 
   private fitModelToViewport(): void {
