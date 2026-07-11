@@ -6,6 +6,7 @@ import {
   ListChecks,
   MessagesSquare,
   Mic2,
+  MousePointerClick,
   Palette,
   Settings2,
   Smile,
@@ -13,10 +14,11 @@ import {
 } from "lucide-react";
 import type { BuiltInPetUiTheme, PetExpressionKey, PetLineEvent } from "../../../shared/types/pet";
 
-export type EditorTab = "basic" | "theme" | "live2d" | "ai" | "dialogue";
+export type EditorTab = "basic" | "live2d" | "ai" | "dialogue" | "interaction";
 export type AiSubTab = "aiConfig" | "persona" | "expressions" | "events";
 export type DialogueSubTab = "voiceInput" | "voiceReply";
-export type ActiveEditorPanel = EditorTab | AiSubTab | DialogueSubTab;
+export type InteractionSubTab = "themeStyle" | "quickActions";
+export type ActiveEditorPanel = EditorTab | AiSubTab | DialogueSubTab | InteractionSubTab;
 
 export const uiThemeOptions: Array<{ id: BuiltInPetUiTheme; name: string; description: string }> = [
   { id: "soft", name: "软糖风", description: "轻柔、明亮，适合陪伴型桌宠。" },
@@ -27,11 +29,13 @@ export const uiThemeOptions: Array<{ id: BuiltInPetUiTheme; name: string; descri
   { id: "minimal", name: "极简风", description: "黑白留白和清晰线条，适合冷静、效率型角色。" }
 ];
 
-export const editorTabs: Array<{ id: Exclude<EditorTab, "ai">; label: string; icon: typeof Settings2 }> = [
+export const editorTabs: Array<{
+  id: Exclude<EditorTab, "ai" | "dialogue" | "interaction">;
+  label: string;
+  icon: typeof Settings2;
+}> = [
   { id: "basic", label: "基础信息", icon: Image },
-  { id: "live2d", label: "Live2D", icon: FolderOpen },
-  { id: "theme", label: "界面主题", icon: Palette },
-  { id: "dialogue", label: "语音系统", icon: MessagesSquare }
+  { id: "live2d", label: "Live2D", icon: FolderOpen }
 ];
 
 export const aiSubTabs: Array<{ id: AiSubTab; label: string; icon: typeof Settings2 }> = [
@@ -44,6 +48,15 @@ export const aiSubTabs: Array<{ id: AiSubTab; label: string; icon: typeof Settin
 export const dialogueSubTabs: Array<{ id: DialogueSubTab; label: string; icon: typeof Settings2 }> = [
   { id: "voiceInput", label: "语音输入", icon: Mic2 },
   { id: "voiceReply", label: "声音模型", icon: Volume2 }
+];
+
+export const interactionSubTabs: Array<{
+  id: InteractionSubTab;
+  label: string;
+  icon: typeof Settings2;
+}> = [
+  { id: "themeStyle", label: "主题风格", icon: Palette },
+  { id: "quickActions", label: "快捷操作", icon: MousePointerClick }
 ];
 
 export const expressionOrder: PetExpressionKey[] = [

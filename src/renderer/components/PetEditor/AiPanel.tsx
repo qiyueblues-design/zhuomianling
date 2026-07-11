@@ -1,5 +1,6 @@
 import { KeyRound, PlugZap, Save, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { normalizeAiBaseUrl } from "../../../shared/types/ai";
 import type {
   AiConnectionDraft,
   AiConnectionSaveResult,
@@ -55,9 +56,11 @@ const aiProviderSelectOptions: { value: AiProviderSelectId; label: string }[] = 
 ];
 
 function findProviderByBaseUrl(baseUrl: string): AiProviderOption | undefined {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const normalizedBaseUrl = normalizeAiBaseUrl(baseUrl);
 
-  return aiProviderOptions.find((provider) => provider.baseUrl === normalizedBaseUrl);
+  return aiProviderOptions.find(
+    (provider) => normalizeAiBaseUrl(provider.baseUrl) === normalizedBaseUrl
+  );
 }
 
 function getProviderName(baseUrl: string): string {
@@ -81,12 +84,45 @@ export function AiPanel({
   });
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(true);
   const [result, setResult] = useState<AiConnectionSaveResult | undefined>();
   const [modelResult, setModelResult] = useState<AiModelListResult | undefined>();
+  const [asyncError, setAsyncError] = useState<string>();
+  const requestSequenceRef = useRef(0);
 
   const selectedProviderId = useMemo(() => {
     return findProviderByBaseUrl(form.baseUrl)?.id ?? "custom";
   }, [form.baseUrl]);
+  const normalizedFormBaseUrl = useMemo(
+    () => normalizeAiBaseUrl(form.baseUrl),
+    [form.baseUrl]
+  );
+  const normalizedSavedBaseUrl = useMemo(
+    () => normalizeAiBaseUrl(summary?.baseUrl ?? ""),
+    [summary?.baseUrl]
+  );
+  const canReuseSavedApiKey = Boolean(
+    summary?.hasApiKey &&
+    normalizedFormBaseUrl &&
+    normalizedFormBaseUrl === normalizedSavedBaseUrl
+  );
+  const hasEnteredApiKey = Boolean(form.apiKey.trim());
+  const hasUsableApiKey = hasEnteredApiKey || canReuseSavedApiKey;
+  const savedKeyBelongsToAnotherEndpoint = Boolean(
+    summary?.hasApiKey &&
+    normalizedFormBaseUrl &&
+    normalizedFormBaseUrl !== normalizedSavedBaseUrl
+  );
+  const credentialMessage = loadingSummary
+    ? undefined
+    : !normalizedFormBaseUrl
+      ? "请先填写 Base URL。"
+      : hasUsableApiKey
+        ? undefined
+        : savedKeyBelongsToAnotherEndpoint
+          ? "Base URL 已更改。为避免把旧密钥发送到新地址，请输入新地址自己的 API Key。"
+          : "请填写 API Key；只有 Base URL 与已保存地址一致时，才能复用本机旧密钥。";
+  const formDisabled = loadingSummary || saving || connecting;
   const saveFeedbackResult = useMemo(
     () => (result?.test.ok ? { ok: true, message: result.test.message } : undefined),
     [result]
@@ -98,11 +134,17 @@ export function AiPanel({
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
 
+    setLoadingSummary(true);
+    setConnecting(false);
+    setSaving(false);
     setSummary(undefined);
     setModels([]);
     setResult(undefined);
     setModelResult(undefined);
+    setAsyncError(undefined);
     setForm({
       petId: pet.id,
       baseUrl: aiProviderOptions[0].baseUrl,
@@ -110,34 +152,50 @@ export function AiPanel({
       apiKey: ""
     });
 
-    void window.desktopPet?.aiSettings.get(pet.id).then((nextSummary) => {
-      if (cancelled) {
-        return;
+    const loadSummary = async (): Promise<void> => {
+      try {
+        const nextSummary = await window.desktopPet?.aiSettings.get(pet.id);
+
+        if (cancelled || requestId !== requestSequenceRef.current) {
+          return;
+        }
+
+        setSummary(nextSummary);
+
+        if (!nextSummary) {
+          return;
+        }
+
+        const savedModels = nextSummary.models.length
+          ? nextSummary.models
+          : nextSummary.model
+            ? [{ id: nextSummary.model, name: nextSummary.model }]
+            : [];
+
+        setModels(savedModels);
+        setForm({
+          petId: pet.id,
+          baseUrl: nextSummary.baseUrl,
+          model: nextSummary.model,
+          apiKey: ""
+        });
+      } catch (error) {
+        if (!cancelled && requestId === requestSequenceRef.current) {
+          console.error("Failed to load AI settings summary.", error);
+          setAsyncError("读取已保存的 AI 设置失败，请稍后重试。为了保护密钥，当前不会复用旧配置。");
+        }
+      } finally {
+        if (!cancelled && requestId === requestSequenceRef.current) {
+          setLoadingSummary(false);
+        }
       }
+    };
 
-      setSummary(nextSummary);
-
-      if (!nextSummary) {
-        return;
-      }
-
-      const savedModels = nextSummary.models.length
-        ? nextSummary.models
-        : nextSummary.model
-          ? [{ id: nextSummary.model, name: nextSummary.model }]
-          : [];
-
-      setModels(savedModels);
-      setForm({
-        petId: pet.id,
-        baseUrl: nextSummary.baseUrl,
-        model: nextSummary.model,
-        apiKey: ""
-      });
-    });
+    void loadSummary();
 
     return () => {
       cancelled = true;
+      requestSequenceRef.current += 1;
     };
   }, [pet.id]);
 
@@ -173,12 +231,24 @@ export function AiPanel({
     onDirtyChange(true);
     setResult(undefined);
     setModelResult(undefined);
+    setAsyncError(undefined);
 
-    if (field === "baseUrl" || field === "apiKey") {
+    if (field === "baseUrl") {
       setModels([]);
       setForm((currentForm) => ({
         ...currentForm,
-        [field]: value,
+        baseUrl: value,
+        apiKey: "",
+        model: ""
+      }));
+      return;
+    }
+
+    if (field === "apiKey") {
+      setModels([]);
+      setForm((currentForm) => ({
+        ...currentForm,
+        apiKey: value,
         model: ""
       }));
       return;
@@ -194,11 +264,13 @@ export function AiPanel({
     if (providerId === "custom") {
       setResult(undefined);
       setModelResult(undefined);
+      setAsyncError(undefined);
       onDirtyChange(true);
       setModels([]);
       setForm((currentForm) => ({
         ...currentForm,
         baseUrl: findProviderByBaseUrl(currentForm.baseUrl) ? "" : currentForm.baseUrl,
+        apiKey: "",
         model: ""
       }));
       return;
@@ -212,11 +284,13 @@ export function AiPanel({
 
     setResult(undefined);
     setModelResult(undefined);
+    setAsyncError(undefined);
     onDirtyChange(true);
     setModels([]);
     setForm((currentForm) => ({
       ...currentForm,
       baseUrl: provider.baseUrl,
+      apiKey: "",
       model: ""
     }));
   };
@@ -233,13 +307,27 @@ export function AiPanel({
   };
 
   const connectModels = async (): Promise<void> => {
+    if (!hasUsableApiKey) {
+      setAsyncError(credentialMessage ?? "请填写当前 Base URL 对应的 API Key。");
+      return;
+    }
+
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
     setConnecting(true);
     setResult(undefined);
+    setModelResult(undefined);
+    setAsyncError(undefined);
 
     try {
       const nextResult = await window.desktopPet?.aiSettings.listModels(buildDraft());
 
+      if (requestId !== requestSequenceRef.current) {
+        return;
+      }
+
       if (!nextResult) {
+        setAsyncError("连接没有返回结果，请稍后重试。");
         return;
       }
 
@@ -256,18 +344,39 @@ export function AiPanel({
             ""
         }));
       }
+    } catch (error) {
+      if (requestId === requestSequenceRef.current) {
+        console.error("Failed to list AI models.", error);
+        setAsyncError("连接 AI 服务失败，请检查 Base URL、API Key 和网络后重试。");
+      }
     } finally {
-      setConnecting(false);
+      if (requestId === requestSequenceRef.current) {
+        setConnecting(false);
+      }
     }
   };
 
   const saveSettings = async (): Promise<void> => {
+    if (!hasUsableApiKey) {
+      setAsyncError(credentialMessage ?? "请填写当前 Base URL 对应的 API Key。");
+      return;
+    }
+
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
     setSaving(true);
+    setResult(undefined);
+    setAsyncError(undefined);
 
     try {
       const nextResult = await window.desktopPet?.aiSettings.save(buildDraft());
 
+      if (requestId !== requestSequenceRef.current) {
+        return;
+      }
+
       if (!nextResult) {
+        setAsyncError("保存没有返回结果，请稍后重试。");
         return;
       }
 
@@ -281,8 +390,15 @@ export function AiPanel({
           apiKey: ""
         }));
       }
+    } catch (error) {
+      if (requestId === requestSequenceRef.current) {
+        console.error("Failed to save AI settings.", error);
+        setAsyncError("保存 AI 设置失败，请检查连接信息后重试。");
+      }
     } finally {
-      setSaving(false);
+      if (requestId === requestSequenceRef.current) {
+        setSaving(false);
+      }
     }
   };
 
@@ -294,7 +410,7 @@ export function AiPanel({
           <p>配置 {pet.name} 的 OpenAI-compatible 模型连接，API Key 只保存到本机。</p>
         </div>
         <span className={summary?.model ? "connectionBadge ok" : "connectionBadge wait"}>
-          {summary?.model ? "已保存" : "待连接"}
+          {loadingSummary ? "读取中" : summary?.model ? "已保存" : "待连接"}
         </span>
       </div>
 
@@ -308,6 +424,7 @@ export function AiPanel({
           <span>服务商</span>
           <AppleSelect
             value={selectedProviderId}
+            disabled={formDisabled}
             ariaLabel="服务商"
             options={aiProviderSelectOptions}
             onChange={updateProvider}
@@ -319,6 +436,7 @@ export function AiPanel({
           <input
             type="url"
             value={form.baseUrl}
+            disabled={formDisabled}
             onChange={(event) => updateField("baseUrl", event.target.value)}
             placeholder="https://api.example.com"
           />
@@ -331,8 +449,17 @@ export function AiPanel({
             <input
               type="password"
               value={form.apiKey}
+              disabled={formDisabled}
               onChange={(event) => updateField("apiKey", event.target.value)}
-              placeholder={summary?.hasApiKey ? "已保存，重新填写可覆盖" : "sk-..."}
+              placeholder={
+                loadingSummary
+                  ? "正在读取已保存配置"
+                  : canReuseSavedApiKey
+                    ? "同一地址已保存，留空可复用"
+                    : savedKeyBelongsToAnotherEndpoint
+                      ? "请输入新地址自己的 API Key"
+                      : "sk-..."
+              }
             />
           </div>
         </label>
@@ -342,6 +469,7 @@ export function AiPanel({
           {models.length ? (
             <AppleSelect
               value={form.model}
+              disabled={formDisabled}
               ariaLabel="模型名"
               placeholder="请选择模型"
               options={models.map((model) => ({
@@ -353,6 +481,7 @@ export function AiPanel({
           ) : (
             <input
               value={form.model}
+              disabled={formDisabled}
               onChange={(event) => updateField("model", event.target.value)}
               placeholder="可连接获取列表，也可手动填写模型名"
             />
@@ -364,6 +493,20 @@ export function AiPanel({
         <PlugZap size={16} />
         <span>可选择预设服务商自动填入 Base URL，也可以选择自定义后手动填写兼容 OpenAI 接口的地址。</span>
       </div>
+
+      {credentialMessage ? (
+        <div className="settingsResult error">
+          <XCircle size={17} />
+          <span>{credentialMessage}</span>
+        </div>
+      ) : null}
+
+      {asyncError ? (
+        <div className="settingsResult error" role="alert">
+          <XCircle size={17} />
+          <span>{asyncError}</span>
+        </div>
+      ) : null}
 
       <SaveSuccessToast result={modelFeedbackResult} message={modelResult?.message ?? "连接成功"} />
 
@@ -387,7 +530,7 @@ export function AiPanel({
         <button
           className="secondaryAction"
           type="button"
-          disabled={connecting || saving}
+          disabled={connecting || saving || loadingSummary || !hasUsableApiKey}
           onClick={() => void connectModels()}
         >
           <PlugZap size={17} />
@@ -396,7 +539,7 @@ export function AiPanel({
         <button
           className="primaryAction"
           type="button"
-          disabled={saving || connecting || !form.model}
+          disabled={saving || connecting || loadingSummary || !form.model || !hasUsableApiKey}
           onClick={() => void saveSettings()}
         >
           <Save size={17} />

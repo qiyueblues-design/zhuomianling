@@ -66,7 +66,8 @@ import {
   pickLocalPetVoiceModelFile,
   resetLocalPetVoiceRuntimeState,
   stopManagedGptSoVitsApi,
-  testLocalPetVoiceModelConnection
+  testLocalPetVoiceModelConnection,
+  toPublicPetDefinition
 } from "./services/config/petConfigStore";
 import {
   createLive2DPreviewModel,
@@ -81,18 +82,20 @@ import { revealMainWindowStartupSurface } from "./window";
 
 export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow | null): void {
   const emitPetConfigChanged = (pet?: DesktopPetPayload["definition"]): void => {
-    if (pet) {
+    const publicPet = pet ? toPublicPetDefinition(pet) : undefined;
+
+    if (publicPet) {
       updateCurrentPetWindowPayload({
-        id: pet.id,
-        name: pet.name,
-        modelPath: pet.modelPath,
-        avatar: pet.avatar,
-        definition: pet
+        id: publicPet.id,
+        name: publicPet.name,
+        modelPath: publicPet.modelPath,
+        avatar: publicPet.avatar,
+        definition: publicPet
       });
     }
 
     for (const targetWindow of BrowserWindow.getAllWindows()) {
-      targetWindow.webContents.send("pet-config:changed", pet);
+      targetWindow.webContents.send("pet-config:changed", publicPet);
     }
   };
 
@@ -247,12 +250,18 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
 
   ipcMain.handle("live2d-import:import-model", async (_event, request) => {
     const result = await importLive2DModel(request);
+    const publicResult = result.pet
+      ? {
+          ...result,
+          pet: toPublicPetDefinition(result.pet)
+        }
+      : result;
 
-    if (result.ok) {
-      emitPetConfigChanged(result.pet);
+    if (publicResult.ok) {
+      emitPetConfigChanged(publicResult.pet);
     }
 
-    return result;
+    return publicResult;
   });
 
   ipcMain.handle("live2d-import:scan-imported-sources", (_event, petId: string) =>
@@ -318,7 +327,12 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     getMainWindow()?.close();
   });
 
-  ipcMain.handle("pet-window:show", (_event, payload: DesktopPetPayload) => showPetWindow(payload));
+  ipcMain.handle("pet-window:show", (_event, payload: DesktopPetPayload) =>
+    showPetWindow({
+      ...payload,
+      definition: payload.definition ? toPublicPetDefinition(payload.definition) : undefined
+    })
+  );
 
   ipcMain.handle("pet-window:close", (_event, options) => closePetWindow(options));
 

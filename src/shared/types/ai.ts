@@ -1,3 +1,27 @@
+export function normalizeAiBaseUrl(baseUrl: string): string {
+  const trimmedBaseUrl = baseUrl.trim();
+
+  if (!trimmedBaseUrl) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmedBaseUrl);
+    const credentials = url.username
+      ? `${url.username}${url.password ? `:${url.password}` : ""}@`
+      : "";
+    const normalizedPath = url.pathname.replace(/\/+$/, "");
+
+    // URL canonicalizes the protocol/host casing, default port and dot segments.
+    // Fragments are deliberately excluded because they are never sent to the API.
+    return `${url.protocol}//${credentials}${url.host}${normalizedPath}${url.search}`;
+  } catch {
+    // Keep invalid drafts editable while still applying the same conservative
+    // trailing-slash normalization on both the renderer and main process.
+    return trimmedBaseUrl.replace(/\/+$/, "");
+  }
+}
+
 export interface AiConnectionDraft {
   petId: string;
   providerName: string;
@@ -7,7 +31,12 @@ export interface AiConnectionDraft {
   models?: AiModelOption[];
 }
 
-export interface AiConnectionConfig extends AiConnectionDraft {
+export interface AiConnectionConfig {
+  petId: string;
+  providerName: string;
+  baseUrl: string;
+  model: string;
+  models?: AiModelOption[];
   updatedAt: string;
 }
 
@@ -25,6 +54,11 @@ export interface AiConnectionTestResult {
   ok: boolean;
   message: string;
   checkedAt: string;
+  code?:
+    | "API_KEY_REQUIRED"
+    | "INVALID_AI_SETTINGS"
+    | "SECURE_STORAGE_UNAVAILABLE"
+    | "SECURE_STORAGE_CORRUPTED";
 }
 
 export interface AiModelOption {

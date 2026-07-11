@@ -21,6 +21,9 @@ pnpm-debug.log*
 .env.*
 !.env.example
 *.local
+*.local.json
+secure-secrets.json
+ai-connections.json
 
 # OS and editor files
 .DS_Store

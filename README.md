@@ -98,7 +98,10 @@
 - 输出语言
 - 回复长度
 
-AI 配置只保存到本机。开源仓库不会提供默认 Key，也不会绑定任何云端服务。
+AI 配置只保存到本机。Base URL、模型名等非敏感元数据保存在
+`%APPDATA%/zhuomianling/ai-connections.json`；API Key 由 Electron
+`safeStorage` 加密后保存在 `secure-secrets.json`，不会写入普通 JSON，
+也不会返回给渲染进程。开源仓库不会提供默认 Key，也不会绑定任何云端服务。
 
 > *(LLM 配置)*
 > ![LLM 配置](./docs/images/05-editor-llm-config.png)
@@ -193,11 +196,21 @@ npm run typecheck
 npm run build
 ```
 
+`npm run build` 会在构建末尾执行发布资源审计。开发机上的
+`public/live2d/` 模型不会复制到 `dist/`；如果构建产物中出现 Live2D
+模型、声音模型、参考音频或本地私密配置，构建会直接失败。
+
 ### 构建 Windows 安装包
 
 ```powershell
 npm run dist:win
 ```
+
+打包命令只允许把 `public/icons/` 与 `public/vendor/` 中的公开运行时静态
+资源带入发布包，并会复用同一套发布资源审计。不要手工把
+`public/live2d/` 或 `userData/pets/` 复制到 `dist/` / `release/`。
+安装包生成后还会自动运行 `verify:packed-assets`，直接检查实际
+`app.asar` 中是否混入禁止资源或生产 `node_modules`。
 
 构建产物会输出到：
 
@@ -207,7 +220,7 @@ release/
 
 其中：
 
-- `桌面灵 Setup.exe`：安装包
+- `桌面灵 Setup <版本号>.exe`：安装包
 - `桌面灵.exe`：免安装版
 
 ### 预览生产构建
@@ -244,7 +257,14 @@ Windows 上通常位于：
 
 请注意：
 
-- API Key、腾讯云密钥、声音模型路径只应保存在本机
+- AI API Key 以及腾讯云 AppID、SecretId、SecretKey 只在主进程中使用，
+  由 Electron `safeStorage` 加密保存；普通桌宠 JSON 和渲染进程只会看到
+  `hasApiKey` / `hasCredentials` 这类状态
+- 旧版 `ai-connections.json` 和 `pet.local.json` 中的明文凭据会在升级后
+  自动迁移；只有加密写入并回读验证成功后，程序才会删除旧明文字段
+- `secure-secrets.json` 受当前 Windows 用户的系统加密能力保护；把本地数据
+  复制到另一台电脑或另一个系统账户后，通常需要重新填写云服务凭据
+- 声音模型路径等非密钥本机配置仍只应保存在本机
 - 不要把 `.env`、`*.local.json`、真实 Key 或本地绝对路径提交到仓库
 - 不要把未授权 Live2D 模型、声音模型、参考音频、`.pth`、`.ckpt` 提交到仓库
 - 更换电脑或重装系统前，请自行备份需要保留的本地桌宠数据

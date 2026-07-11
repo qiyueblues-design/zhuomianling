@@ -30,9 +30,11 @@ function createVoiceInputDraft(pet: PetDefinition): LocalPetVoiceInputDraft {
 
   return {
     petId: pet.id,
-    appId: settings?.appId ?? "",
-    secretId: settings?.secretId ?? "",
-    secretKey: settings?.secretKey ?? "",
+    // Stored credentials never cross the main/renderer boundary. These fields
+    // only contain replacements typed during the current editing session.
+    appId: "",
+    secretId: "",
+    secretKey: "",
     connected: settings?.connected ?? Boolean(pet.capabilities.voiceInput),
     autoEndEnabled: settings?.autoEndEnabled ?? true,
     silenceSeconds: normalizeSilenceSeconds(settings?.silenceSeconds),
@@ -58,6 +60,7 @@ export function VoiceInputPanel({
   const lastVoiceInputPetIdRef = useRef<string | undefined>();
   const onDirtyChangeRef = useRef(onDirtyChange);
   const connected = draft.connected;
+  const hasSavedCredentials = Boolean(pet.voiceInputSettings?.hasCredentials);
   const voiceInputSourceKey = useMemo(
     () =>
       JSON.stringify({
@@ -104,7 +107,16 @@ export function VoiceInputPanel({
   };
 
   const connectTencentAsr = (): void => {
-    if (!draft.appId.trim() || !draft.secretId.trim() || !draft.secretKey.trim()) {
+    const credentialFields = [draft.appId, draft.secretId, draft.secretKey].map((value) =>
+      value.trim()
+    );
+    const hasEnteredCredential = credentialFields.some(Boolean);
+    const hasCompleteEnteredCredentials = credentialFields.every(Boolean);
+
+    if (
+      (hasEnteredCredential && !hasCompleteEnteredCredentials) ||
+      (!hasEnteredCredential && !hasSavedCredentials)
+    ) {
       updateDraft({ connected: false });
       setConnectionMessage("请先填写 AppID、SecretId 和 SecretKey。");
       return;
@@ -139,7 +151,9 @@ export function VoiceInputPanel({
       setResult(saveResult);
 
       if (saveResult.ok && saveResult.pet) {
-        setSavedDraft(draft);
+        const nextDraft = createVoiceInputDraft(saveResult.pet);
+        setDraft(nextDraft);
+        setSavedDraft(nextDraft);
         onDirtyChange(false);
         onSavedPet?.(saveResult.pet);
       }
@@ -178,7 +192,7 @@ export function VoiceInputPanel({
                   connected: false
                 });
               }}
-              placeholder="请输入 AppID"
+              placeholder={hasSavedCredentials ? "已安全保存，留空不修改" : "请输入 AppID"}
             />
           </label>
           <label className="formField">
@@ -193,7 +207,7 @@ export function VoiceInputPanel({
                   connected: false
                 });
               }}
-              placeholder="请输入 SecretId"
+              placeholder={hasSavedCredentials ? "已安全保存，留空不修改" : "请输入 SecretId"}
             />
           </label>
           <label className="formField">
@@ -209,7 +223,7 @@ export function VoiceInputPanel({
                   connected: false
                 });
               }}
-              placeholder="请输入 SecretKey"
+              placeholder={hasSavedCredentials ? "已安全保存，留空不修改" : "请输入 SecretKey"}
             />
           </label>
         </div>

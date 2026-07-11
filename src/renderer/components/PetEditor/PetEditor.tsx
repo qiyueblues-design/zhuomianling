@@ -14,6 +14,7 @@ import {
   Smile,
   MessagesSquare,
   KeyRound,
+  Palette,
   Volume2,
   XCircle
 } from "lucide-react";
@@ -46,6 +47,7 @@ import {
   aiSubTabs,
   dialogueSubTabs,
   editorTabs,
+  interactionSubTabs,
   type ActiveEditorPanel
 } from "./editorNavigation";
 import {
@@ -54,6 +56,7 @@ import {
 import { BasicPanel } from "./BasicPanel";
 import { PersonaPanel } from "./PersonaPanel";
 import { ThemePanel } from "./ThemePanel";
+import { QuickActionsPanel } from "./QuickActionsPanel";
 import { VoiceInputPanel } from "./VoiceInputPanel";
 
 interface PetEditorProps {
@@ -81,6 +84,7 @@ export function PetEditor({
   const [activePanel, setActivePanel] = useState<ActiveEditorPanel>("basic");
   const [aiExpanded, setAiExpanded] = useState(true);
   const [dialogueExpanded, setDialogueExpanded] = useState(true);
+  const [interactionExpanded, setInteractionExpanded] = useState(true);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [pendingPanel, setPendingPanel] = useState<PendingNavigation | undefined>();
   const selectedPet = useMemo(() => {
@@ -91,6 +95,7 @@ export function PetEditor({
       editorTabs.find((tab) => tab.id === activePanel)?.label ??
       aiSubTabs.find((tab) => tab.id === activePanel)?.label ??
       dialogueSubTabs.find((tab) => tab.id === activePanel)?.label ??
+      interactionSubTabs.find((tab) => tab.id === activePanel)?.label ??
       "基础信息"
     );
   }, [activePanel]);
@@ -196,9 +201,7 @@ export function PetEditor({
 
       <div className="editorLayout">
         <aside className="editorTabs" aria-label="编辑分类">
-          {editorTabs
-            .filter((tab) => tab.id !== "dialogue")
-            .map((tab) => {
+          {editorTabs.map((tab) => {
             const Icon = tab.icon;
 
             return (
@@ -213,6 +216,38 @@ export function PetEditor({
               </button>
             );
           })}
+          <button
+            className={
+              ["interaction", ...interactionSubTabs.map((tab) => tab.id)].includes(activePanel)
+                ? "editorTab active"
+                : "editorTab"
+            }
+            type="button"
+            onClick={() => changeGroupedPanel("themeStyle", setInteractionExpanded)}
+          >
+            <Palette size={18} />
+            <span>交互面板</span>
+            <ChevronRight className={interactionExpanded ? "editorTabArrow expanded" : "editorTabArrow"} size={17} />
+          </button>
+          {interactionExpanded ? (
+            <div className="editorSubTabs" aria-label="交互面板子栏目">
+              {interactionSubTabs.map((tab) => {
+                const Icon = tab.icon;
+
+                return (
+                  <button
+                    className={activePanel === tab.id ? "editorSubTab active" : "editorSubTab"}
+                    type="button"
+                    key={tab.id}
+                    onClick={() => changePanel(tab.id)}
+                  >
+                    <Icon size={16} />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           <button
             className={["ai", ...aiSubTabs.map((tab) => tab.id)].includes(activePanel) ? "editorTab active" : "editorTab"}
             type="button"
@@ -275,8 +310,11 @@ export function PetEditor({
           {activePanel === "basic" ? (
             <BasicPanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} />
           ) : null}
-          {activePanel === "theme" ? (
+          {activePanel === "themeStyle" ? (
             <ThemePanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} />
+          ) : null}
+          {activePanel === "quickActions" ? (
+            <QuickActionsPanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} />
           ) : null}
           {activePanel === "live2d" ? (
             <Live2DPanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} />

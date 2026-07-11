@@ -33,11 +33,9 @@ import {
   takeCompleteVoiceSegments
 } from "./aiReplyUtils";
 import {
-  arrayBufferToBase64,
   base64ToBlob,
   calculateAudioLevel,
   encodePcm16,
-  encodeWav,
   mergeAudioChunks,
   resampleAudio
 } from "./audioUtils";
@@ -49,6 +47,10 @@ import {
 import { buildAiMessages } from "./promptBuilder";
 import { RadialPetMenu } from "./RadialPetMenu";
 import { buildSpeechSettings, defaultEventSettings } from "./speechRuntime";
+import {
+  VoiceRecordingLifecycle,
+  type VoiceRecordingPhase
+} from "./voiceRecordingLifecycle";
 
 interface ChatMessage {
   id: number;
@@ -59,7 +61,7 @@ interface ChatMessage {
   aiRawContent?: string;
 }
 
-type VoiceInputState = "idle" | "recording" | "transcribing";
+type VoiceInputState = VoiceRecordingPhase;
 type VoiceStopReason = "auto" | "manual";
 
 interface VoiceReplyAudio {
@@ -91,6 +93,7 @@ interface SyncVoiceRevealState {
 const voiceWaveformBarCount = 12;
 const initialVoiceWaveformLevels = Array.from({ length: voiceWaveformBarCount }, () => 0.18);
 const voiceAutoSendFallbackMs = 400;
+const voiceManualTranscriptionFallbackMs = 1600;
 const voiceReplySynthesisLookahead = 3;
 const voiceReplySegmentMaxAttempts = 3;
 const voiceReplySegmentRetryBaseMs = 220;
@@ -105,6 +108,10 @@ function waitForVoiceRetry(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
   });
+}
+
+function createSpeechStreamSessionId(): string {
+  return `desktop-pet-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function getUnqueuedFinalVoiceSegments(finalVoiceText: string, queuedSegments: string[]): string[] {
@@ -169,6 +176,16 @@ const fallbackEventLines: Partial<Record<PetLineEvent, PetLine[]>> = {
   ]
 };
 
+const defaultClickThroughOpacity = 0.45;
+
+function getClickThroughOpacity(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return defaultClickThroughOpacity;
+  }
+
+  return Math.min(0.8, Math.max(0.2, Math.round(value * 100) / 100));
+}
+
 function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties | undefined {
   if (!theme) {
     return undefined;
@@ -197,6 +214,7 @@ export function PetWindow(): JSX.Element {
   const petDefinition = pet.petDefinition;
   const voiceInputEnabled = Boolean(petDefinition?.capabilities.voiceInput);
   const uiTheme = petDefinition?.uiSettings?.theme ?? "soft";
+  const clickThroughOpacity = getClickThroughOpacity(petDefinition?.uiSettings?.clickThroughOpacity);
   const customThemeStyle = getCustomThemeStyle(petDefinition?.uiSettings?.customTheme);
   const subtitle = useSubtitle();
   const clickThroughButtonRef = useRef<HTMLButtonElement>(null);
@@ -315,7 +333,6 @@ export function PetWindow(): JSX.Element {
     | undefined
   >();
   const pendingVoiceReplyExpressionRef = useRef<PetExpressionKey | undefined>();
-  const audioChunksRef = useRef<Float32Array[]>([]);
   const draftRef = useRef("");
   const streamSessionIdRef = useRef<string | undefined>();
   const streamPendingSamplesRef = useRef<Float32Array[]>([]);
@@ -333,12 +350,20 @@ export function PetWindow(): JSX.Element {
     | undefined
   >();
   const voiceAutoSendTimerRef = useRef<number | undefined>();
+  const voiceTranscriptionFinishTimerRef = useRef<number | undefined>();
   const voiceRestartTimerRef = useRef<number | undefined>();
   const voiceRestartAfterReplyRef = useRef(false);
   const voiceDetectedRef = useRef(false);
   const voiceLastActiveAtRef = useRef(0);
   const voiceStartedAtRef = useRef(0);
   const voiceInputStateRef = useRef<VoiceInputState>("idle");
+  const voiceRecordingLifecycleRef = useRef<VoiceRecordingLifecycle | null>(null);
+  const voiceLifecycleMountedRef = useRef(true);
+  const cancelVoiceInputRef = useRef<(options?: { updateUi?: boolean }) => void>(() => undefined);
+  const finishVoiceTranscriptionRef = useRef<(sessionId?: string) => void>(() => undefined);
+  const chatOpenRef = useRef(false);
+  const clickThroughRef = useRef(fallbackState.clickThrough);
+  const closingEffectRef = useRef(false);
   const chatMessageTypewriterTimerRef = useRef<number | undefined>();
   const chatMessageTypewriterSequenceRef = useRef(0);
   const speechSettingsRef = useRef(defaultSpeechFrontendSettings);
@@ -348,7 +373,7 @@ export function PetWindow(): JSX.Element {
   const [state, setState] = useState<PetWindowState>(fallbackState);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [touchEnabled, setTouchEnabled] = useState(false);
+  const [touchEnabled, setTouchEnabled] = useState(true);
   const [chatPanelPosition, setChatPanelPosition] = useState({ left: 8, bottom: 8 });
   const [radialMenuOpen, setRadialMenuOpen] = useState(false);
   const [radialMenuPosition, setRadialMenuPosition] = useState({ x: 190, y: 190 });
@@ -366,6 +391,23 @@ export function PetWindow(): JSX.Element {
   const petRef = useRef(pet);
   const petDefinitionRef = useRef(petDefinition);
   const messagesRef = useRef<ChatMessage[]>(messages);
+
+  if (!voiceRecordingLifecycleRef.current) {
+    voiceRecordingLifecycleRef.current = new VoiceRecordingLifecycle();
+  }
+
+  const setVoiceInputPhase = (phase: VoiceInputState, updateUi = true): void => {
+    voiceInputStateRef.current = phase;
+
+    if (updateUi && voiceLifecycleMountedRef.current) {
+      setVoiceInputState(phase);
+    }
+  };
+
+  const setChatOpenState = (open: boolean): void => {
+    chatOpenRef.current = open;
+    setChatOpen(open);
+  };
 
   const setSendingState = (nextSending: boolean): void => {
     sendingRef.current = nextSending;
@@ -471,6 +513,18 @@ export function PetWindow(): JSX.Element {
   useEffect(() => {
     voiceInputStateRef.current = voiceInputState;
   }, [voiceInputState]);
+
+  useEffect(() => {
+    chatOpenRef.current = chatOpen;
+
+    if (!chatOpen) {
+      cancelVoiceInputRef.current();
+    }
+  }, [chatOpen]);
+
+  useEffect(() => {
+    closingEffectRef.current = closingEffect;
+  }, [closingEffect]);
 
   useLayoutEffect(() => {
     const input = chatDraftInputRef.current;
@@ -1092,8 +1146,18 @@ export function PetWindow(): JSX.Element {
   };
 
   useEffect(() => {
-    void window.desktopPet?.petWindow.getState().then(setState);
-    return window.desktopPet?.petWindow.onStateChanged(setState);
+    const applyWindowState = (nextState: PetWindowState): void => {
+      clickThroughRef.current = nextState.clickThrough;
+
+      if (nextState.clickThrough) {
+        cancelVoiceInputRef.current();
+      }
+
+      setState(nextState);
+    };
+
+    void window.desktopPet?.petWindow.getState().then(applyWindowState);
+    return window.desktopPet?.petWindow.onStateChanged(applyWindowState);
   }, []);
 
   useEffect(() => {
@@ -1104,13 +1168,19 @@ export function PetWindow(): JSX.Element {
 
       if (!event.ok) {
         if (streamStoppingRef.current) {
+          const shouldAutoSend = voiceAutoSendPendingRef.current;
+          voiceAutoSendPendingRef.current = false;
+          window.clearTimeout(voiceAutoSendTimerRef.current);
+          finishVoiceTranscriptionRef.current(event.sessionId);
+
+          if (shouldAutoSend) {
+            sendRecognizedVoiceTextRef.current();
+          }
+
           return;
         }
 
-        voiceInputStateRef.current = "idle";
-        setVoiceInputState("idle");
-        setVoiceWaveformLevels(initialVoiceWaveformLevels);
-        streamSessionIdRef.current = undefined;
+        cancelVoiceInputRef.current();
         triggerExpression("panic", "normal", 2200);
         showVoiceMessage(event.message ?? "实时语音识别失败。", "error");
         return;
@@ -1135,12 +1205,12 @@ export function PetWindow(): JSX.Element {
       setRecognizedVoiceDraft(recognizedText);
 
       if (streamStoppingRef.current && event.final) {
-        streamSessionIdRef.current = undefined;
-        streamStoppingRef.current = false;
+        const shouldAutoSend = voiceAutoSendPendingRef.current;
+        voiceAutoSendPendingRef.current = false;
+        window.clearTimeout(voiceAutoSendTimerRef.current);
+        finishVoiceTranscriptionRef.current(event.sessionId);
 
-        if (voiceAutoSendPendingRef.current) {
-          voiceAutoSendPendingRef.current = false;
-          window.clearTimeout(voiceAutoSendTimerRef.current);
+        if (shouldAutoSend) {
           sendRecognizedVoiceTextRef.current();
         }
       }
@@ -1150,24 +1220,12 @@ export function PetWindow(): JSX.Element {
   useEffect(() => {
     return window.desktopPet?.petWindow.onCloseEffect(() => {
       subtitle.hide();
+      closingEffectRef.current = true;
+      voiceRecordingLifecycleRef.current?.setAvailable(false);
+      cancelVoiceInputRef.current();
       setClosingEffect(true);
-      setChatOpen(false);
+      setChatOpenState(false);
       setRadialMenuOpen(false);
-      voiceAutoSendPendingRef.current = false;
-      window.clearTimeout(voiceAutoSendTimerRef.current);
-      window.clearTimeout(voiceRestartTimerRef.current);
-      if (voiceInputStateRef.current === "recording") {
-        voiceInputStateRef.current = "idle";
-        setVoiceInputState("idle");
-        audioProcessorRef.current?.disconnect();
-        audioSourceRef.current?.disconnect();
-        audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-        audioProcessorRef.current = null;
-        audioSourceRef.current = null;
-        audioStreamRef.current = null;
-        void audioContextRef.current?.close();
-        audioContextRef.current = null;
-      }
       setExplodeEventId(Date.now());
     });
   }, [subtitle]);
@@ -1272,30 +1330,50 @@ export function PetWindow(): JSX.Element {
   };
 
   useEffect(() => {
+    voiceLifecycleMountedRef.current = true;
     resetIdleTimer();
 
     return () => {
-      voiceAutoSendPendingRef.current = false;
-      window.clearTimeout(voiceAutoSendTimerRef.current);
-      window.clearTimeout(voiceRestartTimerRef.current);
+      voiceLifecycleMountedRef.current = false;
+      cancelVoiceInputRef.current({ updateUi: false });
       window.clearTimeout(idleTimerRef.current);
-      audioProcessorRef.current?.disconnect();
-      audioSourceRef.current?.disconnect();
-      void audioContextRef.current?.close();
-      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-      if (streamSessionIdRef.current) {
-        window.desktopPet?.speechStream.stop({ sessionId: streamSessionIdRef.current });
-      }
-      window.clearTimeout(voiceAutoSendTimerRef.current);
-      window.clearTimeout(voiceRestartTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
+    clickThroughRef.current = state.clickThrough;
+
     if (state.clickThrough) {
+      cancelVoiceInputRef.current();
+      setChatOpenState(false);
       setRadialMenuOpen(true);
     }
   }, [state.clickThrough]);
+
+  useEffect(() => {
+    if (!voiceInputEnabled) {
+      cancelVoiceInputRef.current();
+    }
+  }, [voiceInputEnabled]);
+
+  useEffect(() => {
+    const cancelWhenHidden = (): void => {
+      if (document.hidden) {
+        cancelVoiceInputRef.current();
+      }
+    };
+    const cancelOnPageHide = (): void => {
+      cancelVoiceInputRef.current({ updateUi: false });
+    };
+
+    document.addEventListener("visibilitychange", cancelWhenHidden);
+    window.addEventListener("pagehide", cancelOnPageHide);
+
+    return () => {
+      document.removeEventListener("visibilitychange", cancelWhenHidden);
+      window.removeEventListener("pagehide", cancelOnPageHide);
+    };
+  }, []);
 
   const scrollChatToLatest = (behavior: ScrollBehavior = "smooth"): void => {
     const chatMessages = chatMessagesRef.current;
@@ -1401,9 +1479,20 @@ export function PetWindow(): JSX.Element {
   }, [state.clickThrough]);
 
   const toggleClickThrough = async (): Promise<void> => {
+    if (!clickThroughRef.current) {
+      cancelVoiceInputRef.current();
+    }
+
     const nextState = await window.desktopPet?.petWindow.toggleClickThrough();
 
     if (nextState) {
+      clickThroughRef.current = nextState.clickThrough;
+
+      if (nextState.clickThrough) {
+        cancelVoiceInputRef.current();
+        setChatOpenState(false);
+      }
+
       setState(nextState);
       triggerEventExpression(
         nextState.clickThrough ? "clickThroughOn" : "clickThroughOff",
@@ -1447,20 +1536,35 @@ export function PetWindow(): JSX.Element {
     setRadialMenuOpen(false);
   };
 
+  const closeChat = (): void => {
+    cancelVoiceInputRef.current();
+    setChatOpenState(false);
+    triggerEventExpression("chatClose", "normal", "crying");
+    speakLine("chatClose", "好，我先安静陪着你。");
+    resetIdleTimer();
+  };
+
   const toggleChat = (): void => {
-    setChatOpen((value) => {
-      const nextValue = !value;
-      triggerEventExpression(nextValue ? "chatOpen" : "chatClose", "normal", nextValue ? "panic" : "crying");
-      speakLine(
-        nextValue ? "chatOpen" : "chatClose",
-        nextValue ? "嗯，我在听。" : "好，我先安静陪着你。"
-      );
-      resetIdleTimer();
-      return nextValue;
-    });
+    if (chatOpenRef.current) {
+      closeChat();
+      return;
+    }
+
+    chatOpenRef.current = true;
+    voiceRecordingLifecycleRef.current?.setAvailable(
+      voiceInputEnabled && !clickThroughRef.current && !closingEffectRef.current
+    );
+    setChatOpenState(true);
+    triggerEventExpression("chatOpen", "normal", "panic");
+    speakLine("chatOpen", "嗯，我在听。");
+    resetIdleTimer();
   };
 
   const closeWindow = async (): Promise<void> => {
+    closingEffectRef.current = true;
+    voiceRecordingLifecycleRef.current?.setAvailable(false);
+    cancelVoiceInputRef.current();
+    setChatOpenState(false);
     const playCloseEffect = hasConfiguredEvent("closing");
 
     if (playCloseEffect) {
@@ -1713,16 +1817,26 @@ export function PetWindow(): JSX.Element {
     event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
+  const isVoiceCaptureAvailable = (): boolean =>
+    Boolean(
+      voiceLifecycleMountedRef.current &&
+      petDefinitionRef.current?.capabilities.voiceInput &&
+      chatOpenRef.current &&
+      !clickThroughRef.current &&
+      !closingEffectRef.current &&
+      !document.hidden
+    );
+
   const scheduleVoiceRestart = (isVoiceTriggered: boolean): void => {
     if (
       isVoiceTriggered &&
       speechSettingsRef.current.continuousConversationEnabled &&
       voiceInputStateRef.current === "idle" &&
-      !state.clickThrough
+      isVoiceCaptureAvailable()
     ) {
       window.clearTimeout(voiceRestartTimerRef.current);
       voiceRestartTimerRef.current = window.setTimeout(() => {
-        if (voiceInputStateRef.current === "idle" && !state.clickThrough) {
+        if (voiceInputStateRef.current === "idle" && isVoiceCaptureAvailable()) {
           void startVoiceRecording({ silent: true });
         }
       }, 650);
@@ -2114,94 +2228,248 @@ export function PetWindow(): JSX.Element {
     streamPendingSamplesRef.current = offset < merged.length ? [merged.slice(offset)] : [];
   };
 
-  const stopVoiceRecording = (reason: VoiceStopReason): void => {
-    if (voiceInputStateRef.current !== "recording") {
-      return;
+  const stopMediaStream = (stream: MediaStream | null | undefined): void => {
+    stream?.getTracks().forEach((track) => track.stop());
+  };
+
+  const releaseVoiceCaptureResources = (flushPendingAudio: boolean): void => {
+    const processor = audioProcessorRef.current;
+    const source = audioSourceRef.current;
+    const stream = audioStreamRef.current;
+    const audioContext = audioContextRef.current;
+
+    if (processor) {
+      processor.onaudioprocess = null;
     }
 
-    voiceInputStateRef.current = "transcribing";
-    setVoiceInputState("transcribing");
-    audioProcessorRef.current?.disconnect();
-    audioSourceRef.current?.disconnect();
-    audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-    flushStreamAudio(true);
+    if (flushPendingAudio) {
+      flushStreamAudio(true);
+    }
 
-    const audioContext = audioContextRef.current;
-    const sessionId = streamSessionIdRef.current;
+    try {
+      processor?.disconnect();
+    } catch {
+      // The node may already have been disconnected by another teardown path.
+    }
 
+    try {
+      source?.disconnect();
+    } catch {
+      // The node may already have been disconnected by another teardown path.
+    }
+
+    stopMediaStream(stream);
     audioProcessorRef.current = null;
     audioSourceRef.current = null;
     audioStreamRef.current = null;
     audioContextRef.current = null;
-    audioChunksRef.current = [];
     streamPendingSamplesRef.current = [];
     voiceDetectedRef.current = false;
     voiceLastActiveAtRef.current = 0;
     voiceStartedAtRef.current = 0;
-    setVoiceWaveformLevels(initialVoiceWaveformLevels);
-    void audioContext?.close();
+
+    if (voiceLifecycleMountedRef.current) {
+      setVoiceWaveformLevels(initialVoiceWaveformLevels);
+    }
+
+    if (audioContext && audioContext.state !== "closed") {
+      void audioContext.close().catch(() => undefined);
+    }
+  };
+
+  const finishVoiceTranscription = (expectedSessionId?: string): void => {
+    const lifecycle = voiceRecordingLifecycleRef.current;
+
+    if (
+      lifecycle?.phase !== "transcribing" ||
+      (expectedSessionId &&
+        streamSessionIdRef.current &&
+        streamSessionIdRef.current !== expectedSessionId)
+    ) {
+      return;
+    }
+
+    window.clearTimeout(voiceTranscriptionFinishTimerRef.current);
+    voiceTranscriptionFinishTimerRef.current = undefined;
+    streamSessionIdRef.current = undefined;
+    streamStoppingRef.current = false;
+    lifecycle.finishTranscribing();
+
+    setVoiceInputPhase("idle");
+  };
+  finishVoiceTranscriptionRef.current = finishVoiceTranscription;
+
+  const cancelVoiceInput = (options?: { updateUi?: boolean }): void => {
+    const updateUi = options?.updateUi ?? true;
+    const sessionId = streamSessionIdRef.current;
+    const lifecycle = voiceRecordingLifecycleRef.current;
+
+    lifecycle?.setAvailable(false);
+    lifecycle?.cancel();
+    voiceRestartAfterReplyRef.current = false;
+    voiceAutoSendPendingRef.current = false;
+    nextSendFromVoiceRef.current = false;
+    window.clearTimeout(voiceAutoSendTimerRef.current);
+    window.clearTimeout(voiceTranscriptionFinishTimerRef.current);
+    window.clearTimeout(voiceRestartTimerRef.current);
+    voiceAutoSendTimerRef.current = undefined;
+    voiceTranscriptionFinishTimerRef.current = undefined;
+    voiceRestartTimerRef.current = undefined;
+    releaseVoiceCaptureResources(false);
+    streamSessionIdRef.current = undefined;
+    streamStoppingRef.current = false;
+    streamFinalSegmentsRef.current = new Map();
+    streamPartialTextRef.current = "";
+
+    if (sessionId) {
+      window.desktopPet?.speechStream.stop({ sessionId });
+    }
+
+    setVoiceInputPhase("idle", updateUi);
+  };
+  cancelVoiceInputRef.current = cancelVoiceInput;
+
+  const stopVoiceRecording = (reason: VoiceStopReason): void => {
+    const lifecycle = voiceRecordingLifecycleRef.current;
+
+    if (!lifecycle?.beginTranscribing()) {
+      return;
+    }
+
+    setVoiceInputPhase("transcribing");
+    const sessionId = streamSessionIdRef.current;
+    releaseVoiceCaptureResources(true);
+    window.clearTimeout(voiceAutoSendTimerRef.current);
+    window.clearTimeout(voiceTranscriptionFinishTimerRef.current);
+    window.clearTimeout(voiceRestartTimerRef.current);
+    voiceAutoSendPendingRef.current = reason === "auto";
 
     if (sessionId) {
       streamStoppingRef.current = true;
       window.desktopPet?.speechStream.stop({ sessionId });
+    } else {
+      finishVoiceTranscription();
     }
-
-    voiceInputStateRef.current = "idle";
-    setVoiceInputState("idle");
-
-    window.setTimeout(() => {
-      if (streamSessionIdRef.current === sessionId) {
-        streamSessionIdRef.current = undefined;
-        streamStoppingRef.current = false;
-      }
-    }, 9000);
-
-    window.clearTimeout(voiceAutoSendTimerRef.current);
-    voiceAutoSendPendingRef.current = false;
 
     if (reason === "auto") {
-      voiceAutoSendPendingRef.current = true;
       voiceAutoSendTimerRef.current = window.setTimeout(() => {
+        if (streamSessionIdRef.current !== sessionId) {
+          return;
+        }
+
         voiceAutoSendPendingRef.current = false;
+        finishVoiceTranscription(sessionId);
         sendRecognizedVoiceTextRef.current();
       }, voiceAutoSendFallbackMs);
-    }
-  };
-
-  const startVoiceRecording = async (options?: { silent?: boolean }): Promise<void> => {
-    if (!voiceInputEnabled || voiceInputState !== "idle" || state.clickThrough) {
       return;
     }
 
+    voiceTranscriptionFinishTimerRef.current = window.setTimeout(() => {
+      finishVoiceTranscription(sessionId);
+    }, voiceManualTranscriptionFallbackMs);
+  };
+
+  const startVoiceRecording = async (options?: { silent?: boolean }): Promise<void> => {
     const AudioContextConstructor =
       window.AudioContext ??
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 
-    if (!window.navigator.mediaDevices?.getUserMedia || !AudioContextConstructor) {
-      showVoiceMessage("当前环境不支持麦克风录音。", "error");
+    if (
+      !isVoiceCaptureAvailable() ||
+      !window.navigator.mediaDevices?.getUserMedia ||
+      !AudioContextConstructor
+    ) {
+      if (chatOpenRef.current && !window.navigator.mediaDevices?.getUserMedia) {
+        showVoiceMessage("当前环境不支持麦克风录音。", "error");
+      }
+
       return;
     }
 
+    const lifecycle = voiceRecordingLifecycleRef.current;
+    lifecycle?.setAvailable(true);
+    const startToken = lifecycle?.begin();
+
+    if (!lifecycle || startToken === undefined) {
+      return;
+    }
+
+    setVoiceInputPhase("connecting");
+    let capturedStream: MediaStream | undefined;
+    let requestedSessionId: string | undefined;
+    let failureMessage = "无法使用麦克风，请检查系统权限。";
+
     try {
       window.clearTimeout(voiceAutoSendTimerRef.current);
+      window.clearTimeout(voiceTranscriptionFinishTimerRef.current);
       window.clearTimeout(voiceRestartTimerRef.current);
       voiceAutoSendPendingRef.current = false;
-      const streamResult = await window.desktopPet?.speechStream.start({ petId: pet.petId });
+      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
+      capturedStream = stream;
 
-      if (!streamResult?.ok || !streamResult.sessionId) {
-        showVoiceMessage(streamResult?.message ?? "实时语音识别服务没有连接成功。", "error");
+      if (!lifecycle.isCurrent(startToken) || !isVoiceCaptureAvailable()) {
+        stopMediaStream(stream);
+
+        if (lifecycle.isCurrent(startToken)) {
+          lifecycle.cancel();
+          lifecycle.setAvailable(false);
+          setVoiceInputPhase("idle");
+        }
+
         return;
       }
 
-      const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      requestedSessionId = createSpeechStreamSessionId();
+      streamSessionIdRef.current = requestedSessionId;
+      failureMessage = "实时语音识别服务没有连接成功。";
+      const streamResult = await window.desktopPet?.speechStream.start({
+        petId: petRef.current.petId,
+        sessionId: requestedSessionId
+      });
+
+      const startStillCurrent = lifecycle.isCurrent(startToken);
+
+      if (
+        !startStillCurrent ||
+        !isVoiceCaptureAvailable() ||
+        streamSessionIdRef.current !== requestedSessionId
+      ) {
+        window.desktopPet?.speechStream.stop({
+          sessionId: streamResult?.sessionId ?? requestedSessionId
+        });
+
+        if (audioStreamRef.current === stream) {
+          releaseVoiceCaptureResources(false);
+        } else {
+          stopMediaStream(stream);
+        }
+
+        if (startStillCurrent) {
+          lifecycle.cancel();
+          lifecycle.setAvailable(false);
+          setVoiceInputPhase("idle");
+        }
+
+        return;
+      }
+
+      if (!streamResult?.ok || !streamResult.sessionId) {
+        failureMessage = streamResult?.message ?? failureMessage;
+        throw new Error(failureMessage);
+      }
+
+      streamSessionIdRef.current = streamResult.sessionId;
       const audioContext = new AudioContextConstructor();
+      audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(stream);
+      audioSourceRef.current = source;
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      audioProcessorRef.current = processor;
       speechSettingsRef.current = buildSpeechSettings(
-        petDefinition?.voiceInputSettings,
-        petDefinition?.voiceModelSettings
+        petDefinitionRef.current?.voiceInputSettings,
+        petDefinitionRef.current?.voiceModelSettings
       );
-      audioChunksRef.current = [];
       draftRef.current = "";
       setDraft("");
       clearVoiceTypewriter();
@@ -2212,19 +2480,22 @@ export function PetWindow(): JSX.Element {
       voiceDetectedRef.current = false;
       voiceLastActiveAtRef.current = 0;
       voiceStartedAtRef.current = window.performance.now();
-      streamSessionIdRef.current = streamResult.sessionId;
-      audioStreamRef.current = stream;
-      audioContextRef.current = audioContext;
-      audioSourceRef.current = source;
-      audioProcessorRef.current = processor;
+      const activeSessionId = streamResult.sessionId;
 
       processor.onaudioprocess = (event) => {
+        if (
+          !lifecycle.isCurrent(startToken) ||
+          lifecycle.phase !== "recording" ||
+          streamSessionIdRef.current !== activeSessionId
+        ) {
+          return;
+        }
+
         const targetSampleRate = 16000;
         const input = new Float32Array(event.inputBuffer.getChannelData(0));
         const resampled = resampleAudio(input, audioContext.sampleRate, targetSampleRate);
         const audioLevel = calculateAudioLevel(input);
 
-        audioChunksRef.current.push(input);
         streamPendingSamplesRef.current.push(resampled);
         setVoiceWaveformLevels((levels) => [...levels.slice(1), audioLevel]);
         flushStreamAudio();
@@ -2255,22 +2526,41 @@ export function PetWindow(): JSX.Element {
 
       source.connect(processor);
       processor.connect(audioContext.destination);
+
+      if (!lifecycle.markRecording(startToken) || !isVoiceCaptureAvailable()) {
+        cancelVoiceInput();
+        return;
+      }
+
       setVoiceWaveformLevels(initialVoiceWaveformLevels);
-      voiceInputStateRef.current = "recording";
-      setVoiceInputState("recording");
+      setVoiceInputPhase("recording");
       triggerExpression("happy", "normal", 1600);
       if (!options?.silent) {
         showVoiceMessage("我在听，慢慢说。");
       }
     } catch {
-      voiceInputStateRef.current = "idle";
-      setVoiceInputState("idle");
-      setVoiceWaveformLevels(initialVoiceWaveformLevels);
-      if (streamSessionIdRef.current) {
-        window.desktopPet?.speechStream.stop({ sessionId: streamSessionIdRef.current });
+      const attemptStillCurrent = lifecycle.isCurrent(startToken);
+
+      if (requestedSessionId) {
+        window.desktopPet?.speechStream.stop({ sessionId: requestedSessionId });
+      }
+
+      if (capturedStream && audioStreamRef.current === capturedStream) {
+        releaseVoiceCaptureResources(false);
+      } else {
+        stopMediaStream(capturedStream);
+      }
+
+      if (streamSessionIdRef.current === requestedSessionId) {
         streamSessionIdRef.current = undefined;
       }
-      showVoiceMessage("无法使用麦克风，请检查系统权限。", "error");
+
+      if (attemptStillCurrent) {
+        lifecycle.cancel();
+        lifecycle.setAvailable(isVoiceCaptureAvailable());
+        setVoiceInputPhase("idle");
+        showVoiceMessage(failureMessage, "error");
+      }
     }
   };
 
@@ -2297,7 +2587,10 @@ export function PetWindow(): JSX.Element {
         .filter(Boolean)
         .join(" ")}
       data-pet-id={pet.petId}
-      style={customThemeStyle}
+      style={{
+        ...customThemeStyle,
+        "--click-through-opacity": clickThroughOpacity
+      } as CSSProperties}
     >
       <div
         className={[
@@ -2382,9 +2675,7 @@ export function PetWindow(): JSX.Element {
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setChatOpen(false);
-                      triggerEventExpression("chatClose", "normal", "crying");
-                      speakLine("chatClose", "好，我先安静陪着你。");
+                      closeChat();
                     }}
                   >
                     <X size={13} />
@@ -2409,6 +2700,7 @@ export function PetWindow(): JSX.Element {
             className={[
               "petChatInputRow",
               !voiceInputEnabled ? "noVoiceInput" : "",
+              voiceInputState === "connecting" ? "connecting" : "",
               voiceInputState === "recording" ? "recording" : "",
               voiceInputState === "transcribing" ? "transcribing" : ""
             ]
@@ -2420,10 +2712,16 @@ export function PetWindow(): JSX.Element {
                 className={
                   voiceInputState === "recording" ? "petVoiceButton recording" : "petVoiceButton"
                 }
-                disabled={state.clickThrough || voiceInputState === "transcribing"}
+                disabled={
+                  state.clickThrough ||
+                  voiceInputState === "connecting" ||
+                  voiceInputState === "transcribing"
+                }
                 title={
                   voiceInputState === "recording"
                     ? "说完了"
+                    : voiceInputState === "connecting"
+                      ? "正在连接麦克风和语音识别"
                     : voiceInputState === "transcribing"
                       ? "我在整理"
                       : "对我说话"
@@ -2445,7 +2743,11 @@ export function PetWindow(): JSX.Element {
                 ref={chatDraftInputRef}
                 aria-label="输入对话内容"
                 value={draft}
-                disabled={state.clickThrough || voiceInputState === "transcribing"}
+                disabled={
+                  state.clickThrough ||
+                  voiceInputState === "connecting" ||
+                  voiceInputState === "transcribing"
+                }
                 rows={1}
                 onChange={(event) => {
                   clearVoiceTypewriter();
@@ -2460,6 +2762,8 @@ export function PetWindow(): JSX.Element {
                 placeholder={
                   voiceInputState === "recording"
                     ? "我在听…"
+                    : voiceInputState === "connecting"
+                      ? "正在连接麦克风…"
                     : voiceInputState === "transcribing"
                       ? "我在整理刚才的话…"
                       : "输入文字"

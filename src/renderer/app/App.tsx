@@ -140,7 +140,8 @@ const createBlankPetDraft = (): PetDefinition => ({
   expressions: {},
   expressionDescriptions: {},
   uiSettings: {
-    theme: "soft"
+    theme: "soft",
+    clickThroughOpacity: 0.45
   },
   lines: {},
   subtitleStyle: {

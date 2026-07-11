@@ -13,6 +13,7 @@ import type {
   SpeechToTextRequest,
   SpeechToTextResponse
 } from "../../../shared/types/speech";
+import { getSecureString, setSecureString } from "../config/secureConfigStore";
 
 interface TencentSpeechConfig {
   provider: "tencent";
@@ -29,6 +30,7 @@ interface SpeechStreamSession {
   socket: WebSocket;
   webContents: WebContents;
   ended: boolean;
+  closeTimer?: ReturnType<typeof setTimeout>;
 }
 
 const configPath = path.resolve(process.cwd(), "config/speech.local.json");
@@ -41,6 +43,134 @@ const version = "2019-06-14";
 const realtimeHost = "asr.cloud.tencent.com";
 const realtimePathPrefix = "/asr/v2";
 const speechStreamSessions = new Map<string, SpeechStreamSession>();
+const startingSpeechStreamOwners = new Map<string, WebContents>();
+const cancelledSpeechStreamStarts = new Set<string>();
+const pendingSpeechStreamCancels = new Map<string, ReturnType<typeof setTimeout>>();
+const boundSpeechStreamOwners = new WeakSet<WebContents>();
+const tencentAsrSecretScope = "tencent-asr";
+const speechStreamPendingCancelTtlMs = 15_000;
+const speechStreamPendingCancelLimit = 256;
+const speechStreamSessionIdPattern = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+
+interface TencentAsrCredentials {
+  appId: string;
+  secretId: string;
+  secretKey: string;
+}
+
+export function isValidSpeechStreamSessionId(value: unknown): value is string {
+  return typeof value === "string" && speechStreamSessionIdPattern.test(value);
+}
+
+function clearPendingSpeechStreamCancel(sessionId: string): boolean {
+  const timer = pendingSpeechStreamCancels.get(sessionId);
+
+  if (!timer) {
+    return false;
+  }
+
+  clearTimeout(timer);
+  pendingSpeechStreamCancels.delete(sessionId);
+  return true;
+}
+
+function rememberPendingSpeechStreamCancel(sessionId: string): void {
+  if (!isValidSpeechStreamSessionId(sessionId)) {
+    return;
+  }
+
+  clearPendingSpeechStreamCancel(sessionId);
+
+  while (pendingSpeechStreamCancels.size >= speechStreamPendingCancelLimit) {
+    const oldestSessionId = pendingSpeechStreamCancels.keys().next().value as string | undefined;
+
+    if (!oldestSessionId) {
+      break;
+    }
+
+    clearPendingSpeechStreamCancel(oldestSessionId);
+  }
+
+  const timer = setTimeout(() => {
+    if (pendingSpeechStreamCancels.get(sessionId) === timer) {
+      pendingSpeechStreamCancels.delete(sessionId);
+    }
+  }, speechStreamPendingCancelTtlMs);
+  timer.unref();
+  pendingSpeechStreamCancels.set(sessionId, timer);
+}
+
+function isSpeechStreamStartCancelled(sessionId: string, webContents: WebContents): boolean {
+  return (
+    webContents.isDestroyed() ||
+    cancelledSpeechStreamStarts.has(sessionId) ||
+    clearPendingSpeechStreamCancel(sessionId)
+  );
+}
+
+function closeSocketImmediately(socket: WebSocket): void {
+  if (socket.readyState !== WebSocket.CONNECTING && socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  try {
+    socket.close();
+  } catch {
+    // A socket can race from CONNECTING to CLOSED between the state check and close.
+  }
+}
+
+function closeSpeechStreamSessionImmediately(
+  sessionId: string,
+  session: SpeechStreamSession
+): void {
+  session.ended = true;
+
+  if (session.closeTimer) {
+    clearTimeout(session.closeTimer);
+    session.closeTimer = undefined;
+  }
+
+  if (speechStreamSessions.get(sessionId) === session) {
+    speechStreamSessions.delete(sessionId);
+  }
+
+  closeSocketImmediately(session.socket);
+}
+
+function closeSpeechStreamsForOwner(webContents: WebContents): void {
+  for (const [sessionId, owner] of startingSpeechStreamOwners) {
+    if (owner === webContents) {
+      cancelledSpeechStreamStarts.add(sessionId);
+    }
+  }
+
+  for (const [sessionId, session] of speechStreamSessions) {
+    if (session.webContents === webContents) {
+      closeSpeechStreamSessionImmediately(sessionId, session);
+    }
+  }
+}
+
+function bindSpeechStreamOwner(webContents: WebContents): void {
+  if (boundSpeechStreamOwners.has(webContents)) {
+    return;
+  }
+
+  boundSpeechStreamOwners.add(webContents);
+  const cleanup = (): void => {
+    closeSpeechStreamsForOwner(webContents);
+  };
+  webContents.on("render-process-gone", cleanup);
+  webContents.once("destroyed", cleanup);
+}
+
+function cancelledSpeechStreamStartResult(): SpeechStreamStartResult {
+  return {
+    ok: false,
+    message: "实时语音识别连接已取消。"
+  };
+}
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -71,55 +201,142 @@ function detectLanguageFromText(text: string): SpeechToTextResponse["language"] 
 }
 
 function getPetConfigPath(petId: string): string {
-  return path.join(app.getPath("userData"), "pets", petId, localPetFileName);
+  const targetPetId = petId.trim();
+
+  if (!targetPetId || targetPetId === "." || targetPetId === ".." || /[\\/\0]/.test(targetPetId)) {
+    throw new Error("无效的桌宠 ID。");
+  }
+
+  const petsRootPath = path.resolve(app.getPath("userData"), "pets");
+  const petDirectoryPath = path.resolve(petsRootPath, targetPetId);
+  const relativePath = path.relative(petsRootPath, petDirectoryPath);
+
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("无效的桌宠配置路径。");
+  }
+
+  return path.join(petDirectoryPath, localPetFileName);
+}
+
+function parseTencentAsrCredentials(value: string | undefined): TencentAsrCredentials | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<TencentAsrCredentials>;
+    const appId = typeof parsed.appId === "string" ? parsed.appId.trim() : "";
+    const secretId = typeof parsed.secretId === "string" ? parsed.secretId.trim() : "";
+    const secretKey = typeof parsed.secretKey === "string" ? parsed.secretKey.trim() : "";
+
+    return appId && secretId && secretKey ? { appId, secretId, secretKey } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function areTencentAsrCredentialsEqual(
+  left: TencentAsrCredentials | undefined,
+  right: TencentAsrCredentials
+): boolean {
+  return Boolean(
+    left &&
+      left.appId === right.appId &&
+      left.secretId === right.secretId &&
+      left.secretKey === right.secretKey
+  );
+}
+
+async function migrateLegacySpeechConfig(
+  petId: string,
+  existingCredentials?: TencentAsrCredentials
+): Promise<TencentAsrCredentials | undefined> {
+  let content: string;
+
+  try {
+    content = (await fs.readFile(configPath, "utf8")).replace(/^\uFEFF/, "");
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return existingCredentials;
+    }
+
+    throw error;
+  }
+
+  const parsed = JSON.parse(content) as Partial<TencentSpeechConfig>;
+  const credentials = parseTencentAsrCredentials(JSON.stringify(parsed));
+
+  if (parsed.provider !== "tencent" || !credentials) {
+    return existingCredentials;
+  }
+
+  if (existingCredentials && !areTencentAsrCredentialsEqual(existingCredentials, credentials)) {
+    // This pet already owns a different credential set. Preserve the legacy
+    // file so a pet that still depended on the old global fallback can migrate it.
+    return existingCredentials;
+  }
+
+  if (!existingCredentials) {
+    await setSecureString(tencentAsrSecretScope, petId, JSON.stringify(credentials));
+  }
+
+  const verifiedCredentials = parseTencentAsrCredentials(
+    await getSecureString(tencentAsrSecretScope, petId)
+  );
+
+  if (!areTencentAsrCredentialsEqual(verifiedCredentials, credentials)) {
+    throw new Error("腾讯云语音凭据迁移后的安全存储校验失败。");
+  }
+
+  try {
+    await fs.rm(configPath);
+  } catch {
+    // Retry on the next request and refuse networking while plaintext cleanup
+    // is incomplete. The encrypted copy remains valid and no data is lost.
+    throw new Error("旧版腾讯云明文配置已加密，但无法删除原文件；请检查文件权限后重试。");
+  }
+
+  return credentials;
 }
 
 async function readTencentSpeechConfig(petId?: string): Promise<TencentSpeechConfig> {
-  if (petId) {
-    try {
-      const content = (await fs.readFile(getPetConfigPath(petId), "utf8")).replace(/^\uFEFF/, "");
-      const parsed = JSON.parse(content) as PetDefinition;
-      const settings = parsed.voiceInputSettings;
+  const targetPetId = petId?.trim();
 
-      if (
-        settings?.provider === "tencent-asr" &&
-        settings.connected &&
-        settings.appId &&
-        settings.secretId &&
-        settings.secretKey
-      ) {
-        return {
-          provider: "tencent",
-          appId: settings.appId,
-          secretId: settings.secretId,
-          secretKey: settings.secretKey,
-          region: "ap-guangzhou",
-          engineModelType: "16k_zh",
-          sourceType: 1,
-          voiceFormat: "wav"
-        };
-      }
-    } catch {
-      // Fall through to legacy local config for older user setups.
+  if (!targetPetId) {
+    throw new Error("语音识别请求缺少桌宠 ID。");
+  }
+
+  let settings: PetDefinition["voiceInputSettings"];
+
+  try {
+    const content = (await fs.readFile(getPetConfigPath(targetPetId), "utf8")).replace(/^\uFEFF/, "");
+    settings = (JSON.parse(content) as PetDefinition).voiceInputSettings;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
     }
   }
 
-  const content = (await fs.readFile(configPath, "utf8")).replace(/^\uFEFF/, "");
-  const parsed = JSON.parse(content) as Partial<TencentSpeechConfig>;
+  if (settings && (settings.provider !== "tencent-asr" || !settings.connected)) {
+    throw new Error("当前桌宠尚未启用腾讯云语音识别。");
+  }
 
-  if (parsed.provider !== "tencent" || !parsed.secretId || !parsed.secretKey) {
-    throw new Error("请在 config/speech.local.json 中填写腾讯云 SecretId 和 SecretKey。");
+  let credentials = parseTencentAsrCredentials(
+    await getSecureString(tencentAsrSecretScope, targetPetId)
+  );
+  credentials = await migrateLegacySpeechConfig(targetPetId, credentials);
+
+  if (!credentials) {
+    throw new Error("请先在语音输入设置中填写并保存腾讯云凭据。");
   }
 
   return {
     provider: "tencent",
-    appId: parsed.appId,
-    secretId: parsed.secretId,
-    secretKey: parsed.secretKey,
-    region: parsed.region || "ap-guangzhou",
-    engineModelType: parsed.engineModelType || "16k_zh",
-    sourceType: parsed.sourceType ?? 1,
-    voiceFormat: parsed.voiceFormat || "wav"
+    ...credentials,
+    region: "ap-guangzhou",
+    engineModelType: "16k_zh",
+    sourceType: 1,
+    voiceFormat: "wav"
   };
 }
 
@@ -206,101 +423,76 @@ export async function startSpeechStream(
   webContents: WebContents,
   request: SpeechStreamStartRequest
 ): Promise<SpeechStreamStartResult> {
-  let config: TencentSpeechConfig;
+  const sessionId = request.sessionId;
 
-  try {
-    config = await readTencentSpeechConfig(request.petId);
-  } catch (error: unknown) {
+  if (!isValidSpeechStreamSessionId(sessionId)) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "语音识别配置读取失败。"
+      message: "实时语音识别会话 ID 无效。"
     };
   }
 
-  const sessionId = `desktop-pet-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let socket: WebSocket;
+  bindSpeechStreamOwner(webContents);
 
-  try {
-    socket = new WebSocket(signTencentRealtimeUrl(config, sessionId));
-  } catch (error: unknown) {
+  if (speechStreamSessions.has(sessionId) || startingSpeechStreamOwners.has(sessionId)) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : "实时语音识别连接创建失败。"
+      message: "实时语音识别会话 ID 已在使用。"
     };
   }
 
-  speechStreamSessions.set(sessionId, {
-    socket,
-    webContents,
-    ended: false
-  });
+  if (clearPendingSpeechStreamCancel(sessionId) || webContents.isDestroyed()) {
+    return cancelledSpeechStreamStartResult();
+  }
 
-  socket.addEventListener("message", (event) => {
+  startingSpeechStreamOwners.set(sessionId, webContents);
+
+  try {
+    let config: TencentSpeechConfig;
+
     try {
-      const message =
-        typeof event.data === "string"
-          ? event.data
-          : Buffer.from(event.data as ArrayBuffer).toString("utf8");
-      const normalized = normalizeRealtimeMessage(sessionId, message);
-
-      if (normalized) {
-        sendStreamEvent(normalized, webContents);
-      }
-    } catch {
-      sendStreamEvent(
-        {
-          sessionId,
-          ok: false,
-          message: "实时语音识别结果解析失败。",
-          final: true
-        },
-        webContents
-      );
-    }
-  });
-
-  socket.addEventListener("error", () => {
-    if (speechStreamSessions.get(sessionId)?.ended) {
-      return;
-    }
-
-    sendStreamEvent(
-      {
-        sessionId,
+      config = await readTencentSpeechConfig(request.petId);
+    } catch (error: unknown) {
+      return {
         ok: false,
-        message: "实时语音识别连接异常。",
-        final: true
-      },
-      webContents
-    );
-  });
+        message: error instanceof Error ? error.message : "语音识别配置读取失败。"
+      };
+    }
 
-  socket.addEventListener("close", () => {
-    speechStreamSessions.delete(sessionId);
-  });
+    if (isSpeechStreamStartCancelled(sessionId, webContents)) {
+      return cancelledSpeechStreamStartResult();
+    }
 
-  return await new Promise<SpeechStreamStartResult>((resolve) => {
-    let settled = false;
-    const settle = (result: SpeechStreamStartResult): void => {
-      if (settled) {
-        return;
-      }
+    let socket: WebSocket;
 
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
+    try {
+      socket = new WebSocket(signTencentRealtimeUrl(config, sessionId));
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "实时语音识别连接创建失败。"
+      };
+    }
+
+    if (isSpeechStreamStartCancelled(sessionId, webContents)) {
+      closeSocketImmediately(socket);
+      return cancelledSpeechStreamStartResult();
+    }
+
+    const session: SpeechStreamSession = {
+      socket,
+      webContents,
+      ended: false
     };
-    const timer = setTimeout(() => {
-      settle({
-        ok: false,
-        message: "实时语音识别连接超时。"
-      });
-      socket.close();
-      speechStreamSessions.delete(sessionId);
-    }, 8000);
+    speechStreamSessions.set(sessionId, session);
+
+    if (isSpeechStreamStartCancelled(sessionId, webContents)) {
+      closeSpeechStreamSessionImmediately(sessionId, session);
+      return cancelledSpeechStreamStartResult();
+    }
 
     socket.addEventListener("message", (event) => {
-      if (settled) {
+      if (speechStreamSessions.get(sessionId) !== session) {
         return;
       }
 
@@ -309,48 +501,138 @@ export async function startSpeechStream(
           typeof event.data === "string"
             ? event.data
             : Buffer.from(event.data as ArrayBuffer).toString("utf8");
-        const parsed = JSON.parse(message) as { code?: number; message?: string };
+        const normalized = normalizeRealtimeMessage(sessionId, message);
 
-        if (parsed.code === 0) {
-          settle({
-            ok: true,
-            message: "实时语音识别已连接。",
-            sessionId
-          });
-          return;
+        if (normalized) {
+          sendStreamEvent(normalized, webContents);
         }
-
-        settle({
-          ok: false,
-          message: parsed.message || "实时语音识别握手失败。"
-        });
-        socket.close();
-        speechStreamSessions.delete(sessionId);
       } catch {
-        settle({
-          ok: false,
-          message: "实时语音识别握手结果解析失败。"
-        });
-        socket.close();
-        speechStreamSessions.delete(sessionId);
+        sendStreamEvent(
+          {
+            sessionId,
+            ok: false,
+            message: "实时语音识别结果解析失败。",
+            final: true
+          },
+          webContents
+        );
       }
     });
 
     socket.addEventListener("error", () => {
-      settle({
-        ok: false,
-        message: "实时语音识别连接异常。"
-      });
+      const currentSession = speechStreamSessions.get(sessionId);
+
+      if (currentSession !== session || currentSession.ended) {
+        return;
+      }
+
+      sendStreamEvent(
+        {
+          sessionId,
+          ok: false,
+          message: "实时语音识别连接异常。",
+          final: true
+        },
+        webContents
+      );
     });
 
     socket.addEventListener("close", () => {
-      settle({
-        ok: false,
-        message: "实时语音识别连接已关闭。"
-      });
+      if (session.closeTimer) {
+        clearTimeout(session.closeTimer);
+        session.closeTimer = undefined;
+      }
+
+      if (speechStreamSessions.get(sessionId) === session) {
+        speechStreamSessions.delete(sessionId);
+      }
     });
 
-  });
+    return await new Promise<SpeechStreamStartResult>((resolve) => {
+      let settled = false;
+      const settle = (result: SpeechStreamStartResult): void => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        settle({
+          ok: false,
+          message: "实时语音识别连接超时。"
+        });
+        closeSpeechStreamSessionImmediately(sessionId, session);
+      }, 8000);
+      timer.unref();
+
+      socket.addEventListener("message", (event) => {
+        if (settled) {
+          return;
+        }
+
+        try {
+          const message =
+            typeof event.data === "string"
+              ? event.data
+              : Buffer.from(event.data as ArrayBuffer).toString("utf8");
+          const parsed = JSON.parse(message) as { code?: number; message?: string };
+
+          if (parsed.code === 0) {
+            if (speechStreamSessions.get(sessionId) !== session || session.ended) {
+              settle(cancelledSpeechStreamStartResult());
+              closeSpeechStreamSessionImmediately(sessionId, session);
+              return;
+            }
+
+            settle({
+              ok: true,
+              message: "实时语音识别已连接。",
+              sessionId
+            });
+            return;
+          }
+
+          settle({
+            ok: false,
+            message: parsed.message || "实时语音识别握手失败。"
+          });
+          closeSpeechStreamSessionImmediately(sessionId, session);
+        } catch {
+          settle({
+            ok: false,
+            message: "实时语音识别握手结果解析失败。"
+          });
+          closeSpeechStreamSessionImmediately(sessionId, session);
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        settle({
+          ok: false,
+          message: "实时语音识别连接异常。"
+        });
+        closeSpeechStreamSessionImmediately(sessionId, session);
+      });
+
+      socket.addEventListener("close", () => {
+        settle({
+          ok: false,
+          message: session.ended
+            ? "实时语音识别连接已取消。"
+            : "实时语音识别连接已关闭。"
+        });
+      });
+    });
+  } finally {
+    if (startingSpeechStreamOwners.get(sessionId) === webContents) {
+      startingSpeechStreamOwners.delete(sessionId);
+    }
+    cancelledSpeechStreamStarts.delete(sessionId);
+    clearPendingSpeechStreamCancel(sessionId);
+  }
 }
 
 export function sendSpeechStreamAudio(chunk: SpeechStreamAudioChunk): void {
@@ -364,23 +646,52 @@ export function sendSpeechStreamAudio(chunk: SpeechStreamAudioChunk): void {
 }
 
 export function stopSpeechStream(request: SpeechStreamStopRequest): void {
-  const session = speechStreamSessions.get(request.sessionId);
+  const sessionId = request.sessionId;
 
-  if (!session || session.ended) {
+  if (!isValidSpeechStreamSessionId(sessionId)) {
+    return;
+  }
+
+  const session = speechStreamSessions.get(sessionId);
+
+  if (!session) {
+    if (startingSpeechStreamOwners.has(sessionId)) {
+      cancelledSpeechStreamStarts.add(sessionId);
+    } else {
+      rememberPendingSpeechStreamCancel(sessionId);
+    }
+    return;
+  }
+
+  if (session.ended) {
+    return;
+  }
+
+  if (session.socket.readyState === WebSocket.CONNECTING) {
+    closeSpeechStreamSessionImmediately(sessionId, session);
     return;
   }
 
   session.ended = true;
 
   if (session.socket.readyState === WebSocket.OPEN) {
-    session.socket.send(JSON.stringify({ type: "end" }));
+    try {
+      session.socket.send(JSON.stringify({ type: "end" }));
+    } catch {
+      closeSpeechStreamSessionImmediately(sessionId, session);
+      return;
+    }
+  } else {
+    closeSpeechStreamSessionImmediately(sessionId, session);
+    return;
   }
 
-  setTimeout(() => {
+  session.closeTimer = setTimeout(() => {
     if (session.socket.readyState === WebSocket.OPEN || session.socket.readyState === WebSocket.CONNECTING) {
-      session.socket.close();
+      closeSpeechStreamSessionImmediately(sessionId, session);
     }
   }, 8000);
+  session.closeTimer.unref();
 }
 
 function buildAuthorization(config: TencentSpeechConfig, payload: string, timestamp: number): string {

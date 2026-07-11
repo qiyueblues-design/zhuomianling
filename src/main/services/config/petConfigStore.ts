@@ -32,6 +32,7 @@ import type {
 import { petResourceProtocol, toPetResourceUrl } from "./petResourceProtocol";
 import { validateLive2DFolder } from "./live2dImportService";
 import { warmUpTextToSpeech } from "../speech/textToSpeech";
+import { deletePetSecrets, getSecureString, setSecureString } from "./secureConfigStore";
 
 const localPetsDirectoryName = "pets";
 const localThemesDirectoryName = "themes";
@@ -49,6 +50,7 @@ const defaultVoiceHalfPrecision = true;
 const minVoiceInputSilenceSeconds = 0.4;
 const maxVoiceInputSilenceSeconds = 2;
 const defaultVoiceInputSilenceSeconds = 1;
+const tencentAsrSecretScope = "tencent-asr";
 let managedGptSoVitsProcess: ChildProcess | undefined;
 const avatarMimeTypes: Record<string, string> = {
   ".png": "image/png",
@@ -56,6 +58,153 @@ const avatarMimeTypes: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp"
 };
+
+interface TencentAsrCredentials {
+  appId: string;
+  secretId: string;
+  secretKey: string;
+}
+
+interface VoiceCredentialMigrationResult {
+  pet: PetDefinition;
+  blocked: boolean;
+}
+
+class VoiceCredentialMigrationBlockedError extends Error {
+  constructor() {
+    super("旧版腾讯云语音凭据尚未安全迁移，本次修改已取消，请确认系统安全存储可用后重试。");
+    this.name = "VoiceCredentialMigrationBlockedError";
+  }
+}
+
+type LegacyVoiceInputSettings = NonNullable<PetDefinition["voiceInputSettings"]> & {
+  appId?: unknown;
+  secretId?: unknown;
+  secretKey?: unknown;
+};
+
+function parseTencentAsrCredentials(value: string | undefined): TencentAsrCredentials | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<TencentAsrCredentials>;
+    const appId = typeof parsed.appId === "string" ? parsed.appId.trim() : "";
+    const secretId = typeof parsed.secretId === "string" ? parsed.secretId.trim() : "";
+    const secretKey = typeof parsed.secretKey === "string" ? parsed.secretKey.trim() : "";
+
+    return appId && secretId && secretKey ? { appId, secretId, secretKey } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function areTencentAsrCredentialsEqual(
+  left: TencentAsrCredentials | undefined,
+  right: TencentAsrCredentials
+): boolean {
+  return Boolean(
+    left &&
+      left.appId === right.appId &&
+      left.secretId === right.secretId &&
+      left.secretKey === right.secretKey
+  );
+}
+
+function readLegacyTencentAsrCredentials(pet: PetDefinition): TencentAsrCredentials | undefined {
+  const settings = pet.voiceInputSettings as LegacyVoiceInputSettings | undefined;
+  const appId = typeof settings?.appId === "string" ? settings.appId.trim() : "";
+  const secretId = typeof settings?.secretId === "string" ? settings.secretId.trim() : "";
+  const secretKey = typeof settings?.secretKey === "string" ? settings.secretKey.trim() : "";
+
+  return appId && secretId && secretKey ? { appId, secretId, secretKey } : undefined;
+}
+
+function stripVoiceInputCredentials(pet: PetDefinition, hasCredentials?: boolean): PetDefinition {
+  const settings = pet.voiceInputSettings as LegacyVoiceInputSettings | undefined;
+
+  if (!settings) {
+    return pet;
+  }
+
+  const {
+    appId: _legacyAppId,
+    secretId: _legacySecretId,
+    secretKey: _legacySecretKey,
+    ...publicSettings
+  } = settings;
+  const credentialsAvailable = hasCredentials ?? Boolean(publicSettings.hasCredentials);
+
+  return {
+    ...pet,
+    capabilities: {
+      ...pet.capabilities,
+      voiceInput: Boolean(pet.capabilities.voiceInput && credentialsAvailable)
+    },
+    voiceInputSettings: {
+      ...publicSettings,
+      hasCredentials: credentialsAvailable,
+      connected: Boolean(publicSettings.connected && credentialsAvailable)
+    }
+  };
+}
+
+export function toPublicPetDefinition(pet: PetDefinition): PetDefinition {
+  return stripVoiceInputCredentials(pet);
+}
+
+async function writeJsonAtomically(filePath: string, value: unknown): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now().toString(36)}.tmp`;
+
+  try {
+    await fs.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx"
+    });
+    await fs.rename(temporaryPath, filePath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+async function migrateLegacyVoiceInputCredentials(
+  filePath: string,
+  pet: PetDefinition
+): Promise<VoiceCredentialMigrationResult> {
+  const legacyCredentials = readLegacyTencentAsrCredentials(pet);
+
+  if (!legacyCredentials) {
+    return {
+      pet: toPublicPetDefinition(pet),
+      blocked: false
+    };
+  }
+
+  try {
+    await setSecureString(tencentAsrSecretScope, pet.id, JSON.stringify(legacyCredentials));
+    const verifiedCredentials = parseTencentAsrCredentials(
+      await getSecureString(tencentAsrSecretScope, pet.id)
+    );
+
+    if (!areTencentAsrCredentialsEqual(verifiedCredentials, legacyCredentials)) {
+      throw new Error("腾讯云语音凭据迁移后的安全存储校验失败。");
+    }
+
+    const migratedPet = stripVoiceInputCredentials(pet, true);
+    await writeJsonAtomically(filePath, migratedPet);
+    return {
+      pet: migratedPet,
+      blocked: false
+    };
+  } catch (error) {
+    console.error(`Failed to migrate Tencent ASR credentials for pet ${pet.id}.`, error);
+    return {
+      pet: stripVoiceInputCredentials(pet, false),
+      blocked: true
+    };
+  }
+}
 
 function getPetsRootPath(): string {
   return path.join(app.getPath("userData"), localPetsDirectoryName);
@@ -378,7 +527,17 @@ export async function resetLocalPetVoiceRuntimeState(): Promise<void> {
       .filter((entry) => entry.isDirectory())
       .map(async (entry) => {
         const configPath = getPetConfigPath(entry.name);
-        const pet = await readPetConfig(configPath);
+        let pet: PetDefinition | undefined;
+
+        try {
+          pet = await readPetConfig(configPath, { forMutation: true });
+        } catch (error) {
+          if (error instanceof VoiceCredentialMigrationBlockedError) {
+            return;
+          }
+
+          throw error;
+        }
 
         if (!pet?.voiceModelSettings) {
           return;
@@ -488,7 +647,8 @@ function buildPetDefinition(draft: LocalPetBasicInfoDraft, petId: string): PetDe
     expressions: {},
     expressionDescriptions: {},
     uiSettings: {
-      theme: "soft"
+      theme: "soft",
+      clickThroughOpacity: 0.45
     },
     isLocal: true,
     subtitleStyle: {
@@ -567,7 +727,8 @@ function buildDiscoveredPetDefinition(petId: string): PetDefinition {
     expressions: {},
     expressionDescriptions: {},
     uiSettings: {
-      theme: "soft"
+      theme: "soft",
+      clickThroughOpacity: 0.45
     },
     isLocal: true,
     subtitleStyle: {
@@ -687,7 +848,10 @@ async function copyAvatarIntoPetDirectory(avatarImage: string, petId: string): P
   return toPetResourceUrl(targetPath);
 }
 
-async function readPetConfig(filePath: string): Promise<PetDefinition | undefined> {
+async function readPetConfig(
+  filePath: string,
+  options: { forMutation?: boolean } = {}
+): Promise<PetDefinition | undefined> {
   const petId = path.basename(path.dirname(filePath));
 
   try {
@@ -698,7 +862,31 @@ async function readPetConfig(filePath: string): Promise<PetDefinition | undefine
       return syncImportedLive2DConfig(petId, undefined);
     }
 
-    let nextPet = parsed;
+    const migration = await migrateLegacyVoiceInputCredentials(filePath, parsed);
+
+    if (migration.blocked) {
+      if (options.forMutation) {
+        throw new VoiceCredentialMigrationBlockedError();
+      }
+
+      let avatarImage: string | undefined;
+
+      try {
+        avatarImage = migration.pet.avatarImage
+          ? toPetResourceUrl(avatarImageToPath(migration.pet.avatarImage))
+          : undefined;
+      } catch {
+        avatarImage = undefined;
+      }
+
+      return {
+        ...migration.pet,
+        avatarImage,
+        isLocal: true
+      };
+    }
+
+    let nextPet = migration.pet;
 
     if (!nextPet.modelPath || !nextPet.live2dSettings) {
       const syncedPet = await syncImportedLive2DConfig(nextPet.id, nextPet);
@@ -708,12 +896,16 @@ async function readPetConfig(filePath: string): Promise<PetDefinition | undefine
       }
     }
 
-    return {
+    return toPublicPetDefinition({
       ...nextPet,
       avatarImage: nextPet.avatarImage ? toPetResourceUrl(avatarImageToPath(nextPet.avatarImage)) : undefined,
       isLocal: true
-    };
-  } catch {
+    });
+  } catch (error) {
+    if (error instanceof VoiceCredentialMigrationBlockedError) {
+      throw error;
+    }
+
     return syncImportedLive2DConfig(petId, undefined);
   }
 }
@@ -928,7 +1120,7 @@ export async function listLocalUiThemes(): Promise<PetCustomThemeListResult> {
 
 export async function importLocalUiTheme(): Promise<PetCustomThemeImportResult> {
   const result = await dialog.showOpenDialog({
-    title: "导入界面主题",
+    title: "导入主题风格",
     properties: ["openFile"],
     filters: [
       {
@@ -1002,7 +1194,7 @@ export async function saveLocalPetBasicInfo(
   const petId = await ensureUniquePetId(slugifyName(name), draft.id);
   const petDirectoryPath = getPetDirectoryPath(petId);
   const avatarImage = await copyAvatarIntoPetDirectory(draft.avatarImage, petId);
-  const existingPet = await readPetConfig(getPetConfigPath(petId));
+  const existingPet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
   const pet = mergeBasicInfoIntoPet(existingPet, draft, petId, avatarImage);
 
   await fs.mkdir(petDirectoryPath, { recursive: true });
@@ -1028,7 +1220,7 @@ export async function saveLocalPetPersona(
   }
 
   const petDirectoryPath = assertSafePetDirectory(petId);
-  const pet = await readPetConfig(getPetConfigPath(petId));
+  const pet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
 
   if (!pet) {
     return {
@@ -1070,7 +1262,7 @@ export async function saveLocalPetExpressionMappings(
   }
 
   const petDirectoryPath = assertSafePetDirectory(petId);
-  const pet = await readPetConfig(getPetConfigPath(petId));
+  const pet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
 
   if (!pet) {
     return {
@@ -1226,7 +1418,7 @@ export async function saveLocalPetEventSettings(
   }
 
   const petDirectoryPath = assertSafePetDirectory(petId);
-  const pet = await readPetConfig(getPetConfigPath(petId));
+  const pet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
 
   if (!pet) {
     return {
@@ -1324,12 +1516,12 @@ export async function saveLocalPetUiSettings(
   }
 
   const petDirectoryPath = assertSafePetDirectory(petId);
-  const pet = await readPetConfig(getPetConfigPath(petId));
+  const pet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
 
   if (!pet) {
     return {
       ok: false,
-      message: "请先保存基础信息，再配置界面主题。"
+      message: "请先保存基础信息，再配置交互面板。"
     };
   }
 
@@ -1345,6 +1537,15 @@ export async function saveLocalPetUiSettings(
     };
   }
 
+  const clickThroughOpacitySource =
+    typeof draft.clickThroughOpacity === "number" && Number.isFinite(draft.clickThroughOpacity)
+      ? draft.clickThroughOpacity
+      : pet.uiSettings?.clickThroughOpacity;
+  const clickThroughOpacity =
+    typeof clickThroughOpacitySource === "number" && Number.isFinite(clickThroughOpacitySource)
+      ? Math.min(0.8, Math.max(0.2, Math.round(clickThroughOpacitySource * 100) / 100))
+      : 0.45;
+
   const nextPet: PetDefinition = {
     ...pet,
     uiSettings:
@@ -1352,10 +1553,12 @@ export async function saveLocalPetUiSettings(
         ? {
             theme: "custom",
             customThemeId: customTheme.id,
-            customTheme
+            customTheme,
+            clickThroughOpacity
           }
         : {
-            theme: draft.theme
+            theme: draft.theme,
+            clickThroughOpacity
           },
     isLocal: true
   };
@@ -1365,7 +1568,7 @@ export async function saveLocalPetUiSettings(
 
   return {
     ok: true,
-    message: "界面主题已保存。",
+    message: "交互面板已保存。",
     pet: nextPet
   };
 }
@@ -1382,21 +1585,70 @@ export async function saveLocalPetVoiceInput(
     };
   }
 
-  if (!draft.appId.trim() || !draft.secretId.trim() || !draft.secretKey.trim()) {
+  const enteredCredentials: TencentAsrCredentials = {
+    appId: draft.appId.trim(),
+    secretId: draft.secretId.trim(),
+    secretKey: draft.secretKey.trim()
+  };
+  const enteredCredentialValues = Object.values(enteredCredentials);
+  const hasEnteredCredential = enteredCredentialValues.some(Boolean);
+  const hasCompleteEnteredCredentials = enteredCredentialValues.every(Boolean);
+
+  if (hasEnteredCredential && !hasCompleteEnteredCredentials) {
     return {
       ok: false,
-      message: "请先填写 AppID、SecretId 和 SecretKey。"
+      message: "更新腾讯云凭据时，请完整填写 AppID、SecretId 和 SecretKey。"
     };
   }
 
   const petDirectoryPath = assertSafePetDirectory(petId);
-  const pet = await readPetConfig(getPetConfigPath(petId));
+  const pet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
 
   if (!pet) {
     return {
       ok: false,
       message: "请先保存基础信息，再配置语音输入。"
     };
+  }
+
+  let existingCredentials: TencentAsrCredentials | undefined;
+
+  try {
+    existingCredentials = parseTencentAsrCredentials(
+      await getSecureString(tencentAsrSecretScope, petId)
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "本机安全凭据读取失败。"
+    };
+  }
+
+  const credentials = hasCompleteEnteredCredentials ? enteredCredentials : existingCredentials;
+
+  if (!credentials) {
+    return {
+      ok: false,
+      message: "请先填写 AppID、SecretId 和 SecretKey。"
+    };
+  }
+
+  if (hasCompleteEnteredCredentials) {
+    try {
+      await setSecureString(tencentAsrSecretScope, petId, JSON.stringify(credentials));
+      const verifiedCredentials = parseTencentAsrCredentials(
+        await getSecureString(tencentAsrSecretScope, petId)
+      );
+
+      if (!areTencentAsrCredentialsEqual(verifiedCredentials, credentials)) {
+        throw new Error("腾讯云语音凭据保存后的安全存储校验失败。");
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "本机安全凭据保存失败。"
+      };
+    }
   }
 
   const nextPet: PetDefinition = {
@@ -1407,9 +1659,7 @@ export async function saveLocalPetVoiceInput(
     },
     voiceInputSettings: {
       provider: "tencent-asr",
-      appId: draft.appId.trim(),
-      secretId: draft.secretId.trim(),
-      secretKey: draft.secretKey.trim(),
+      hasCredentials: true,
       connected: draft.connected,
       autoEndEnabled: draft.autoEndEnabled,
       silenceSeconds: normalizeVoiceInputSilenceSeconds(draft.silenceSeconds),
@@ -1517,7 +1767,7 @@ export async function saveLocalPetVoiceModel(
   }
 
   const petDirectoryPath = assertSafePetDirectory(petId);
-  const pet = await readPetConfig(getPetConfigPath(petId));
+  const pet = await readPetConfig(getPetConfigPath(petId), { forMutation: true });
 
   if (!pet) {
     return {
@@ -1653,6 +1903,7 @@ export async function deleteLocalPet(petId: string): Promise<LocalPetDeleteResul
   }
 
   await fs.rm(petDirectoryPath, { recursive: true, force: true });
+  await deletePetSecrets(targetPetId);
 
   return {
     ok: true,

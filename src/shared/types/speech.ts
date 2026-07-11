@@ -19,6 +19,7 @@ export interface SpeechStreamStartResult {
 
 export interface SpeechStreamStartRequest {
   petId: string;
+  sessionId: string;
 }
 
 export interface SpeechStreamAudioChunk {

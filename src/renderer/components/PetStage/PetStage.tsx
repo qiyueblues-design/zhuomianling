@@ -286,7 +286,7 @@ export function PetStage({
       <div className={`stageThemeSummary theme-${uiTheme}`} style={customThemeStyle}>
         <Palette size={17} />
         <span>
-          <strong>界面主题</strong>
+          <strong>主题风格</strong>
           <small>{uiThemeLabel} · 右键菜单 / 聊天框 / 字幕气泡</small>
         </span>
       </div>

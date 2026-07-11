@@ -52,6 +52,19 @@ textarea {
   pointer-events: none;
 }
 
+.petDragSurface,
+.petSubtitleBubble,
+.petChatPanel {
+  transition: opacity 180ms ease;
+}
+
+/* Keep the companion visible enough to locate, while leaving foreground text readable. */
+.petWindowShell.clickThroughMode .petDragSurface,
+.petWindowShell.clickThroughMode .petSubtitleBubble,
+.petWindowShell.clickThroughMode .petChatPanel {
+  opacity: var(--click-through-opacity, 0.45);
+}
+
 .petDragSurface {
   position: relative;
   display: grid;

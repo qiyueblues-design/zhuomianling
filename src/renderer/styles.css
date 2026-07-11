@@ -1795,6 +1795,18 @@ h2 {
   gap: 12px;
 }
 
+.quickActionsPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.quickActionsPanel .settingsField {
+  border: 1px solid rgba(23, 32, 42, 0.1);
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
 .uiThemeGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -158,9 +158,7 @@ export interface PetPersonaSettings {
 
 export interface PetVoiceInputSettings {
   provider: "tencent-asr";
-  appId: string;
-  secretId: string;
-  secretKey: string;
+  hasCredentials: boolean;
   connected: boolean;
   autoEndEnabled: boolean;
   silenceSeconds: PetVoiceInputSilenceSeconds;
@@ -196,6 +194,7 @@ export interface PetUiSettings {
   theme: PetUiTheme;
   customThemeId?: string;
   customTheme?: PetCustomTheme;
+  clickThroughOpacity?: number;
 }
 
 export interface PetDefinition {
@@ -276,6 +275,7 @@ export interface LocalPetUiSettingsDraft {
   petId: string;
   theme: PetUiTheme;
   customThemeId?: string;
+  clickThroughOpacity?: number;
 }
 
 export interface LocalPetVoiceInputDraft {

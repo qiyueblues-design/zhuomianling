@@ -12,6 +12,7 @@ import {
   resetLocalPetVoiceRuntimeState,
   stopManagedGptSoVitsApi
 } from "./services/config/petConfigStore";
+import { migrateLegacyAiConnections } from "./services/ai/aiSettings";
 
 let mainWindow: Electron.BrowserWindow | null = null;
 let isQuitting = false;
@@ -57,6 +58,18 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     await resetLocalPetVoiceRuntimeState();
+
+    try {
+      await migrateLegacyAiConnections();
+    } catch (error: unknown) {
+      // Keep the settings UI reachable so it can show the fail-closed error.
+      // The migration service retains the legacy file and refuses AI networking.
+      console.error(
+        "Failed to migrate legacy AI credentials.",
+        error instanceof Error ? error.message : "Unknown secure storage error."
+      );
+    }
+
     registerPetResourceProtocol();
     mainWindow = createMainWindow();
     registerIpc(ipcMain, () => mainWindow);

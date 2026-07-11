@@ -71,14 +71,14 @@ function ThemeImportDialog({
   onClose: () => void;
 }): JSX.Element {
   return createPortal(
-    <div className="themeImportOverlay" role="dialog" aria-modal="true" aria-label="导入界面主题">
+    <div className="themeImportOverlay" role="dialog" aria-modal="true" aria-label="导入主题风格">
       <div className="themeImportDialog">
         <div className="themeImportHeader">
           <span className="themeImportIcon" aria-hidden="true">
             <FileJson size={20} />
           </span>
           <div>
-            <h3>导入界面主题</h3>
+            <h3>导入主题风格</h3>
             <p>选择一个主题 JSON，导入后会出现在主题列表最前面。</p>
           </div>
           <button className="iconButton" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
@@ -216,7 +216,7 @@ export function ThemePanel({
     if (pet.id === "new-pet") {
       setResult({
         ok: false,
-        message: "请先保存基础信息，再保存界面主题。"
+        message: "请先保存基础信息，再保存交互面板。"
       });
       return;
     }
@@ -256,17 +256,17 @@ export function ThemePanel({
     <div className="editorPanel">
       <div className="panelTitleRow">
         <div>
-          <h2>界面主题</h2>
-          <p>为当前桌宠选择一套右键菜单、聊天框和字幕气泡的整体外观。</p>
+          <h2>主题风格</h2>
+          <p>为右键快捷菜单、聊天框和字幕气泡选择整体外观。</p>
         </div>
         <button className="secondaryAction" type="button" onClick={() => setImportDialogOpen(true)}>
           <Upload size={17} />
-          导入主题
+          导入主题风格
         </button>
         <span className="localBadge">按模型保存</span>
       </div>
 
-      <section className="uiThemeSection" aria-label="界面主题">
+      <section className="uiThemeSection" aria-label="主题风格">
         <div className="uiThemeGrid">
           {themeOptions.map((theme) => {
             const selected =

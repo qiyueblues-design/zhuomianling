@@ -5,6 +5,10 @@ import type {
   AiChatResponse,
   AiChatStreamEvent
 } from "../../../shared/types/ai";
+import {
+  SecureStorageCorruptedError,
+  SecureStorageUnavailableError
+} from "../config/secureConfigStore";
 import { getAiConnectionConfig } from "./aiSettings";
 
 interface ChatCompletionResponse {
@@ -30,6 +34,17 @@ interface ChatCompletionStreamChunk {
   error?: {
     message?: string;
   };
+}
+
+function getAiSettingsErrorMessage(error: unknown): string {
+  if (
+    error instanceof SecureStorageUnavailableError ||
+    error instanceof SecureStorageCorruptedError
+  ) {
+    return error.message;
+  }
+
+  return "无法读取本机 AI 设置，请检查配置文件权限后重试。";
 }
 
 function buildChatCompletionsUrl(baseUrl: string): string {
@@ -122,7 +137,16 @@ function parseAiReply(content: string): { reply: string; emotion?: string; voice
 }
 
 export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse> {
-  const config = await getAiConnectionConfig(request.petId);
+  let config: Awaited<ReturnType<typeof getAiConnectionConfig>>;
+
+  try {
+    config = await getAiConnectionConfig(request.petId);
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      message: getAiSettingsErrorMessage(error)
+    };
+  }
 
   if (!config?.baseUrl || !config.model || !config.apiKey) {
     return {
@@ -230,7 +254,19 @@ export async function startAiChatStream(
   request: AiChatRequest,
   streamId: string
 ): Promise<void> {
-  const config = await getAiConnectionConfig(request.petId);
+  let config: Awaited<ReturnType<typeof getAiConnectionConfig>>;
+
+  try {
+    config = await getAiConnectionConfig(request.petId);
+  } catch (error: unknown) {
+    sendStreamEvent(target, {
+      streamId,
+      ok: false,
+      type: "error",
+      message: getAiSettingsErrorMessage(error)
+    });
+    return;
+  }
 
   if (!config?.baseUrl || !config.model || !config.apiKey) {
     sendStreamEvent(target, {
