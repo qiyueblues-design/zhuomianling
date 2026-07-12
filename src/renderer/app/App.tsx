@@ -3,12 +3,14 @@ import { AlertTriangle, FolderOpen, MousePointer2, Plus, Sparkles, Trash2 } from
 import type { LocalPetConfigCorruption, PetDefinition } from "../../shared/types/pet";
 import type { PetWindowState } from "../../shared/types/window";
 import { PetEditor } from "../components/PetEditor/PetEditor";
+import { MemoryBook } from "../components/MemoryBook/MemoryBook";
+import type { MemoryBookRouteState } from "../components/MemoryBook/memoryBookState";
 import { PetSelector } from "../components/PetSelector/PetSelector";
 import { PetStage } from "../components/PetStage/PetStage";
 import { StartupSplash } from "../components/StartupSplash/StartupSplash";
 import { hasUsableLive2DModel, loadAvailablePets } from "../pets/petSources";
 
-type AppView = "selector" | "editor";
+type AppView = "selector" | "editor" | "memoryBook";
 
 const MIN_STARTUP_SPLASH_MS = 2000;
 const STARTUP_SPLASH_EXIT_MS = 360;
@@ -205,6 +207,7 @@ export function App(): JSX.Element {
   const [editorOptions, setEditorOptions] = useState<EditorPageOptions>({});
   const [isStartupSplashVisible, setIsStartupSplashVisible] = useState(true);
   const [isStartupSplashLeaving, setIsStartupSplashLeaving] = useState(false);
+  const [hasMinimumStartupSplashElapsed, setHasMinimumStartupSplashElapsed] = useState(false);
   const [hasInitialPetsLoaded, setHasInitialPetsLoaded] = useState(false);
   const [hasMainWindowBeenShown, setHasMainWindowBeenShown] = useState(() => !window.desktopPet?.appWindow);
   const [hasStartupSurfaceReady, setHasStartupSurfaceReady] = useState(
@@ -224,6 +227,8 @@ export function App(): JSX.Element {
   const activePetIdRef = useRef<string | undefined>();
   const petOperationSequenceRef = useRef(0);
   const petRefreshSequenceRef = useRef(0);
+  const memoryBookStateRef = useRef<Record<string, MemoryBookRouteState>>({});
+  const selectorScrollPositionRef = useRef(0);
 
   useEffect(() => {
     currentViewRef.current = currentView;
@@ -348,9 +353,24 @@ export function App(): JSX.Element {
   }, [hasStartupSurfaceReady]);
 
   useEffect(() => {
+    if (!hasMainWindowBeenShown) {
+      return;
+    }
+
+    const splashTimer = window.setTimeout(() => {
+      setHasMinimumStartupSplashElapsed(true);
+    }, MIN_STARTUP_SPLASH_MS);
+
+    return () => {
+      window.clearTimeout(splashTimer);
+    };
+  }, [hasMainWindowBeenShown]);
+
+  useEffect(() => {
     if (
       !isStartupSplashVisible ||
       isStartupSplashLeaving ||
+      !hasMinimumStartupSplashElapsed ||
       !hasInitialPetsLoaded ||
       !hasMainWindowBeenShown ||
       !hasStartupSurfaceReady
@@ -358,14 +378,9 @@ export function App(): JSX.Element {
       return;
     }
 
-    const splashTimer = window.setTimeout(() => {
-      setIsStartupSplashLeaving(true);
-    }, MIN_STARTUP_SPLASH_MS);
-
-    return () => {
-      window.clearTimeout(splashTimer);
-    };
+    setIsStartupSplashLeaving(true);
   }, [
+    hasMinimumStartupSplashElapsed,
     hasInitialPetsLoaded,
     hasMainWindowBeenShown,
     hasStartupSurfaceReady,
@@ -447,6 +462,19 @@ export function App(): JSX.Element {
     setCurrentView("selector");
     setEditorOptions({});
     void refreshPets();
+  };
+
+  const openMemoryBook = (petId: string): void => {
+    selectorScrollPositionRef.current = window.scrollY;
+    setSelectedPetId(petId);
+    setCurrentView("memoryBook");
+  };
+
+  const closeMemoryBook = (): void => {
+    setCurrentView("selector");
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: selectorScrollPositionRef.current, behavior: "auto" });
+    });
   };
 
   const handleEditorSavedPet = (pet: PetDefinition): void => {
@@ -640,6 +668,22 @@ export function App(): JSX.Element {
     );
   }
 
+  if (currentView === "memoryBook" && selectedPet) {
+    return (
+      <main className="appShell memoryBookViewShell">
+        <MemoryBook
+          pet={selectedPet}
+          initialState={memoryBookStateRef.current[selectedPet.id]}
+          onStateChange={(state) => {
+            memoryBookStateRef.current[selectedPet.id] = state;
+          }}
+          onBack={closeMemoryBook}
+        />
+        {isStartupSplashVisible ? <StartupSplash leaving={isStartupSplashLeaving} /> : null}
+      </main>
+    );
+  }
+
   return (
     <main className="appShell">
       <header className="appTopbar">
@@ -678,6 +722,7 @@ export function App(): JSX.Element {
                 await deactivatePet();
               }}
               onEditPet={() => openEditorPage({ mode: "edit", petId: selectedPet.id })}
+              onOpenMemoryBook={() => openMemoryBook(selectedPet.id)}
               onDeletePet={() => deletePet(selectedPet)}
               onCloseDetails={() => setSelectedPetId(undefined)}
               onVoiceConnected={refreshPets}

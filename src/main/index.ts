@@ -10,11 +10,18 @@ import {
 } from "./services/config/petResourceProtocol";
 import {
   cleanupOrphanedAvatarDrafts,
+  cleanupInterruptedPetDeletions,
   resetLocalPetVoiceRuntimeState,
   stopManagedGptSoVitsApi
 } from "./services/config/petConfigStore";
-import { migrateLegacyAiConnections } from "./services/ai/aiSettings";
+import { deleteAiConnection, migrateLegacyAiConnections } from "./services/ai/aiSettings";
 import { clearSafeAppCaches } from "./services/cache/appCacheCleanup";
+import { shutdownAllMemorySidecars } from "./services/memory/memorySidecarRuntime";
+import { configureMemoryRecallRuntime } from "./services/memory/memoryRecall";
+import {
+  resumeAutomaticMemoryCaptures,
+  shutdownAutomaticMemoryCaptures
+} from "./services/memory/memoryCapture";
 
 let mainWindow: Electron.BrowserWindow | null = null;
 let isQuitting = false;
@@ -44,6 +51,8 @@ protocol.registerSchemesAsPrivileged([
 async function runShutdownCleanup(): Promise<void> {
   const cleanup = (async () => {
     stopManagedGptSoVitsApi();
+    await shutdownAutomaticMemoryCaptures();
+    await shutdownAllMemorySidecars();
     await resetLocalPetVoiceRuntimeState();
 
     try {
@@ -106,6 +115,11 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    configureMemoryRecallRuntime({
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath
+    });
+    await cleanupInterruptedPetDeletions(deleteAiConnection);
     await cleanupOrphanedAvatarDrafts();
     await resetLocalPetVoiceRuntimeState();
 
@@ -119,6 +133,10 @@ if (!gotLock) {
         error instanceof Error ? error.message : "Unknown secure storage error."
       );
     }
+
+    void resumeAutomaticMemoryCaptures().catch(() => {
+      console.warn("Failed to resume pending automatic memory captures.");
+    });
 
     registerPetResourceProtocol();
     session.defaultSession.setPermissionRequestHandler(

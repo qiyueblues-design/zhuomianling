@@ -42,6 +42,29 @@ import type {
   Live2DModelImportResult,
   Live2DPreviewModelResult
 } from "../shared/types/live2dImport";
+import type {
+  MemoryClearRequest,
+  MemoryCreateRequest,
+  MemoryExportRequest,
+  MemoryExportSaveResult,
+  MemoryGetRequest,
+  MemoryIndexRebuildResult,
+  MemoryListRequest,
+  MemoryManagedClearResult,
+  MemoryManagedForgetResult,
+  MemoryManagedRecordMutation,
+  MemoryManagementStatus,
+  MemoryPage,
+  MemoryProviderStatus,
+  MemoryRecord,
+  MemoryResult,
+  MemoryRevisionRequest,
+  MemorySearchRequest,
+  MemorySettings,
+  MemorySettingsSaveRequest,
+  MemorySummary,
+  MemoryUpdateRequest
+} from "../shared/types/memory";
 
 const desktopPetApi = {
   getAppVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>,
@@ -134,6 +157,50 @@ const desktopPetApi = {
       ipcRenderer.invoke("ai-settings:list-models", draft) as Promise<AiModelListResult>,
     save: (draft: AiConnectionDraft) =>
       ipcRenderer.invoke("ai-settings:save", draft) as Promise<AiConnectionSaveResult>
+  },
+  memory: {
+    getSummary: (petId: string) =>
+      ipcRenderer.invoke("memory:get-summary", petId) as Promise<MemoryResult<MemorySummary>>,
+    list: (request: MemoryListRequest) =>
+      ipcRenderer.invoke("memory:list", request) as Promise<MemoryResult<MemoryPage<MemoryRecord>>>,
+    get: (request: MemoryGetRequest) =>
+      ipcRenderer.invoke("memory:get", request) as Promise<MemoryResult<MemoryRecord | undefined>>,
+    search: (request: MemorySearchRequest) =>
+      ipcRenderer.invoke("memory:search", request) as Promise<MemoryResult<MemoryPage<MemoryRecord>>>,
+    create: (request: MemoryCreateRequest) =>
+      ipcRenderer.invoke("memory:create", request) as Promise<
+        MemoryResult<MemoryManagedRecordMutation>
+      >,
+    update: (request: MemoryUpdateRequest) =>
+      ipcRenderer.invoke("memory:update", request) as Promise<
+        MemoryResult<MemoryManagedRecordMutation>
+      >,
+    forget: (request: MemoryRevisionRequest) =>
+      ipcRenderer.invoke("memory:forget", request) as Promise<
+        MemoryResult<MemoryManagedForgetResult>
+      >,
+    undoForget: (request: MemoryRevisionRequest) =>
+      ipcRenderer.invoke("memory:undo-forget", request) as Promise<
+        MemoryResult<MemoryManagedRecordMutation>
+      >,
+    clear: (request: MemoryClearRequest) =>
+      ipcRenderer.invoke("memory:clear", request) as Promise<
+        MemoryResult<MemoryManagedClearResult>
+      >,
+    export: (request: MemoryExportRequest) =>
+      ipcRenderer.invoke("memory:export", request) as Promise<MemoryResult<MemoryExportSaveResult>>,
+    rebuildIndex: (petId: string) =>
+      ipcRenderer.invoke("memory:rebuild-index", petId) as Promise<MemoryResult<MemoryIndexRebuildResult>>,
+    getSettings: (petId: string) =>
+      ipcRenderer.invoke("memory:get-settings", petId) as Promise<MemoryResult<MemorySettings>>,
+    saveSettings: (request: MemorySettingsSaveRequest) =>
+      ipcRenderer.invoke("memory:save-settings", request) as Promise<MemoryResult<MemorySettings>>,
+    getProviderStatus: (petId: string) =>
+      ipcRenderer.invoke("memory:get-provider-status", petId) as Promise<MemoryResult<MemoryProviderStatus>>,
+    testProvider: (petId: string) =>
+      ipcRenderer.invoke("memory:test-provider", petId) as Promise<MemoryResult<MemoryProviderStatus>>,
+    getStatus: (petId: string) =>
+      ipcRenderer.invoke("memory:get-status", petId) as Promise<MemoryResult<MemoryManagementStatus>>
   },
   petWindow: {
     show: (payload: DesktopPetPayload) =>

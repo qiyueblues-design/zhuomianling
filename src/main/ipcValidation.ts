@@ -1,4 +1,17 @@
 import { assertValidPetId } from "../shared/validation/petId";
+import { MEMORY_LIMITS } from "../shared/types/memory";
+import {
+  assertMemoryClearRequest,
+  assertMemoryCreateRequest,
+  assertMemoryExportRequest,
+  assertMemoryGetRequest,
+  assertMemoryListRequest,
+  assertMemoryObjectBudget,
+  assertMemoryRevisionRequest,
+  assertMemorySearchRequest,
+  assertMemorySettingsSaveRequest,
+  assertMemoryUpdateRequest
+} from "../shared/validation/memory";
 
 interface PayloadLimits {
   maxDepth?: number;
@@ -60,6 +73,22 @@ export const validatedIpcChannels = new Set([
   "ai-settings:get",
   "ai-settings:list-models",
   "ai-settings:save",
+  "memory:get-summary",
+  "memory:list",
+  "memory:get",
+  "memory:search",
+  "memory:create",
+  "memory:update",
+  "memory:forget",
+  "memory:undo-forget",
+  "memory:clear",
+  "memory:export",
+  "memory:rebuild-index",
+  "memory:get-settings",
+  "memory:save-settings",
+  "memory:get-provider-status",
+  "memory:test-provider",
+  "memory:get-status",
   "ai-chat:stream",
   "ai-chat:cancel",
   "speech-to-text:transcribe",
@@ -104,6 +133,44 @@ function assertRecord(channel: string, value: unknown, label = "请求"): Record
   }
 
   return value;
+}
+
+function assertAllowedKeys(channel: string, value: Record<string, unknown>, allowed: readonly string[]): void {
+  const allowedKeys = new Set(allowed);
+  const unknown = Object.keys(value).find((key) => !allowedKeys.has(key));
+  if (unknown) fail(channel, `不允许字段 ${unknown}。`);
+}
+
+function validateMemoryObject<T>(
+  channel: string,
+  value: unknown,
+  allowed: readonly string[],
+  validate: (request: T) => unknown
+): Record<string, unknown> {
+  const request = assertRecord(channel, value);
+  assertAllowedKeys(channel, request, allowed);
+  try {
+    validate(request as T);
+    assertMemoryObjectBudget(request);
+  } catch (error) {
+    fail(channel, error instanceof Error ? error.message : "记忆请求无效。");
+  }
+  assertSafePayload(channel, request, {
+    maxArrayLength: MEMORY_LIMITS.tags,
+    maxObjectKeys: 32,
+    maxStringLength: MEMORY_LIMITS.contentChars,
+    maxTotalStringLength: MEMORY_LIMITS.objectBudgetBytes
+  });
+  return request;
+}
+
+function assertManagementPageSize(channel: string, value: unknown): void {
+  if (
+    value !== undefined &&
+    (!Number.isInteger(value) || (value as number) < 1 || (value as number) > MEMORY_LIMITS.managementPageSizeMax)
+  ) {
+    fail(channel, `pageSize 必须是 1-${MEMORY_LIMITS.managementPageSizeMax} 的整数。`);
+  }
 }
 
 function assertString(
@@ -439,6 +506,122 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
       maxStringLength: 16_384,
       maxTotalStringLength: 262_144
     });
+    return;
+  }
+
+  if (
+    channel === "memory:get-summary" ||
+    channel === "memory:rebuild-index" ||
+    channel === "memory:get-settings" ||
+    channel === "memory:get-provider-status" ||
+    channel === "memory:test-provider" ||
+    channel === "memory:get-status"
+  ) {
+    expectArgumentCount(channel, args, 1);
+    assertPetId(channel, args[0]);
+    return;
+  }
+
+  if (channel === "memory:list") {
+    expectArgumentCount(channel, args, 1);
+    const request = validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "cursor", "pageSize", "chapters", "importantOnly", "sort", "fromTime", "toTime"],
+      assertMemoryListRequest
+    );
+    assertManagementPageSize(channel, request.pageSize);
+    return;
+  }
+
+  if (channel === "memory:search") {
+    expectArgumentCount(channel, args, 1);
+    const request = validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "query", "cursor", "pageSize", "chapters", "importantOnly", "sort", "fromTime", "toTime"],
+      assertMemorySearchRequest
+    );
+    assertManagementPageSize(channel, request.pageSize);
+    return;
+  }
+
+  if (channel === "memory:get") {
+    expectArgumentCount(channel, args, 1);
+    validateMemoryObject(channel, args[0], ["petId", "memoryId", "includeDeleted"], assertMemoryGetRequest);
+    return;
+  }
+
+  if (channel === "memory:create") {
+    expectArgumentCount(channel, args, 1);
+    validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "chapter", "memoryType", "content", "tags", "important", "origin", "sourceTime"],
+      assertMemoryCreateRequest
+    );
+    return;
+  }
+
+  if (channel === "memory:update") {
+    expectArgumentCount(channel, args, 1);
+    validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "memoryId", "expectedRevision", "chapter", "content", "tags", "important"],
+      assertMemoryUpdateRequest
+    );
+    return;
+  }
+
+  if (channel === "memory:forget" || channel === "memory:undo-forget") {
+    expectArgumentCount(channel, args, 1);
+    validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "memoryId", "expectedRevision"],
+      assertMemoryRevisionRequest
+    );
+    return;
+  }
+
+  if (channel === "memory:clear") {
+    expectArgumentCount(channel, args, 1);
+    validateMemoryObject(channel, args[0], ["petId", "confirmPetId"], assertMemoryClearRequest);
+    return;
+  }
+
+  if (channel === "memory:export") {
+    expectArgumentCount(channel, args, 1);
+    const request = validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "options", "sourceExportConsent"],
+      assertMemoryExportRequest
+    );
+    const options = assertRecord(channel, request.options, "options");
+    assertAllowedKeys(channel, options, ["format", "includeSources"]);
+    return;
+  }
+
+  if (channel === "memory:save-settings") {
+    expectArgumentCount(channel, args, 1);
+    const request = validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "settings", "autoCaptureConsent", "sourceRetentionConsent"],
+      assertMemorySettingsSaveRequest
+    );
+    const settings = assertRecord(channel, request.settings, "settings");
+    assertAllowedKeys(channel, settings, [
+      "onboardingCompleted",
+      "recallEnabled",
+      "autoCaptureEnabled",
+      "recallLimit",
+      "contextBudgetChars",
+      "retainSources",
+      "providerProfileId"
+    ]);
     return;
   }
 

@@ -1,3 +1,5 @@
+import type { MemorySettings } from "./memory";
+
 export interface PetCapabilities {
   chat: boolean;
   voiceInput?: boolean;
@@ -212,6 +214,7 @@ export interface PetDefinition {
   voiceModelSettings?: PetVoiceModelSettings;
   live2dSettings?: PetLive2DSettings;
   uiSettings?: PetUiSettings;
+  memorySettings?: MemorySettings;
   capabilities: PetCapabilities;
   details: PetDetails;
   expressions?: PetExpressionMap;

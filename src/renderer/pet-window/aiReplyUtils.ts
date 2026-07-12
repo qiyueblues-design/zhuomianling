@@ -6,6 +6,7 @@ import type {
   PetReplyLength,
   PetVoiceLanguage
 } from "../../shared/types/pet";
+import { parseFinalAiReply } from "../../shared/aiReply";
 
 const chatLanguageLabels: Record<PetChatLanguage, string> = {
   zh: "中文",
@@ -195,61 +196,8 @@ export function parseStructuredReplyFallback(content: string): {
   emotion?: string;
   voiceText?: string;
 } {
-  const trimmedContent = content.trim();
-
-  if (!trimmedContent.startsWith("{")) {
-    return {
-      reply: trimmedContent
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(trimmedContent) as {
-      reply?: unknown;
-      emotion?: unknown;
-      voiceText?: unknown;
-    };
-    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-    const emotion = typeof parsed.emotion === "string" ? parsed.emotion.trim() : undefined;
-    const voiceText = typeof parsed.voiceText === "string" ? parsed.voiceText.trim() : undefined;
-
-    if (reply) {
-      return {
-        reply,
-        emotion,
-        voiceText
-      };
-    }
-  } catch {
-    const replyMatch = trimmedContent.match(/"reply"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
-    const emotionMatch = trimmedContent.match(/"emotion"\s*:\s*"([^"]+)"/);
-    const voiceTextMatch = trimmedContent.match(/"voiceText"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
-    const reply = replyMatch?.[1]
-      ?.replace(/\\"/g, '"')
-      .replace(/\\n/g, "\n")
-      .replace(/\\r/g, "\r")
-      .replace(/\\t/g, "\t")
-      .trim();
-
-    const voiceText = voiceTextMatch?.[1]
-      ?.replace(/\\"/g, '"')
-      .replace(/\\n/g, "\n")
-      .replace(/\\r/g, "\r")
-      .replace(/\\t/g, "\t")
-      .trim();
-
-    if (reply) {
-      return {
-        reply,
-        emotion: emotionMatch?.[1]?.trim(),
-        voiceText
-      };
-    }
-  }
-
-  return {
-    reply: trimmedContent
-  };
+  const { reply, emotion, voiceText } = parseFinalAiReply(content);
+  return { reply, emotion, voiceText };
 }
 
 function isPetExpressionKey(value: string): value is PetExpressionKey {

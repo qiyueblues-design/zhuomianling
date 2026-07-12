@@ -1,0 +1,7 @@
+lock-version = "1.0"
+created-by = "desktop-pet-memory-sidecar M4 lock"
+requires-python = ">=3.13,<3.14"
+environments = ["python_version >= '3.13' and python_version < '3.14'"]
+packages = [
+  { name = "memu-py", version = "1.5.1", wheel = "memu_py-1.5.1-cp313-abi3-win_amd64.whl", sha256 = "980613a3758c453436ac71a6f5ed607236355aa2d04eb8a9bb878cf176a98c17" },
+]

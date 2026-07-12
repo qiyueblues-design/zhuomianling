@@ -17,6 +17,18 @@ describe("assertIpcSenderAllowed", () => {
     ).toThrow(/不允许/);
   });
 
+  it("keeps all memory management IPC main-window only", () => {
+    expect(() =>
+      assertIpcSenderAllowed("memory:list", "main", mainSender, mainSender, false)
+    ).not.toThrow();
+    expect(() =>
+      assertIpcSenderAllowed("memory:list", "main", petSender, mainSender, true)
+    ).toThrow(/不允许/);
+    expect(() =>
+      assertIpcSenderAllowed("memory:clear", "main", unknownSender, mainSender, false)
+    ).toThrow(/不允许/);
+  });
+
   it("keeps AI, TTS, and drag IPC pet-window only", () => {
     expect(() =>
       assertIpcSenderAllowed("ai-chat:stream", "pet", petSender, mainSender, true)
@@ -52,7 +64,13 @@ describe("assertIpcSenderAllowed", () => {
       "pet-config:delete",
       "pet-config:save-basic-info",
       "live2d-import:import-model",
-      "ai-settings:save"
+      "ai-settings:save",
+      "memory:list",
+      "memory:create",
+      "memory:clear",
+      "memory:export",
+      "memory:save-settings",
+      "memory:rebuild-index"
     ]) {
       expect(accessByChannel.get(channel)).toBe("main");
     }

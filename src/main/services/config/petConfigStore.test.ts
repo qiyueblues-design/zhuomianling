@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeMemorySettings } from "../../../shared/validation/memory";
 
 type ProtocolHandler = (request: { url: string }) => Promise<Response>;
 
@@ -223,6 +224,87 @@ describe("Tencent ASR credential migration", () => {
     expect(secureContent).toContain("pet-b");
   });
 
+  it("rolls an interrupted pet deletion back with its complete memory directory", async () => {
+    await writeLegacyPet();
+    const memoryFile = path.join(getPetDirectory(), "memory", "pending", "turn.json");
+    await fs.mkdir(path.dirname(memoryFile), { recursive: true });
+    await fs.writeFile(memoryFile, "durable-memory", "utf8");
+    const { deleteLocalPet } = await import("./petConfigStore");
+
+    await expect(deleteLocalPet("pet-a", {
+      removeDirectory: async () => { throw new Error("injected deletion failure"); }
+    })).rejects.toThrow(/injected deletion failure/);
+
+    await expect(fs.readFile(getPetConfigPath(), "utf8")).resolves.toContain('"id": "pet-a"');
+    await expect(fs.readFile(memoryFile, "utf8")).resolves.toBe("durable-memory");
+    expect((await fs.readdir(path.join(temporaryDirectory, "pets"))).some((name) =>
+      name.startsWith(".deleting-pet-a-")
+    )).toBe(false);
+  });
+
+  it("cleans only recognized interrupted deletion tombstones on startup", async () => {
+    const petsRoot = path.join(temporaryDirectory, "pets");
+    const recognized = path.join(
+      petsRoot,
+      ".deleting-pet-a-123e4567-e89b-12d3-a456-426614174000"
+    );
+    const unknown = path.join(petsRoot, ".deleting-unknown");
+    await fs.mkdir(recognized, { recursive: true });
+    await fs.mkdir(unknown, { recursive: true });
+    const { cleanupInterruptedPetDeletions } = await import("./petConfigStore");
+
+    await expect(cleanupInterruptedPetDeletions()).resolves.toEqual(["pet-a"]);
+
+    await expect(fs.access(recognized)).rejects.toThrow();
+    await expect(fs.access(unknown)).resolves.toBeUndefined();
+  });
+
+  it("keeps an interrupted deletion tombstone when external cleanup cannot finish", async () => {
+    const tombstone = path.join(
+      temporaryDirectory,
+      "pets",
+      ".deleting-pet-a-123e4567-e89b-12d3-a456-426614174000"
+    );
+    await fs.mkdir(tombstone, { recursive: true });
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { cleanupInterruptedPetDeletions } = await import("./petConfigStore");
+    try {
+      await expect(cleanupInterruptedPetDeletions(async () => {
+        throw new Error("secure cleanup unavailable");
+      })).resolves.toEqual([]);
+      await expect(fs.access(tombstone)).resolves.toBeUndefined();
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
+  it("durably saves normalized memory settings inside the pet definition", async () => {
+    await writeLegacyPet();
+    const {
+      getLocalPetMemorySettings,
+      saveLocalPetMemorySettings
+    } = await import("./petConfigStore");
+    await saveLocalPetMemorySettings("pet-a", {
+      recallEnabled: true,
+      autoCaptureEnabled: false,
+      recallLimit: 4,
+      contextBudgetChars: 1536,
+      retainSources: false
+    });
+
+    await expect(getLocalPetMemorySettings("pet-a")).resolves.toEqual({
+      onboardingCompleted: true,
+      recallEnabled: true,
+      autoCaptureEnabled: false,
+      recallLimit: 4,
+      contextBudgetChars: 1536,
+      retainSources: false
+    });
+    expect(JSON.parse(await fs.readFile(getPetConfigPath(), "utf8"))).toMatchObject({
+      memorySettings: { onboardingCompleted: true, recallEnabled: true, recallLimit: 4 }
+    });
+  });
+
   it("keeps legacy plaintext on disk but redacts the DTO when safe storage is unavailable", async () => {
     await writeLegacyPet();
     electronMock.encryptionAvailable = false;
@@ -247,6 +329,23 @@ describe("Tencent ASR credential migration", () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+});
+
+describe("legacy memory settings compatibility", () => {
+  it("loads a pet without memorySettings and treats every memory capability as disabled", async () => {
+    await writeLegacyPet();
+    const { listLocalPets } = await import("./petConfigStore");
+
+    const [pet] = await listLocalPets();
+
+    expect(pet?.memorySettings).toBeUndefined();
+    expect(normalizeMemorySettings(pet?.memorySettings)).toMatchObject({
+      onboardingCompleted: false,
+      recallEnabled: false,
+      autoCaptureEnabled: false,
+      retainSources: false
+    });
   });
 });
 

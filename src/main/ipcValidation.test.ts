@@ -53,6 +53,40 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("accepts bounded memory management requests and explicit destructive confirmations", () => {
+    expect(() => validateIpcArguments("memory:list", [{ petId: "pet-a", pageSize: 5 }])).not.toThrow();
+    expect(() => validateIpcArguments("memory:create", [{
+      petId: "pet-a",
+      chapter: "about_you",
+      memoryType: "profile",
+      content: "A bounded manual memory",
+      tags: ["manual"]
+    }])).not.toThrow();
+    expect(() => validateIpcArguments("memory:clear", [{
+      petId: "pet-a",
+      confirmPetId: "pet-a"
+    }])).not.toThrow();
+  });
+
+  it("rejects oversized, unknown-field, and mismatched memory management payloads", () => {
+    expect(() => validateIpcArguments("memory:list", [{ petId: "pet-a", pageSize: 6 }])).toThrow(/1-5/);
+    expect(() => validateIpcArguments("memory:create", [{
+      petId: "pet-a",
+      chapter: "about_you",
+      memoryType: "profile",
+      content: "x".repeat(8_193)
+    }])).toThrow(/8192/);
+    expect(() => validateIpcArguments("memory:get", [{
+      petId: "pet-a",
+      memoryId: "memory-1",
+      databasePath: "C:\\private\\ledger.sqlite3"
+    }])).toThrow(/databasePath/);
+    expect(() => validateIpcArguments("memory:clear", [{
+      petId: "pet-a",
+      confirmPetId: "pet-b"
+    }])).toThrow(/confirmation|确认|match/i);
+  });
+
   it("accepts a shared expression source across event settings", () => {
     const source = {
       sourceKind: "expression",

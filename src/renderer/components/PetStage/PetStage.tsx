@@ -1,4 +1,4 @@
-import { CheckCircle2, Palette, Pause, Pencil, Play, Sparkles, Subtitles, Trash2, Volume2, X, XCircle } from "lucide-react";
+import { BookHeart, CheckCircle2, Palette, Pause, Pencil, Play, Sparkles, Subtitles, Trash2, Volume2, X, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { BuiltInPetUiTheme, LocalPetSaveResult, LocalPetVoiceModelDraft, PetCustomTheme, PetDefinition } from "../../../shared/types/pet";
@@ -13,6 +13,7 @@ interface PetStageProps {
   onActivate: () => void | Promise<void>;
   onDeactivate: () => void | Promise<void>;
   onEditPet: () => void;
+  onOpenMemoryBook: () => void;
   onDeletePet: () => void | Promise<void>;
   onCloseDetails: () => void;
   onVoiceConnected?: () => void | Promise<void>;
@@ -57,6 +58,7 @@ export function PetStage({
   onActivate,
   onDeactivate,
   onEditPet,
+  onOpenMemoryBook,
   onDeletePet,
   onCloseDetails,
   onVoiceConnected
@@ -243,6 +245,10 @@ export function PetStage({
         <button className="secondaryAction" type="button" onClick={onEditPet}>
           <Pencil size={17} />
           编辑
+        </button>
+        <button className="secondaryAction memoryStageAction" type="button" onClick={onOpenMemoryBook}>
+          <BookHeart size={17} />
+          记忆书
         </button>
         <button
           className={

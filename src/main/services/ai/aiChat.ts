@@ -8,11 +8,15 @@ import type {
   AiChatStreamRequest,
   AiChatStreamEvent
 } from "../../../shared/types/ai";
+import { parseFinalAiReply } from "../../../shared/aiReply";
 import {
   SecureStorageCorruptedError,
   SecureStorageUnavailableError
 } from "../config/secureConfigStore";
 import { getAiConnectionConfig } from "./aiSettings";
+import { recallMemoryForAi } from "../memory/memoryRecall";
+import { injectMemoryContext } from "../memory/memoryPrompt";
+import { captureCompletedAiTurn } from "../memory/memoryCapture";
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -74,69 +78,6 @@ function normalizeMessages(messages: AiChatMessage[]): AiChatMessage[] {
   const conversationMessages = normalizedMessages.filter((message) => message.role !== "system");
 
   return [...systemMessages, ...conversationMessages.slice(-15)];
-}
-
-function parseAiReply(content: string): { reply: string; emotion?: string; voiceText?: string } {
-  const trimmedContent = content.trim();
-  const jsonMatch = trimmedContent.match(/\{[\s\S]*\}/);
-
-  if (!jsonMatch) {
-    return {
-      reply: trimmedContent
-    };
-  }
-
-  try {
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      reply?: unknown;
-      emotion?: unknown;
-      voiceText?: unknown;
-    };
-    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
-    const emotion = typeof parsed.emotion === "string" ? parsed.emotion.trim() : undefined;
-    const voiceText = typeof parsed.voiceText === "string" ? parsed.voiceText.trim() : undefined;
-
-    if (!reply) {
-      return {
-        reply: trimmedContent
-      };
-    }
-
-    return {
-      reply,
-      emotion,
-      voiceText
-    };
-  } catch {
-    const replyMatch = jsonMatch[0].match(/"reply"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
-    const emotionMatch = jsonMatch[0].match(/"emotion"\s*:\s*"([^"]+)"/);
-    const voiceTextMatch = jsonMatch[0].match(/"voiceText"\s*:\s*"([\s\S]*?)"\s*(?:,|\})/);
-    const reply = replyMatch?.[1]
-      ?.replace(/\\"/g, '"')
-      .replace(/\\n/g, "\n")
-      .replace(/\\r/g, "\r")
-      .replace(/\\t/g, "\t")
-      .trim();
-
-    const voiceText = voiceTextMatch?.[1]
-      ?.replace(/\\"/g, '"')
-      .replace(/\\n/g, "\n")
-      .replace(/\\r/g, "\r")
-      .replace(/\\t/g, "\t")
-      .trim();
-
-    if (reply) {
-      return {
-        reply,
-        emotion: emotionMatch?.[1]?.trim(),
-        voiceText
-      };
-    }
-
-    return {
-      reply: trimmedContent
-    };
-  }
 }
 
 export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse> {
@@ -221,7 +162,7 @@ export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse
     };
   }
 
-  const parsedReply = parseAiReply(content);
+  const parsedReply = parseFinalAiReply(content);
 
   return {
     ok: true,
@@ -508,7 +449,7 @@ export async function startAiChatStream(
     return;
   }
 
-  const messages = normalizeMessages(request.messages);
+  let messages = normalizeMessages(request.messages);
 
   if (!messages.length) {
     completeEntry(entry, {
@@ -517,6 +458,16 @@ export async function startAiChatStream(
       message: "请输入聊天内容。"
     });
     return;
+  }
+  const currentUserText = [...messages].reverse().find((message) => message.role === "user")?.content;
+
+  try {
+    const recalled = await recallMemoryForAi(request.petId, messages, entry.controller.signal);
+    if (!entry.active) return;
+    messages = injectMemoryContext(messages, recalled.context);
+  } catch {
+    // Recall is optional and must never block the original chat path.
+    if (!entry.active) return;
   }
 
   let response: Response;
@@ -667,9 +618,19 @@ export async function startAiChatStream(
     return;
   }
 
+  const parsedReply = parseFinalAiReply(content);
   completeEntry(entry, {
     ok: true,
     type: "done",
     content
   });
+  if (currentUserText && parsedReply.completeForMemory && parsedReply.reply) {
+    void captureCompletedAiTurn({
+      petId: request.petId,
+      requestId: request.requestId,
+      userText: currentUserText,
+      assistantReply: parsedReply.reply,
+      occurredAt: new Date().toISOString()
+    }).catch(() => undefined);
+  }
 }

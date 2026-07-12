@@ -1,0 +1,14 @@
+[build-system]
+requires = []
+build-backend = "desktop_pet_memory_sidecar.build_backend"
+backend-path = ["."]
+
+[project]
+name = "desktop-pet-memory-sidecar"
+version = "0.1.0"
+description = "Private NDJSON memory sidecar protocol for Zhuomianling"
+requires-python = ">=3.13,<3.14"
+dependencies = ["memu-py==1.5.1"]
+
+[tool.unittest]
+start-directory = "tests"

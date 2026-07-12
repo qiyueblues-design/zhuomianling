@@ -1,0 +1,1430 @@
+.memoryBookViewShell {
+  --memory-paper: #fffdf7;
+  --memory-paper-alt: #faf5e9;
+  --memory-paper-line: rgba(113, 85, 52, 0.15);
+  --memory-ink: #29231d;
+  --memory-muted: #766a5e;
+  --memory-accent: #9b513d;
+  --memory-accent-soft: rgba(155, 81, 61, 0.12);
+  --memory-cover: #744739;
+  --memory-cover-deep: #4d2e27;
+  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  color: var(--memory-ink);
+  background:
+    radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--ui-accent) 9%, transparent), transparent 30%),
+    var(--ui-bg);
+}
+
+.memoryBookShell {
+  height: 100vh;
+  min-height: 0;
+  flex: 1;
+  width: 100%;
+  overflow: auto;
+  padding-bottom: 28px;
+  scrollbar-gutter: stable;
+}
+
+.memoryBookTopbar {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  min-height: 64px;
+  padding: 10px clamp(18px, 4vw, 52px);
+  border-bottom: 1px solid var(--ui-line);
+  background: color-mix(in srgb, var(--ui-bg) 82%, transparent);
+  backdrop-filter: blur(22px) saturate(1.25);
+}
+
+.memoryBackButton,
+.memoryBookTopActions,
+.memoryBookIdentity,
+.memoryToolButton,
+.memoryViewControls button,
+.memoryPagination button,
+.memoryInlineActions,
+.memoryBookFooter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memoryBackButton {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  color: var(--ui-accent-ink);
+  background: transparent;
+}
+
+.memoryBackButton:hover { background: var(--ui-accent-soft); }
+.memoryBookIdentity { font-weight: 720; letter-spacing: -0.02em; }
+.memoryBookTopActions { justify-self: end; }
+
+.memoryIconButton {
+  display: inline-grid;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: inherit;
+  background: transparent;
+}
+
+.memoryIconButton:hover { border-color: var(--ui-line); background: var(--ui-glass-strong); }
+.memoryIconButton.danger { color: var(--ui-danger); }
+
+.memoryStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 999px;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--ui-glass);
+}
+
+.memoryStatusPill > span { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-soft); }
+.memoryStatusPill.ready > span { background: var(--ui-success); }
+.memoryStatusPill.warning > span { background: var(--ui-warning); }
+
+.memoryBookToolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 1280px;
+  margin: 20px auto 0;
+  padding: 0 clamp(18px, 4vw, 52px);
+  overflow: visible;
+}
+
+.memoryBookToolbar:has(.memorySelectMenu) { z-index: 16; }
+
+.memorySearch {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 9px;
+  min-width: 180px;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 13px;
+  color: var(--ui-muted);
+  background: var(--ui-glass-strong);
+}
+
+.memorySearch input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; color: var(--ui-ink); background: transparent; }
+.memoryBookToolbar select,
+.memoryDateFilters input,
+.memoryEditorForm input,
+.memoryEditorForm select,
+.memorySettingsPanel input[type="number"],
+.memoryDangerPanel input {
+  min-height: 44px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 12px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+}
+
+.memoryBookToolbar select { padding: 0 30px 0 12px; }
+.memoryToolButton {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 13px;
+  color: var(--ui-ink);
+  background: var(--ui-glass-strong);
+}
+.memoryToolButton:hover,
+.memoryToolButton.active { color: var(--ui-accent-ink); border-color: color-mix(in srgb, var(--ui-accent) 35%, var(--ui-line)); background: var(--ui-accent-soft); }
+
+.memoryDateFilters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 1280px;
+  margin: 10px auto 0;
+  padding: 0 clamp(18px, 4vw, 52px);
+  color: var(--ui-muted);
+  font-size: 13px;
+}
+.memoryDateFilters label { display: inline-flex; align-items: center; gap: 6px; }
+.memoryDateFilters input { min-height: 36px; padding: 0 8px; }
+.memoryDateFilters button { border: 0; color: var(--ui-accent-ink); background: transparent; }
+
+.memoryBookmarks {
+  position: sticky;
+  z-index: 10;
+  top: 64px;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  max-width: 900px;
+  margin: 18px auto 0;
+  padding: 0 18px;
+}
+.memoryBookmarks button {
+  display: flex;
+  min-width: 84px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--memory-paper-line);
+  border-bottom: 0;
+  border-radius: 10px 10px 2px 2px;
+  color: var(--memory-muted);
+  background: color-mix(in srgb, var(--memory-paper-alt) 92%, transparent);
+  box-shadow: 0 -4px 14px rgba(60, 39, 26, 0.04);
+}
+.memoryBookmarks button.active { color: var(--memory-accent); background: var(--memory-paper); transform: translateY(3px); }
+.memoryBookmarks strong { font-size: 11px; opacity: 0.72; }
+
+.memoryCoverScene {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(340px, 1.18fr);
+  gap: clamp(34px, 7vw, 96px);
+  align-items: center;
+  width: min(1080px, calc(100% - 48px));
+  min-height: calc(100vh - 218px);
+  margin: 0 auto;
+  padding: 44px 0 64px;
+}
+.memoryCover {
+  position: relative;
+  display: flex;
+  width: min(360px, 100%);
+  aspect-ratio: 0.76;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  gap: 12px;
+  padding: 42px 36px 34px 54px;
+  overflow: hidden;
+  border: 1px solid rgba(44, 21, 15, 0.55);
+  border-radius: 7px 21px 21px 7px;
+  color: #fff8e8;
+  text-align: center;
+  background:
+    linear-gradient(110deg, rgba(255,255,255,0.08), transparent 28%),
+    radial-gradient(circle at 50% 30%, rgba(255,231,182,0.12), transparent 35%),
+    linear-gradient(145deg, var(--memory-cover), var(--memory-cover-deep));
+  box-shadow: -10px 14px 0 #cdbb98, 0 32px 65px rgba(48, 28, 20, 0.28);
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+.memoryCover:hover { transform: translateY(-5px) rotate(-0.5deg); box-shadow: -10px 18px 0 #cdbb98, 0 38px 72px rgba(48, 28, 20, 0.32); }
+.memoryCoverBinding { position: absolute; inset: 0 auto 0 18px; width: 16px; border: solid rgba(255,244,213,0.18); border-width: 0 1px; box-shadow: 7px 0 18px rgba(20, 8, 4, 0.2); }
+.memoryCoverAvatar { display: grid; width: 96px; height: 96px; place-items: center; overflow: hidden; border: 2px solid rgba(255,248,230,0.65); border-radius: 50%; font: 700 28px/1 Georgia, serif; background: rgba(255,255,255,0.1); box-shadow: 0 0 0 7px rgba(255,255,255,0.06); }
+.memoryCoverAvatar img { width: 100%; height: 100%; object-fit: cover; }
+.memoryCoverKicker { margin-top: 12px; color: #e7c99d; font: 650 11px/1.2 Georgia, serif; letter-spacing: 0.22em; }
+.memoryCover strong { max-width: 100%; font: 700 clamp(26px, 4vw, 38px)/1.1 Georgia, "Microsoft YaHei", serif; overflow-wrap: anywhere; }
+.memoryCoverCount { color: #eadbc3; }
+.memoryCoverOpen { position: absolute; bottom: 28px; display: inline-flex; align-items: center; gap: 7px; color: #d9c3a3; font-size: 12px; }
+
+.memoryContents > h2 { max-width: 460px; margin: 5px 0 24px; font: 720 clamp(26px, 3vw, 40px)/1.12 Georgia, "Microsoft YaHei", serif; letter-spacing: -0.035em; }
+.memoryContents > button { display: grid; width: 100%; min-height: 70px; grid-template-columns: 38px 1fr auto; align-items: center; gap: 14px; padding: 10px 2px; border: 0; border-bottom: 1px solid var(--ui-line); color: var(--ui-ink); text-align: left; background: transparent; }
+.memoryContents > button > span:first-child { color: var(--memory-accent); font: 600 13px/1 Georgia, serif; }
+.memoryContents > button > span:nth-child(2) { display: grid; gap: 4px; }
+.memoryContents small { color: var(--ui-muted); }
+.memoryContents em { color: var(--ui-soft); font-style: normal; }
+.memoryContents > button:hover strong { color: var(--ui-accent-ink); }
+.memoryCoverEmpty { display: flex; align-items: center; gap: 10px; margin-top: 22px; padding: 14px; border: 1px solid var(--ui-line); border-radius: 14px; color: var(--ui-muted); background: var(--ui-glass); }
+.memoryCoverError { display: flex; width: min(1080px, calc(100% - 36px)); align-items: center; gap: 12px; margin: 18px auto 0; padding: 13px 15px; border: 1px solid color-mix(in srgb, var(--ui-danger) 28%, transparent); border-radius: 14px; color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 7%, var(--ui-glass)); }
+.memoryCoverError span { display: grid; flex: 1; gap: 2px; }
+.memoryCoverError button { min-height: 36px; padding: 0 11px; border: 0; border-radius: 9px; color: inherit; background: color-mix(in srgb, currentColor 9%, transparent); }
+
+.memoryReadingArea { width: min(1180px, calc(100% - 36px)); margin: 0 auto; padding: 26px 0 36px; animation: memoryPageEnter 220ms ease both; }
+.memoryReadingHeader { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 18px; }
+.memoryReadingHeader h1 { margin: 2px 0 4px; font: 720 clamp(25px, 3vw, 38px)/1.1 Georgia, "Microsoft YaHei", serif; letter-spacing: -0.03em; outline: 0; }
+.memoryReadingHeader p { margin: 0; color: var(--ui-muted); }
+.memoryReadingTitle { display: flex; align-items: center; gap: 12px; }
+.memoryHeaderReturnButton,
+.memoryCoverReturnButton {
+  display: grid;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(195, 205, 225, 0.76);
+  border-radius: 10px;
+  color: #e6ebf5;
+  background: linear-gradient(145deg, #6479aa, #3b4f7c);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 0 0 3px rgba(24,36,66,0.22), 0 4px 10px rgba(30,43,74,0.24);
+  transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
+}
+.memoryHeaderReturnButton:hover,
+.memoryCoverReturnButton:hover { filter: brightness(1.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), inset 0 0 0 3px rgba(24,36,66,0.18), 0 6px 14px rgba(30,43,74,0.3); }
+.memoryHeaderReturnButton:active,
+.memoryCoverReturnButton:active { transform: translateY(1px); }
+.memoryHeaderReturnButton:focus-visible,
+.memoryCoverReturnButton:focus-visible { outline: 3px solid color-mix(in srgb, var(--ui-accent) 58%, white); outline-offset: 3px; }
+.memoryViewControls { display: flex; align-items: center; padding: 3px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-glass); }
+.memoryViewControls button { min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; color: var(--ui-muted); background: transparent; }
+.memoryViewControls button.active { color: var(--ui-ink); background: var(--ui-glass-strong); box-shadow: 0 3px 10px rgba(28,39,54,0.08); }
+
+.memorySpread { position: relative; display: grid; grid-template-columns: 1fr 1fr; min-height: 530px; border: 1px solid var(--memory-paper-line); border-radius: 7px 15px 15px 7px; background: var(--memory-paper); box-shadow: 0 26px 60px rgba(59,43,30,0.17); }
+.memorySpread::after { position: absolute; inset: 0 auto 0 50%; width: 30px; content: ""; transform: translateX(-50%); background: linear-gradient(90deg, rgba(68,45,27,0.08), transparent 45%, rgba(68,45,27,0.06)); pointer-events: none; }
+.memoryPaperPage { display: flex; min-width: 0; flex-direction: column; padding: clamp(22px, 3.2vw, 42px); color: var(--memory-ink); background: linear-gradient(90deg, transparent, rgba(135,99,55,0.025)); }
+.memoryPaperPage + .memoryPaperPage { border-left: 1px solid var(--memory-paper-line); }
+.memoryPaperPage > div { display: grid; align-content: start; gap: 13px; flex: 1; }
+.memoryPaperPage > footer { padding-top: 18px; color: var(--memory-muted); text-align: center; font: 500 12px/1 Georgia, serif; }
+
+.memoryList { display: grid; gap: 12px; width: min(850px, 100%); margin: 0 auto; }
+.memoryPageStage { position: relative; transition: opacity 220ms ease, filter 220ms ease, transform 220ms ease; }
+.memoryPageStage.isLoading { opacity: 0.68; filter: saturate(0.82); transform: scale(0.997); }
+.memoryPageLoadingOverlay {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  animation: memorySoftReveal 160ms ease both;
+}
+.memoryPageLoadingOverlay > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 10px;
+  color: var(--ui-ink);
+  background: color-mix(in srgb, var(--ui-glass-strong) 92%, transparent);
+  box-shadow: 0 8px 22px rgba(40, 52, 82, 0.16);
+  backdrop-filter: blur(12px);
+}
+.memoryList .memoryCard p { -webkit-line-clamp: 4; }
+.memoryCard { min-width: 0; overflow: hidden; border: 1px solid var(--memory-paper-line); border-radius: 13px; color: var(--memory-ink); background: color-mix(in srgb, var(--memory-paper-alt) 64%, transparent); }
+.memoryCard.important { border-left: 3px solid #ba7a23; }
+.memoryCard:focus-visible { outline: 3px solid color-mix(in srgb, var(--ui-accent) 55%, transparent); outline-offset: 2px; }
+.memoryCardBody { display: block; width: 100%; padding: 14px 15px 10px; border: 0; color: inherit; text-align: left; background: transparent; }
+.memoryCardMeta { display: flex; justify-content: space-between; gap: 10px; color: var(--memory-muted); font-size: 11px; }
+.memoryCard p { display: -webkit-box; margin: 9px 0; overflow: hidden; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.memoryTags { display: flex; flex-wrap: wrap; gap: 5px; }
+.memoryTags em { color: var(--memory-accent); font-size: 11px; font-style: normal; }
+.memoryCard > footer { display: flex; min-height: 42px; align-items: center; justify-content: space-between; padding: 0 8px 0 15px; border-top: 1px solid var(--memory-paper-line); color: var(--memory-muted); font-size: 11px; }
+.memoryCard > footer > div { display: flex; }
+.memoryCard .memoryIconButton { width: 36px; min-width: 36px; height: 36px; }
+
+.memoryPagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 22px; }
+.memoryPagination button { min-height: 44px; padding: 0 14px; border: 1px solid var(--ui-line-strong); border-radius: 12px; color: var(--ui-ink); background: var(--ui-glass-strong); }
+.memoryPagination span { min-width: 70px; color: var(--ui-muted); text-align: center; font-size: 13px; }
+
+.memoryCenteredState { display: grid; min-height: 360px; place-items: center; align-content: center; gap: 9px; padding: 32px; color: var(--ui-muted); text-align: center; }
+.memoryCenteredState h2, .memoryCenteredState p { margin: 0; }
+.memoryCenteredState h2 { color: var(--ui-ink); font-size: 20px; }
+.memoryCenteredState.compact { min-height: 160px; }
+.memoryDelayedLoading { animation: memorySoftReveal 160ms ease both; }
+.memoryEmpty { min-height: 390px; border: 1px dashed var(--ui-line-strong); border-radius: 18px; background: var(--ui-glass); }
+.spinning { animation: memorySpin 800ms linear infinite; }
+
+.memoryInlineError,
+.memoryProviderNotice { display: flex; align-items: center; gap: 12px; margin: 10px 0; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--ui-danger) 25%, transparent); border-radius: 13px; color: var(--ui-danger); background: color-mix(in srgb, var(--ui-danger) 7%, var(--ui-glass)); }
+.memoryInlineError span,
+.memoryProviderNotice span { display: grid; flex: 1; gap: 2px; }
+.memoryInlineError button,
+.memoryProviderNotice button { min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; color: inherit; background: color-mix(in srgb, currentColor 9%, transparent); }
+.memoryProviderNotice { color: var(--ui-muted); border-color: var(--ui-line); background: var(--ui-glass); }
+.memoryProviderNotice.warning { color: var(--ui-warning); border-color: color-mix(in srgb, var(--ui-warning) 22%, transparent); }
+
+.memoryDialogOverlay { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(21,24,30,0.42); backdrop-filter: blur(8px); }
+.memoryOnboardingOverlay {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 24, 42, 0.46);
+  backdrop-filter: blur(14px) saturate(1.1);
+  perspective: 1400px;
+  animation: memorySoftReveal 240ms ease both;
+}
+.memoryOnboardingDialog {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: min(540px, 100%);
+  outline: 0;
+  color: #f1f4fb;
+  transform-style: preserve-3d;
+  animation: memoryOnboardingEnter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.memoryOnboardingPage,
+.memoryOnboardingFront,
+.memoryOnboardingInsideCover { grid-area: 1 / 1; backface-visibility: hidden; }
+.memoryOnboardingPage {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 100%;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(87, 101, 132, 0.3);
+  border-radius: 24px;
+  color: #6a7ba3;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(99, 123, 177, 0.11), transparent 32%),
+    repeating-linear-gradient(0deg, transparent 0 27px, rgba(87, 105, 145, 0.055) 27px 28px),
+    #f5f3ed;
+  box-shadow: inset 13px 0 22px rgba(55, 64, 84, 0.13), 0 24px 55px rgba(18, 28, 48, 0.2);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.memoryOnboardingPage::before {
+  position: absolute;
+  inset: 14px;
+  border: 1px solid rgba(93, 111, 151, 0.16);
+  border-radius: 16px;
+  content: "";
+}
+.memoryOnboardingPageMark {
+  display: grid;
+  width: 68px;
+  height: 68px;
+  place-items: center;
+  border: 1px solid rgba(92, 112, 157, 0.24);
+  border-radius: 50%;
+  background: rgba(104, 127, 177, 0.08);
+  box-shadow: 0 0 34px rgba(103, 128, 184, 0.14);
+}
+.memoryOnboardingFront {
+  position: relative;
+  isolation: isolate;
+  z-index: 3;
+  min-width: 0;
+  max-height: min(760px, calc(100dvh - 48px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 34px;
+  border: 1px solid rgba(207, 218, 241, 0.46);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 50% -8%, rgba(149, 172, 224, 0.28), transparent 36%),
+    linear-gradient(90deg, rgba(8, 14, 28, 0.28), transparent 8%),
+    linear-gradient(145deg, #27385e, #182540 58%, #111b31);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 12px 0 18px rgba(5, 10, 22, 0.22),
+    inset 0 0 0 6px rgba(8, 15, 30, 0.2),
+    0 34px 80px rgba(14, 22, 41, 0.38);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+}
+.memoryOnboardingFront::before {
+  position: absolute;
+  z-index: -1;
+  inset: 12px;
+  border: 1px solid rgba(204, 215, 239, 0.16);
+  border-radius: 16px;
+  content: "";
+  pointer-events: none;
+}
+.memoryOnboardingInsideCover {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  border: 1px solid rgba(87, 101, 132, 0.3);
+  border-radius: 24px;
+  color: #5c70a0;
+  background:
+    linear-gradient(90deg, rgba(55, 67, 94, 0.18), transparent 9%),
+    radial-gradient(circle at 50% 42%, rgba(99, 123, 177, 0.08), transparent 32%),
+    #f3f2ed;
+  box-shadow: inset 13px 0 22px rgba(55, 64, 84, 0.16), 0 24px 55px rgba(18, 28, 48, 0.2);
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transform: rotateY(180deg) translateZ(1px);
+}
+.memoryOnboardingAura {
+  position: absolute;
+  z-index: -2;
+  top: -90px;
+  left: 50%;
+  width: 360px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(132, 159, 218, 0.38), transparent 68%);
+  filter: blur(14px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: memoryAuraBreathe 5s ease-in-out infinite;
+}
+.memoryOnboardingSigil {
+  position: relative;
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  margin: 0 auto 16px;
+  border: 1px solid rgba(221, 228, 243, 0.52);
+  border-radius: 18px;
+  color: #edf1fa;
+  background: linear-gradient(145deg, #6278aa, #354b79);
+  box-shadow: inset 0 0 0 4px rgba(17, 28, 54, 0.28), 0 10px 28px rgba(13, 22, 43, 0.3);
+}
+.memoryOnboardingSigil svg:last-child { position: absolute; top: -5px; right: -7px; color: #dce5fa; }
+.memoryOnboardingKicker { margin: 0 0 6px; color: #aebee2; text-align: center; font-size: 12px; font-weight: 750; letter-spacing: 0.14em; }
+.memoryOnboardingDialog h2 { margin: 0; color: #f1f4fb; text-align: center; font: 760 clamp(25px, 4vw, 34px)/1.2 "Microsoft YaHei UI", "Segoe UI", sans-serif; letter-spacing: -0.035em; }
+.memoryOnboardingFront > p:not(.memoryOnboardingKicker) { max-width: 48ch; margin: 12px auto 0; color: #c8d2e7; text-align: center; line-height: 1.65; }
+.memoryOnboardingError { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 11px; border: 1px solid rgba(255, 154, 169, 0.28); border-radius: 10px; color: #ffd0d7; background: rgba(125, 28, 48, 0.2); font-size: 12px; }
+.memoryOnboardingActions { display: flex; justify-content: center; gap: 10px; margin-top: 28px; }
+.memoryOnboardingActions button { min-height: 44px; }
+.memoryOnboardingActions .secondaryAction { color: #d3dbeb; border-color: rgba(211, 221, 241, 0.22); background: rgba(255,255,255,0.06); }
+.memoryOnboardingActions .primaryAction { color: #17233d; background: linear-gradient(180deg, #eef3fc, #cbd8f0); box-shadow: 0 8px 20px rgba(10, 18, 36, 0.24); }
+.memoryOnboardingActions .primaryAction:hover { filter: brightness(1.04); }
+.memoryOnboardingOverlay.turningPage { pointer-events: none; animation: memoryOnboardingBackdropOut 1200ms ease forwards; }
+.memoryOnboardingOverlay.turningPage .memoryOnboardingDialog {
+  animation: none;
+}
+.memoryOnboardingOverlay.turningPage .memoryOnboardingFront {
+  will-change: transform;
+  animation: memoryOnboardingCoverOpen 1200ms cubic-bezier(0.42, 0.04, 0.18, 1) forwards;
+}
+.memoryOnboardingOverlay.turningPage .memoryOnboardingInsideCover {
+  will-change: transform;
+  animation: memoryOnboardingInsideOpen 1200ms cubic-bezier(0.42, 0.04, 0.18, 1) forwards;
+}
+.memoryOnboardingOverlay.turningPage .memoryOnboardingPage {
+  animation: memoryOnboardingPageAwaken 1200ms ease-out forwards;
+}
+.memoryDialog { width: min(480px, 100%); max-height: min(760px, calc(100vh - 44px)); overflow: auto; border: 1px solid var(--ui-line-strong); border-radius: 20px; color: var(--ui-ink); background: var(--ui-bg); box-shadow: var(--ui-shadow); }
+.memoryDialogWide { width: min(720px, 100%); }
+.memoryDialog > header { position: sticky; z-index: 2; top: 0; display: flex; min-height: 62px; align-items: center; justify-content: space-between; padding: 10px 14px 10px 22px; border-bottom: 1px solid var(--ui-line); background: color-mix(in srgb, var(--ui-bg) 91%, transparent); backdrop-filter: blur(18px); }
+.memoryDialog > header h2 { margin: 0; font-size: 19px; }
+.memoryEditorForm, .memorySettingsPanel, .memoryExportPanel, .memoryDangerPanel, .memoryDetail { display: grid; gap: 18px; padding: 22px; }
+.memoryEditorForm label, .memoryEditorField, .memorySettingsPanel label, .memoryDangerPanel label { display: grid; gap: 7px; font-size: 13px; font-weight: 650; }
+.memoryEditorForm label > span { color: var(--ui-muted); font-size: 11px; font-weight: 400; }
+.memoryEditorForm textarea { width: 100%; resize: vertical; padding: 12px; border: 1px solid var(--ui-line-strong); border-radius: 13px; color: var(--ui-ink); line-height: 1.55; background: var(--ui-glass-strong); }
+.memoryEditorForm input, .memoryEditorForm select, .memoryDangerPanel input { width: 100%; padding: 0 11px; }
+.memorySelectControl {
+  position: relative;
+  display: inline-flex;
+  min-width: 132px;
+  align-items: center;
+}
+.memorySelectControl.fullWidth { width: 100%; }
+.memorySelectTrigger {
+  display: flex;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 38px 0 12px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 10px;
+  color: var(--ui-ink);
+  font: 600 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+  text-align: left;
+  background: var(--ui-glass-strong);
+}
+.memorySelectTrigger > svg {
+  position: absolute;
+  right: 11px;
+  color: var(--ui-muted);
+  pointer-events: none;
+  transition: transform 160ms ease;
+}
+.memorySelectTrigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
+.memorySelectMenu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  width: max-content;
+  min-width: 100%;
+  max-height: 240px;
+  gap: 2px;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ui-bg) 94%, transparent);
+  box-shadow: 0 14px 34px rgba(38, 49, 78, 0.2);
+  backdrop-filter: blur(18px) saturate(1.15);
+  animation: memorySelectOpen 120ms ease both;
+}
+.memorySelectMenu button {
+  display: flex;
+  width: 100%;
+  min-width: 122px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ui-ink);
+  font: 500 14px/1.2 "Segoe UI", "Microsoft YaHei", sans-serif;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+}
+.memorySelectMenu button > svg { opacity: 0; color: var(--memory-accent); }
+.memorySelectMenu button[aria-selected="true"] > svg { opacity: 1; }
+.memorySelectMenu button.highlighted { color: var(--ui-accent-ink); background: var(--ui-accent-soft); }
+.memoryEditorForm small { justify-self: end; color: var(--ui-muted); }
+.memoryCheckRow { display: flex !important; grid-template-columns: auto 1fr; align-items: start; gap: 9px !important; font-weight: 500 !important; }
+.memoryCheckRow input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ui-accent); }
+.memoryDialogActions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 4px; }
+.memoryDialogActions button { min-height: 44px; }
+
+.memorySettingsPanel section { display: grid; gap: 10px; }
+.memorySettingsPanel h3 { margin: 0 0 2px; }
+.memoryToggleRow { grid-template-columns: 1fr auto !important; align-items: center; gap: 15px !important; padding: 12px 0; border-bottom: 1px solid var(--ui-line); }
+.memoryToggleRow > span { display: grid; gap: 4px; }
+.memoryToggleRow small { color: var(--ui-muted); font-weight: 400; line-height: 1.45; }
+.memoryToggleRow input { width: 20px; height: 20px; accent-color: var(--ui-accent); }
+.memorySettingsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.memorySettingsGrid input { width: 100%; padding: 0 10px; }
+.memoryServiceStatus { padding: 15px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-glass); }
+.memoryServiceStatus p { display: flex; justify-content: space-between; margin: 0; color: var(--ui-muted); }
+.memoryServiceStatus p strong { color: var(--ui-ink); }
+.memoryServiceStatus > small { color: var(--ui-muted); }
+.memoryInlineActions { flex-wrap: wrap; margin-top: 4px; }
+
+.memoryExportPanel > p { margin: 0; color: var(--ui-muted); line-height: 1.55; }
+.memoryConsentNotice { display: flex; gap: 9px; padding: 11px; border-radius: 12px; color: var(--ui-warning); background: color-mix(in srgb, var(--ui-warning) 9%, transparent); }
+.memoryExportChoices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.memoryExportChoices button { display: flex; min-height: 82px; align-items: center; gap: 13px; padding: 14px; border: 1px solid var(--ui-line-strong); border-radius: 14px; color: var(--ui-ink); text-align: left; background: var(--ui-glass); }
+.memoryExportChoices button:hover { border-color: var(--ui-accent); }
+.memoryExportChoices span { display: grid; gap: 3px; }
+.memoryExportChoices small { color: var(--ui-muted); }
+
+.memoryDetail > p { margin: 0; white-space: pre-wrap; line-height: 1.75; overflow-wrap: anywhere; }
+.memoryDetail dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+.memoryDetail dl > div { padding: 10px; border-radius: 10px; background: var(--ui-glass); }
+.memoryDetail dt { color: var(--ui-muted); font-size: 11px; }
+.memoryDetail dd { margin: 3px 0 0; }
+.memoryDangerPanel > svg { color: var(--ui-danger); }
+.memoryDangerPanel p { margin: 0; line-height: 1.55; }
+
+.memoryToast, .memoryUndoToast { position: fixed; z-index: 110; right: 28px; bottom: 28px; display: flex; min-height: 48px; align-items: center; gap: 9px; max-width: min(420px, calc(100vw - 36px)); padding: 10px 12px; border: 1px solid var(--ui-line-strong); border-radius: 14px; color: var(--ui-ink); background: var(--ui-glass-strong); box-shadow: var(--ui-shadow-soft); backdrop-filter: blur(18px); }
+.memoryToast > button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 8px; background: transparent; }
+.memoryUndoToast { left: 50%; right: auto; transform: translateX(-50%); }
+.memoryUndoToast > span { display: grid; max-width: 260px; }
+.memoryUndoToast > span:not(strong) { color: var(--ui-muted); font-size: 12px; }
+.memoryUndoToast button { display: inline-flex; min-height: 36px; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 9px; color: var(--ui-accent-ink); background: var(--ui-accent-soft); }
+.memoryLiveRegion { position: fixed; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.memoryBookFooter { display: flex; justify-content: space-between; gap: 16px; width: min(1180px, calc(100% - 36px)); margin: 14px auto 0; padding: 18px 0; border-top: 1px solid var(--ui-line); color: var(--ui-muted); font-size: 12px; }
+.memoryBookFooter button { min-height: 36px; padding: 0 9px; border: 0; border-radius: 9px; color: var(--ui-danger); background: transparent; }
+
+.memoryBookShell :is(button, input, select, textarea):focus-visible,
+.memoryDialog :is(button, input, select, textarea):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--ui-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+
+@keyframes memoryPageEnter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes memorySoftReveal { from { opacity: 0; } to { opacity: 1; } }
+@keyframes memoryOnboardingEnter { from { opacity: 0; transform: translateY(12px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes memoryOnboardingCoverOpen {
+  0% { transform: rotateY(0deg) translateZ(0); }
+  14% { transform: rotateY(-5deg) translateZ(14px); }
+  56% { transform: rotateY(-78deg) translateZ(10px); }
+  74% { transform: rotateY(-98deg) translateZ(6px); }
+  100% { transform: rotateY(-118deg) translateZ(0); }
+}
+@keyframes memoryOnboardingInsideOpen {
+  0% { transform: rotateY(180deg) translateZ(1px); }
+  14% { transform: rotateY(175deg) translateZ(15px); }
+  56% { transform: rotateY(102deg) translateZ(11px); }
+  74% { transform: rotateY(82deg) translateZ(7px); }
+  100% { transform: rotateY(62deg) translateZ(1px); }
+}
+@keyframes memoryOnboardingPageAwaken {
+  0%, 32% { filter: brightness(0.88); transform: scale(0.985); }
+  72%, 100% { filter: brightness(1.04); transform: scale(1); }
+}
+@keyframes memoryOnboardingBackdropOut { 0%, 68% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes memorySelectOpen { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@keyframes memorySpin { to { transform: rotate(360deg); } }
+
+@media (prefers-color-scheme: dark) {
+  .memoryBookViewShell {
+    --memory-paper: #27241f;
+    --memory-paper-alt: #211f1b;
+    --memory-paper-line: rgba(231, 213, 184, 0.14);
+    --memory-ink: #f0e9dc;
+    --memory-muted: #b6a997;
+    --memory-accent: #e69a80;
+    --memory-accent-soft: rgba(230, 154, 128, 0.14);
+    --ui-bg: #15171b;
+    --ui-ink: #f4f5f7;
+    --ui-muted: #aeb4be;
+    --ui-soft: #7e8794;
+    --ui-line: rgba(255,255,255,0.1);
+    --ui-line-strong: rgba(255,255,255,0.18);
+    --ui-glass: rgba(35,38,45,0.72);
+    --ui-glass-strong: rgba(42,45,53,0.92);
+    --ui-accent: #66aaff;
+    --ui-accent-ink: #91c2ff;
+    --ui-accent-soft: rgba(102,170,255,0.14);
+  }
+}
+
+@media (max-width: 900px) {
+  .memoryBookToolbar { flex-wrap: wrap; }
+  .memorySearch { flex-basis: calc(100% - 130px); }
+  .memoryCoverScene { gap: 34px; }
+  .memorySpread { grid-template-columns: 1fr; }
+  .memoryPaperPage + .memoryPaperPage { border-top: 1px solid var(--memory-paper-line); border-left: 0; }
+  .memorySpread::after { display: none; }
+  .memoryPaperPage:empty { display: none; }
+}
+
+@media (max-width: 700px) {
+  .memoryBookTopbar { grid-template-columns: 1fr auto; padding: 8px 14px; }
+  .memoryBookIdentity { display: none; }
+  .memoryStatusPill { display: none; }
+  .memoryBookToolbar, .memoryDateFilters { padding-inline: 14px; }
+  .memorySearch { flex-basis: 100%; }
+  .memoryToolButton { flex: 1 1 auto; justify-content: center; }
+  .memoryDateFilters { flex-wrap: wrap; }
+  .memoryBookmarks { top: 60px; justify-content: start; overflow-x: auto; padding-bottom: 4px; }
+  .memoryBookmarks button { min-width: 76px; }
+  .memoryCoverScene { grid-template-columns: 1fr; width: min(520px, calc(100% - 34px)); padding-top: 32px; }
+  .memoryCover { width: min(300px, calc(100% - 24px)); justify-self: center; }
+  .memoryContents > h2 { font-size: 28px; }
+  .memoryReadingArea { width: calc(100% - 28px); }
+  .memoryReadingHeader { align-items: start; flex-direction: column; }
+  .memoryViewControls { width: 100%; overflow-x: auto; }
+  .memoryViewControls button { flex: 1 0 auto; justify-content: center; }
+  .memoryPaperPage { padding: 20px 15px; }
+  .memorySpread .memoryPaperPage:nth-child(2) { display: block; }
+  .memoryInlineError, .memoryProviderNotice { align-items: start; flex-wrap: wrap; }
+  .memoryInlineError button, .memoryProviderNotice button { margin-left: 30px; }
+  .memorySettingsGrid, .memoryExportChoices, .memoryDetail dl { grid-template-columns: 1fr; }
+  .memoryDialogOverlay { padding: 10px; }
+  .memoryBookFooter { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memoryBookViewShell *, .memoryBookViewShell *::before, .memoryBookViewShell *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+.memoryReadingArea.noMotion { animation: none; }
+.memoryReadingArea.noMotion * { transition: none !important; }
+
+/* Magical manuscript redesign: cool moonlit materials, one sapphire accent. */
+.memoryBookViewShell {
+  --memory-paper: #f4f3ef;
+  --memory-paper-alt: #ececf0;
+  --memory-paper-line: rgba(51, 63, 91, 0.16);
+  --memory-ink: #1f2a43;
+  --memory-muted: #697187;
+  --memory-accent: #52699f;
+  --memory-accent-soft: rgba(82, 105, 159, 0.13);
+  --memory-cover: #28395f;
+  --memory-cover-deep: #15223f;
+  --memory-silver: #c8cfde;
+  --memory-night: #111a31;
+  --ui-bg: #e9edf5;
+  --ui-ink: #19243c;
+  --ui-muted: #5d687d;
+  --ui-soft: #7d879a;
+  --ui-line: rgba(34, 48, 77, 0.1);
+  --ui-line-strong: rgba(34, 48, 77, 0.18);
+  --ui-glass: rgba(242, 245, 251, 0.68);
+  --ui-glass-strong: rgba(248, 250, 253, 0.88);
+  --ui-accent: #52699f;
+  --ui-accent-ink: #354c82;
+  --ui-accent-soft: rgba(82, 105, 159, 0.13);
+  background:
+    radial-gradient(circle at 14% 10%, rgba(118, 144, 197, 0.2), transparent 28%),
+    radial-gradient(circle at 86% 6%, rgba(255, 255, 255, 0.72), transparent 24%),
+    linear-gradient(145deg, #e3e8f2 0%, #f1f3f8 47%, #e6eaf3 100%);
+}
+
+.memoryBookShell {
+  position: relative;
+  isolation: isolate;
+  min-height: 0;
+  height: 100%;
+}
+
+.memoryBookShell::before {
+  position: fixed;
+  z-index: -1;
+  inset: 64px 0 0;
+  content: "";
+  pointer-events: none;
+  opacity: 0.48;
+  background-image:
+    radial-gradient(circle at 7% 18%, rgba(61, 78, 120, 0.3) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 19% 74%, rgba(61, 78, 120, 0.2) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 64% 12%, rgba(61, 78, 120, 0.22) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 88% 58%, rgba(61, 78, 120, 0.2) 0 1px, transparent 1.6px),
+    linear-gradient(114deg, transparent 28%, rgba(82, 105, 159, 0.05) 28.2%, transparent 28.4%),
+    linear-gradient(24deg, transparent 71%, rgba(82, 105, 159, 0.045) 71.2%, transparent 71.4%);
+  background-size: 190px 170px, 240px 210px, 280px 230px, 310px 260px, 360px 300px, 420px 350px;
+}
+
+.memoryBookTopbar {
+  min-height: 62px;
+  border-bottom-color: rgba(42, 56, 86, 0.12);
+  background: color-mix(in srgb, var(--ui-bg) 84%, transparent);
+  box-shadow: 0 10px 32px rgba(44, 58, 88, 0.05);
+}
+
+.memoryBookIdentity {
+  color: var(--memory-night);
+  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font-weight: 780;
+}
+
+.memoryBookIdentity svg { color: var(--memory-accent); }
+.memoryStatusPill { border-radius: 10px; }
+
+.memoryBookToolbar,
+.memoryDateFilters {
+  width: min(1180px, calc(100% - 36px));
+  padding-inline: 12px;
+  border: 1px solid rgba(50, 65, 98, 0.14);
+  background: rgba(244, 247, 252, 0.62);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.memoryBookToolbar {
+  margin-top: 16px;
+  padding-block: 10px 7px;
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+}
+
+.memoryDateFilters {
+  min-height: 46px;
+  margin-top: 0;
+  padding-block: 5px 10px;
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+}
+
+.memorySearch,
+.memorySelectTrigger,
+.memoryToolButton,
+.memoryDateFilters input {
+  border-color: rgba(47, 61, 93, 0.16);
+  border-radius: 10px;
+  background: rgba(252, 253, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.memoryToolButton:hover,
+.memoryToolButton.active {
+  border-color: rgba(82, 105, 159, 0.42);
+  color: var(--memory-accent);
+  background: rgba(82, 105, 159, 0.1);
+}
+
+.memoryToolButton:active,
+.memoryBackButton:active,
+.memoryPagination button:active:not(:disabled) { transform: translateY(1px); }
+
+.memoryBookmarks {
+  top: 62px;
+  z-index: 12;
+  gap: 7px;
+  max-width: 780px;
+  margin-top: 20px;
+  align-items: start;
+}
+
+.memoryBookmarks button {
+  position: relative;
+  min-width: 90px;
+  min-height: 46px;
+  padding: 0 13px 5px;
+  border: 1px solid rgba(34, 48, 77, 0.22);
+  border-top: 3px solid rgba(200, 207, 222, 0.8);
+  border-radius: 7px 7px 12px 12px;
+  color: rgba(238, 242, 249, 0.84);
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.06), transparent 24%, rgba(255,255,255,0.04)),
+    linear-gradient(180deg, #41537e, #2d3d62);
+  box-shadow: 0 8px 15px rgba(35, 48, 77, 0.12);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), filter 200ms ease;
+}
+
+.memoryBookmarks button::after {
+  position: absolute;
+  right: 11px;
+  bottom: 6px;
+  left: 11px;
+  height: 1px;
+  content: "";
+  background: rgba(214, 221, 235, 0.22);
+}
+
+.memoryBookmarks button:hover { filter: brightness(1.08); transform: translateY(2px); }
+.memoryBookmarks button.active {
+  color: #f7f8fc;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.1), transparent 24%, rgba(255,255,255,0.07)),
+    linear-gradient(180deg, #6479ad, #465b8d);
+  box-shadow: 0 10px 20px rgba(43, 58, 94, 0.2);
+  transform: translateY(5px);
+}
+
+.memoryBookmarks strong { color: rgba(236, 240, 248, 0.72); }
+
+.memoryReadingArea {
+  width: min(1220px, calc(100% - 30px));
+  padding-top: 31px;
+}
+
+.memoryReadingHeader {
+  width: calc(100% - 34px);
+  align-items: center;
+  margin: 0 auto 20px;
+}
+
+.memoryReadingHeader .eyebrow {
+  display: none;
+}
+
+.memoryReadingHeader h1 {
+  margin: 0 0 5px;
+  color: var(--memory-night);
+  font: 760 clamp(26px, 3vw, 38px)/1.12 "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  letter-spacing: -0.045em;
+}
+
+.memoryReadingHeader h1::before {
+  display: inline-block;
+  width: 25px;
+  height: 1px;
+  margin: 0 12px 8px 0;
+  content: "";
+  background: var(--memory-accent);
+}
+
+.memoryViewControls {
+  padding: 4px;
+  border-color: rgba(48, 63, 95, 0.15);
+  border-radius: 11px;
+  background: rgba(245, 247, 251, 0.66);
+}
+
+.memoryViewControls button { border-radius: 8px; }
+.memoryViewControls button.active {
+  color: #f2f5fb;
+  background: linear-gradient(180deg, #5b70a4, #425784);
+  box-shadow: 0 4px 12px rgba(49, 66, 105, 0.2);
+}
+
+.memorySpread {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-height: 552px;
+  grid-template-columns: 1fr 1fr;
+  padding: 18px 20px 24px;
+  overflow: visible;
+  border: 1px solid rgba(20, 31, 57, 0.68);
+  border-radius: 20px;
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0.08), transparent 7%, transparent 93%, rgba(255,255,255,0.06)),
+    linear-gradient(145deg, var(--memory-cover), var(--memory-cover-deep));
+  box-shadow:
+    inset 0 1px 0 rgba(223, 229, 240, 0.18),
+    inset 0 0 0 6px rgba(8, 15, 31, 0.22),
+    0 28px 55px rgba(32, 44, 73, 0.24),
+    0 8px 0 #9da7b9,
+    0 13px 0 #6f7a8e;
+  perspective: 1500px;
+}
+
+.memorySpread::before {
+  position: absolute;
+  z-index: 1;
+  inset: 13px 14px 17px;
+  border: 1px solid rgba(73, 82, 103, 0.22);
+  border-radius: 9px;
+  content: "";
+  background:
+    repeating-linear-gradient(0deg, #d1d2d6 0 1px, #f0efeb 1px 3px, #c7c9cf 3px 4px);
+  box-shadow: 0 4px 0 rgba(16, 24, 43, 0.25);
+  pointer-events: none;
+}
+
+.memorySpread::after {
+  position: absolute;
+  z-index: 5;
+  inset: 18px auto 24px 50%;
+  width: 42px;
+  content: "";
+  transform: translateX(-50%);
+  background:
+    radial-gradient(ellipse at center, rgba(26, 34, 51, 0.28), transparent 68%),
+    linear-gradient(90deg, rgba(38, 45, 62, 0.19), rgba(255,255,255,0.28) 47%, rgba(43, 50, 67, 0.2));
+  box-shadow: inset 0 0 12px rgba(25, 32, 48, 0.22);
+  pointer-events: none;
+}
+
+.memorySpreadAura {
+  position: absolute;
+  z-index: -1;
+  inset: -18px 4% -28px;
+  border-radius: 40%;
+  opacity: 0.32;
+  background: radial-gradient(ellipse, rgba(82, 105, 159, 0.32), transparent 66%);
+  filter: blur(10px);
+  pointer-events: none;
+  animation: memoryAuraBreathe 5s ease-in-out infinite;
+}
+
+.memoryBookCrest {
+  position: absolute;
+  z-index: 7;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(219, 225, 236, 0.58);
+  border-radius: 50%;
+  color: #e3e7ef;
+  background: #34466f;
+  box-shadow: inset 0 0 0 4px rgba(19, 29, 53, 0.42), 0 5px 13px rgba(20, 30, 54, 0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.memoryBookCorner {
+  position: absolute;
+  z-index: 7;
+  width: 30px;
+  height: 30px;
+  border-color: rgba(218, 224, 235, 0.82);
+  border-style: solid;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px rgba(16, 24, 43, 0.25));
+}
+
+.memoryBookCorner.topLeft { top: 8px; left: 9px; border-width: 4px 0 0 4px; border-radius: 12px 0 0; }
+.memoryBookCorner.topRight { top: 8px; right: 9px; border-width: 4px 4px 0 0; border-radius: 0 12px 0 0; }
+.memoryBookCorner.bottomLeft { bottom: 13px; left: 9px; border-width: 0 0 4px 4px; border-radius: 0 0 0 12px; }
+.memoryBookCorner.bottomRight { right: 9px; bottom: 13px; border-width: 0 4px 4px 0; border-radius: 0 0 12px; }
+
+.memoryCoverReturnButton {
+  position: absolute;
+  z-index: 8;
+  top: 27px;
+  left: 29px;
+}
+
+.memoryPaperPage {
+  position: relative;
+  z-index: 2;
+  min-height: 510px;
+  padding: 32px clamp(24px, 3.2vw, 45px) 22px;
+  border: 1px solid rgba(70, 80, 103, 0.16);
+  color: var(--memory-ink);
+  background:
+    radial-gradient(circle at 14% 18%, rgba(82, 105, 159, 0.06) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 78% 68%, rgba(82, 105, 159, 0.045) 0 1px, transparent 1.5px),
+    linear-gradient(102deg, rgba(93, 104, 129, 0.055), transparent 9%),
+    var(--memory-paper);
+  background-size: 86px 82px, 118px 106px, auto, auto;
+  box-shadow: inset 0 0 34px rgba(64, 73, 93, 0.06);
+}
+
+.memoryPaperPage:first-of-type {
+  border-radius: 10px 2px 2px 10px;
+  transform: rotateY(0.45deg);
+  transform-origin: right center;
+}
+
+.memoryPaperPage:last-of-type {
+  border-radius: 2px 10px 10px 2px;
+  transform: rotateY(-0.45deg);
+  transform-origin: left center;
+}
+
+.memoryPaperPage + .memoryPaperPage { border-left-color: rgba(50, 59, 79, 0.2); }
+
+.memoryPageImprint {
+  display: flex;
+  min-height: 25px;
+  align-items: center;
+  gap: 8px;
+  margin: -13px 0 15px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(82, 105, 159, 0.18);
+  color: var(--memory-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.memoryPaperPage:first-of-type .memoryPageImprint { padding-left: clamp(12px, 3vw, 40px); }
+
+.memoryPaperPage:nth-of-type(even) .memoryPageImprint { justify-content: flex-end; }
+.memoryPaperPage > div { gap: 0; }
+
+.memoryPaperPage > footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--memory-muted);
+  font-family: "Segoe UI", sans-serif;
+}
+
+.memoryPaperPage > footer::before,
+.memoryPaperPage > footer::after {
+  width: 28px;
+  height: 1px;
+  content: "";
+  background: rgba(82, 105, 159, 0.24);
+}
+
+.memoryCard {
+  position: relative;
+  overflow: visible;
+  border: 0;
+  border-bottom: 1px solid rgba(74, 86, 112, 0.13);
+  border-radius: 0;
+  background: transparent;
+  transition: background-color 180ms ease, transform 180ms ease;
+}
+
+.memoryCard:hover {
+  background: rgba(82, 105, 159, 0.055);
+  transform: translateX(2px);
+}
+
+.memoryCard.important {
+  border-left: 0;
+}
+
+.memoryCard.important::before {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  left: -11px;
+  width: 5px;
+  height: 38px;
+  border-radius: 0 0 3px 3px;
+  content: "";
+  background: var(--memory-accent);
+  box-shadow: 0 2px 5px rgba(55, 71, 109, 0.2);
+}
+
+.memoryCardBody { padding: 13px 11px 9px; }
+.memoryCardMeta { color: var(--memory-muted); }
+.memoryCard p { margin-block: 8px; color: var(--memory-ink); line-height: 1.68; }
+.memoryCard > footer { min-height: 39px; padding-left: 11px; border-top: 0; }
+.memoryCard .memoryIconButton:hover { border-color: rgba(82, 105, 159, 0.2); background: rgba(82, 105, 159, 0.08); }
+.memoryTags em { color: var(--memory-accent); }
+
+.memoryBlankPage {
+  position: relative;
+  display: grid;
+  min-height: 330px;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  color: rgba(82, 105, 159, 0.52);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.memoryBlankPage::before,
+.memoryBlankPage::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150px;
+  height: 150px;
+  border: 1px solid rgba(82, 105, 159, 0.12);
+  border-radius: 50%;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.memoryBlankPage::after { width: 96px; height: 96px; border-style: dashed; }
+.memoryBlankPage svg, .memoryBlankPage span { position: relative; z-index: 1; }
+
+.memoryPagination button {
+  border-color: rgba(48, 63, 95, 0.16);
+  border-radius: 10px;
+  background: rgba(245, 247, 251, 0.72);
+}
+
+.memoryList {
+  gap: 9px;
+  padding: 18px 26px;
+  border: 1px solid rgba(41, 55, 85, 0.18);
+  border-radius: 16px;
+  background: var(--memory-paper);
+  box-shadow: 0 20px 45px rgba(39, 53, 82, 0.15);
+}
+
+.memoryCoverScene { width: min(1120px, calc(100% - 48px)); }
+
+.memoryCover {
+  border-color: rgba(14, 23, 44, 0.82);
+  border-radius: 8px 20px 20px 8px;
+  color: #edf1f8;
+  background:
+    radial-gradient(circle at 50% 27%, rgba(183, 197, 224, 0.12), transparent 27%),
+    linear-gradient(32deg, transparent 46%, rgba(210, 219, 236, 0.06) 46.3%, transparent 46.6%),
+    linear-gradient(148deg, var(--memory-cover), var(--memory-cover-deep));
+  box-shadow:
+    inset 0 0 0 7px rgba(8, 15, 31, 0.22),
+    inset 0 0 0 8px rgba(202, 210, 225, 0.17),
+    -9px 12px 0 #a3abba,
+    -12px 16px 0 #737e91,
+    0 32px 58px rgba(34, 47, 77, 0.28);
+}
+
+.memoryCover:hover {
+  transform: translateY(-6px) rotate(-0.7deg);
+  box-shadow:
+    inset 0 0 0 7px rgba(8, 15, 31, 0.22),
+    inset 0 0 0 8px rgba(202, 210, 225, 0.2),
+    -9px 17px 0 #a3abba,
+    -12px 21px 0 #737e91,
+    0 38px 64px rgba(34, 47, 77, 0.32);
+}
+
+.memoryCoverBinding {
+  left: 20px;
+  width: 18px;
+  border-color: rgba(215, 222, 235, 0.28);
+  box-shadow: 8px 0 18px rgba(5, 11, 25, 0.3);
+}
+
+.memoryCoverOrbit {
+  position: absolute;
+  top: 65px;
+  left: 50%;
+  display: grid;
+  width: 150px;
+  height: 150px;
+  place-items: center;
+  border: 1px solid rgba(214, 221, 235, 0.32);
+  border-radius: 50%;
+  color: rgba(225, 231, 241, 0.68);
+  transform: translateX(-43%);
+}
+
+.memoryCoverOrbit::before,
+.memoryCoverOrbit::after {
+  position: absolute;
+  width: 116px;
+  height: 116px;
+  border: 1px dashed rgba(214, 221, 235, 0.24);
+  border-radius: 50%;
+  content: "";
+}
+
+.memoryCoverOrbit::after { width: 178px; height: 76px; transform: rotate(-16deg); }
+.memoryCoverOrbit > svg:first-child { position: absolute; top: -10px; right: 18px; }
+.memoryCoverOrbit > svg:last-child { position: absolute; bottom: 4px; left: 7px; }
+
+.memoryCoverAvatar {
+  z-index: 2;
+  border-color: rgba(225, 231, 241, 0.74);
+  color: #f0f3f9;
+  background: rgba(15, 26, 50, 0.62);
+  box-shadow: 0 0 0 7px rgba(215, 223, 238, 0.07), inset 0 0 16px rgba(209, 218, 236, 0.12);
+}
+
+.memoryCoverKicker { color: #bbc6dc; }
+.memoryCoverCount, .memoryCoverOpen { color: #c9d1e1; }
+
+.memoryContents > h2 {
+  color: var(--memory-night);
+  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font-weight: 780;
+}
+
+.memoryContents > button > span:first-child { color: var(--memory-accent); font-family: "Segoe UI", sans-serif; }
+.memoryContents > button:hover strong { color: var(--memory-accent); }
+
+.memoryLoadingState { min-height: 420px; }
+.memoryLoadingBook {
+  position: relative;
+  display: grid;
+  width: 126px;
+  height: 76px;
+  grid-template-columns: 1fr 1fr;
+  transform: perspective(380px) rotateX(12deg);
+}
+.memoryLoadingBook > span {
+  border: 1px solid rgba(82, 105, 159, 0.26);
+  background: var(--memory-paper);
+  box-shadow: 0 8px 18px rgba(41, 55, 87, 0.12);
+  animation: memoryLoadingPage 1.6s ease-in-out infinite;
+}
+.memoryLoadingBook > span:first-child { border-radius: 8px 2px 2px 8px; transform-origin: right center; }
+.memoryLoadingBook > span:nth-child(2) { border-radius: 2px 8px 8px 2px; transform-origin: left center; animation-delay: 160ms; }
+.memoryLoadingBook svg { position: absolute; z-index: 2; top: 26px; left: 51px; color: var(--memory-accent); }
+
+@keyframes memoryAuraBreathe {
+  0%, 100% { opacity: 0.22; transform: scale(0.98); }
+  50% { opacity: 0.38; transform: scale(1.01); }
+}
+
+@keyframes memoryLoadingPage {
+  0%, 100% { opacity: 0.75; transform: rotateY(0); }
+  50% { opacity: 1; transform: rotateY(3deg); }
+}
+
+@media (prefers-color-scheme: dark) {
+  .memoryBookViewShell {
+    --memory-paper: #222a39;
+    --memory-paper-alt: #1b2331;
+    --memory-paper-line: rgba(199, 208, 225, 0.14);
+    --memory-ink: #e5eaf3;
+    --memory-muted: #9da8bc;
+    --memory-accent: #8fa4d3;
+    --memory-accent-soft: rgba(143, 164, 211, 0.14);
+    --memory-cover: #24345b;
+    --memory-cover-deep: #111b34;
+    --memory-night: #eef2f9;
+    --ui-bg: #111725;
+    --ui-ink: #edf1f7;
+    --ui-muted: #a4aec0;
+    --ui-soft: #78849a;
+    --ui-line: rgba(217, 225, 239, 0.1);
+    --ui-line-strong: rgba(217, 225, 239, 0.18);
+    --ui-glass: rgba(29, 37, 53, 0.72);
+    --ui-glass-strong: rgba(35, 44, 62, 0.9);
+    --ui-accent: #8fa4d3;
+    --ui-accent-ink: #b7c5e3;
+    --ui-accent-soft: rgba(143, 164, 211, 0.14);
+    background:
+      radial-gradient(circle at 14% 10%, rgba(84, 107, 157, 0.2), transparent 30%),
+      radial-gradient(circle at 86% 6%, rgba(91, 111, 151, 0.09), transparent 24%),
+      linear-gradient(145deg, #101624, #151c2c 52%, #101521);
+  }
+
+  .memoryBookToolbar,
+  .memoryDateFilters,
+  .memoryViewControls { background: rgba(25, 33, 49, 0.7); }
+
+  .memorySearch,
+  .memorySelectTrigger,
+  .memoryToolButton,
+  .memoryDateFilters input,
+  .memoryPagination button { background: rgba(36, 45, 63, 0.82); }
+
+  .memoryPaperPage {
+    background:
+      radial-gradient(circle at 14% 18%, rgba(151, 171, 213, 0.06) 0 1px, transparent 1.5px),
+      radial-gradient(circle at 78% 68%, rgba(151, 171, 213, 0.05) 0 1px, transparent 1.5px),
+      linear-gradient(102deg, rgba(9, 14, 25, 0.11), transparent 10%),
+      var(--memory-paper);
+  }
+
+  .memorySpread::before {
+    background: repeating-linear-gradient(0deg, #434b5b 0 1px, #2d3544 1px 3px, #525b6c 3px 4px);
+  }
+
+  .memoryViewControls button.active { color: #f3f6fb; }
+}
+
+@media (max-width: 900px) {
+  .memoryReadingArea { width: min(720px, calc(100% - 24px)); }
+  .memorySpread { grid-template-columns: 1fr; padding: 16px 17px 22px; }
+  .memorySpread::after { display: none; }
+  .memoryBookCrest { top: 14px; left: 50%; width: 32px; height: 32px; }
+  .memoryPaperPage:first-of-type,
+  .memoryPaperPage:last-of-type { border-radius: 10px; transform: none; }
+}
+
+@media (max-width: 700px) {
+  .memoryBookToolbar,
+  .memoryDateFilters { width: calc(100% - 24px); padding-inline: 9px; }
+  .memoryBookmarks { justify-content: start; overflow-x: auto; overflow-y: hidden; padding-bottom: 8px; }
+  .memoryBookmarks button { min-width: 78px; }
+  .memoryReadingHeader { width: calc(100% - 8px); }
+  .memoryReadingHeader h1::before { width: 16px; margin-right: 8px; }
+  .memorySpread { border-radius: 15px; }
+  .memoryPaperPage { min-height: 470px; padding: 31px 17px 19px; }
+  .memoryPaperPage:first-of-type .memoryPageImprint { padding-left: 47px; }
+  .memoryBookCorner { width: 24px; height: 24px; }
+  .memoryOnboardingOverlay { padding: 14px; }
+  .memoryOnboardingFront { max-height: calc(100dvh - 28px); padding: 27px 20px 22px; border-radius: 20px; }
+  .memoryOnboardingInsideCover { border-radius: 20px; }
+  .memoryOnboardingActions { display: grid; grid-template-columns: 1fr 1.35fr; }
+  .memoryOnboardingActions button { justify-content: center; padding-inline: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memorySpreadAura,
+  .memoryLoadingBook > span { animation: none !important; }
+  .memoryHeaderReturnButton,
+  .memoryCoverReturnButton { transition: none; }
+  .memoryPageStage { transition: none; }
+  .memoryPageStage.isLoading { opacity: 1; filter: none; transform: none; }
+  .memoryPageLoadingOverlay,
+  .memoryDelayedLoading { animation: none; }
+  .memorySelectTrigger > svg { transition: none; }
+  .memorySelectMenu { animation: none; }
+  .memoryOnboardingOverlay,
+  .memoryOnboardingDialog,
+  .memoryOnboardingFront,
+  .memoryOnboardingInsideCover,
+  .memoryOnboardingPage,
+  .memoryOnboardingAura { animation: none; }
+}
+
+.memoryReadingArea.noMotion .memorySpreadAura,
+.memoryReadingArea.noMotion .memoryLoadingBook > span { animation: none; }
+.memoryReadingArea.noMotion .memoryHeaderReturnButton,
+.memoryReadingArea.noMotion .memoryCoverReturnButton { transition: none; }
+.memoryReadingArea.noMotion .memoryPageStage { transition: none; }
+.memoryReadingArea.noMotion .memoryPageStage.isLoading { opacity: 1; filter: none; transform: none; }
+.memoryReadingArea.noMotion .memoryPageLoadingOverlay,
+.memoryReadingArea.noMotion .memoryDelayedLoading { animation: none; }
+.memoryOnboardingOverlay.noMotion,
+.memoryOnboardingOverlay.noMotion .memoryOnboardingDialog,
+.memoryOnboardingOverlay.noMotion .memoryOnboardingFront,
+.memoryOnboardingOverlay.noMotion .memoryOnboardingInsideCover,
+.memoryOnboardingOverlay.noMotion .memoryOnboardingPage,
+.memoryOnboardingOverlay.noMotion .memoryOnboardingAura { animation: none; }

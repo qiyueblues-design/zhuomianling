@@ -43,6 +43,8 @@ coverage/
 .parcel-cache/
 .eslintcache
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 
 # Electron packaging artifacts
 *.asar
@@ -67,6 +69,8 @@ public/live2d/*
 
 # Local user data
 AGENTS.md
+# Local-only AI development memory plan; never publish with the repository.
+/MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md
 config/*.local.json
 config/*local*.yaml
 config/local/*

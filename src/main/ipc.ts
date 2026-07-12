@@ -1,5 +1,6 @@
 import type { IpcMain, IpcMainEvent, IpcMainInvokeEvent } from "electron";
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog } from "electron";
+import path from "node:path";
 import type {
   AiChatStreamCancelRequest,
   AiChatStreamRequest,
@@ -31,6 +32,17 @@ import type {
 } from "../shared/types/window";
 import type { PetWindowCloseOptions } from "../shared/types/window";
 import type { Live2DModelImportRequest } from "../shared/types/live2dImport";
+import type {
+  MemoryClearRequest,
+  MemoryCreateRequest,
+  MemoryExportRequest,
+  MemoryGetRequest,
+  MemoryListRequest,
+  MemoryRevisionRequest,
+  MemorySearchRequest,
+  MemorySettingsSaveRequest,
+  MemoryUpdateRequest
+} from "../shared/types/memory";
 import { cancelAiChatStreams, startAiChatStream } from "./services/ai/aiChat";
 import {
   getAiConnectionSummary,
@@ -69,6 +81,7 @@ import { speakText, stopSpeechPlayback } from "./services/speech/textToSpeech";
 import {
   importLocalPetAvatar,
   deleteLocalPet,
+  getLocalPetDefinition,
   importLocalUiTheme,
   listLocalUiThemes,
   listLocalPets,
@@ -88,6 +101,9 @@ import {
   testLocalPetVoiceModelConnection,
   toPublicPetDefinition
 } from "./services/config/petConfigStore";
+import { writeTextFileAtomically } from "./services/config/durableJsonFile";
+import { memoryManagementService } from "./services/memory/memoryManagement";
+import { createMemoryExportFileName } from "./services/memory/memoryExport";
 import {
   createLive2DPreviewModel,
   generateLive2DEntry,
@@ -338,10 +354,12 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
       }
     }
 
-    const result = await deleteLocalPet(petId);
+    const result = await memoryManagementService.runPetDeletion(
+      petId,
+      () => deleteLocalPet(petId, { finalizeDeletion: deleteAiConnection })
+    );
 
     if (result.ok) {
-      await deleteAiConnection(result.petId);
       clearCurrentPetWindowPayload(result.petId);
       emitPetConfigChanged();
     }
@@ -397,6 +415,122 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
 
   handle("ai-settings:save", "main", (_event, draft: AiConnectionDraft) =>
     saveAiConnection(draft)
+  );
+
+  handle("memory:get-summary", "main", (_event, petId: string) =>
+    memoryManagementService.getSummary(petId)
+  );
+
+  handle("memory:list", "main", (_event, request: MemoryListRequest) =>
+    memoryManagementService.list(request)
+  );
+
+  handle("memory:get", "main", (_event, request: MemoryGetRequest) =>
+    memoryManagementService.get(request)
+  );
+
+  handle("memory:search", "main", (_event, request: MemorySearchRequest) =>
+    memoryManagementService.search(request)
+  );
+
+  handle("memory:create", "main", (_event, request: MemoryCreateRequest) =>
+    memoryManagementService.create(request)
+  );
+
+  handle("memory:update", "main", (_event, request: MemoryUpdateRequest) =>
+    memoryManagementService.update(request)
+  );
+
+  handle("memory:forget", "main", (_event, request: MemoryRevisionRequest) =>
+    memoryManagementService.forget(request)
+  );
+
+  handle("memory:undo-forget", "main", (_event, request: MemoryRevisionRequest) =>
+    memoryManagementService.undoForget(request)
+  );
+
+  handle("memory:clear", "main", (_event, request: MemoryClearRequest) =>
+    memoryManagementService.clear(request)
+  );
+
+  handle("memory:export", "main", async (_event, request: MemoryExportRequest) => {
+    const prepared = await memoryManagementService.exportSnapshot(request);
+    if (!prepared.ok) return prepared;
+    const extension = request.options.format === "json" ? "json" : "md";
+    const pet = await getLocalPetDefinition(request.petId);
+    const options = {
+      title: "导出桌宠记忆",
+      defaultPath: createMemoryExportFileName(pet?.name, request.petId, extension),
+      filters: [{
+        name: request.options.format === "json" ? "JSON" : "Markdown",
+        extensions: [extension]
+      }]
+    };
+    const mainWindow = getMainWindow();
+    const selection = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options);
+    if (selection.canceled || !selection.filePath) {
+      return {
+        ok: true as const,
+        value: {
+          canceled: true,
+          format: prepared.value.format,
+          recordCount: prepared.value.recordCount,
+          message: "已取消导出。"
+        }
+      };
+    }
+    try {
+      await writeTextFileAtomically(selection.filePath, prepared.value.content);
+      return {
+        ok: true as const,
+        value: {
+          canceled: false,
+          format: prepared.value.format,
+          recordCount: prepared.value.recordCount,
+          fileName: path.basename(selection.filePath),
+          message: "记忆已导出。"
+        }
+      };
+    } catch {
+      return {
+        ok: false as const,
+        error: {
+          code: "storage-unavailable" as const,
+          message: "无法写入所选导出文件。",
+          retryable: true
+        }
+      };
+    }
+  });
+
+  handle("memory:rebuild-index", "main", (_event, petId: string) =>
+    memoryManagementService.rebuildIndex(petId)
+  );
+
+  handle("memory:get-settings", "main", (_event, petId: string) =>
+    memoryManagementService.getSettings(petId)
+  );
+
+  handle("memory:save-settings", "main", async (_event, request: MemorySettingsSaveRequest) => {
+    const result = await memoryManagementService.saveSettings(request);
+    if (result.ok) {
+      emitPetConfigChanged(await getLocalPetDefinition(request.petId));
+    }
+    return result;
+  });
+
+  handle("memory:get-provider-status", "main", (_event, petId: string) =>
+    memoryManagementService.getProviderStatus(petId)
+  );
+
+  handle("memory:test-provider", "main", (_event, petId: string) =>
+    memoryManagementService.testProvider(petId)
+  );
+
+  handle("memory:get-status", "main", (_event, petId: string) =>
+    memoryManagementService.getStatus(petId)
   );
 
   handle("ai-chat:stream", "pet", (event, request: AiChatStreamRequest) => {
