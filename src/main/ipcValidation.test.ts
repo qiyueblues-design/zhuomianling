@@ -53,6 +53,37 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("accepts a shared expression source across event settings", () => {
+    const source = {
+      sourceKind: "expression",
+      sourceFileName: "smile.exp3.json",
+      runtimeName: "smile"
+    };
+
+    expect(() =>
+      validateIpcArguments("pet-config:save-event-settings", [
+        {
+          petId: "pet-a",
+          events: [
+            { event: "idle", source, lines: [] },
+            { event: "close", source, lines: [] }
+          ]
+        }
+      ])
+    ).not.toThrow();
+  });
+
+  it("still rejects a real circular payload", () => {
+    const payload: Record<string, unknown> = {
+      petId: "pet-a",
+      requestId: "request-0001",
+      messages: [{ role: "user", content: "ok" }]
+    };
+    payload.self = payload;
+
+    expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/循环引用/);
+  });
+
   it("validates a bounded desktop source preview request", () => {
     expect(() =>
       validateIpcArguments("pet-window:preview-source", [

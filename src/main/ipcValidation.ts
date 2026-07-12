@@ -171,7 +171,11 @@ function assertSafePayload(
     nodes: 0,
     totalStringLength: 0
   };
-  const seen = new WeakSet<object>();
+  // Electron's structured clone payloads may legitimately share an object
+  // instance (for example, one expression source selected by multiple
+  // events). Only an object encountered on the active traversal path is a
+  // circular reference; a globally seen object is not.
+  const activeAncestors = new WeakSet<object>();
 
   const visit = (item: unknown, depth: number): void => {
     budget.nodes += 1;
@@ -224,32 +228,36 @@ function assertSafePayload(
       fail(channel, "包含不支持的数据类型。");
     }
 
-    if (seen.has(item)) {
+    if (activeAncestors.has(item)) {
       fail(channel, "对象不能包含循环引用。");
     }
-    seen.add(item);
+    activeAncestors.add(item);
 
-    if (Array.isArray(item)) {
-      if (item.length > limits.maxArrayLength) {
-        fail(channel, `数组长度不能超过 ${limits.maxArrayLength}。`);
+    try {
+      if (Array.isArray(item)) {
+        if (item.length > limits.maxArrayLength) {
+          fail(channel, `数组长度不能超过 ${limits.maxArrayLength}。`);
+        }
+        for (const child of item) {
+          visit(child, depth + 1);
+        }
+        return;
       }
-      for (const child of item) {
+
+      const record = assertRecord(channel, item);
+      const entries = Object.entries(record);
+      if (entries.length > limits.maxObjectKeys) {
+        fail(channel, `对象字段数量不能超过 ${limits.maxObjectKeys}。`);
+      }
+
+      for (const [key, child] of entries) {
+        if (key === "__proto__" || key === "prototype" || key === "constructor") {
+          fail(channel, `不允许字段 ${key}。`);
+        }
         visit(child, depth + 1);
       }
-      return;
-    }
-
-    const record = assertRecord(channel, item);
-    const entries = Object.entries(record);
-    if (entries.length > limits.maxObjectKeys) {
-      fail(channel, `对象字段数量不能超过 ${limits.maxObjectKeys}。`);
-    }
-
-    for (const [key, child] of entries) {
-      if (key === "__proto__" || key === "prototype" || key === "constructor") {
-        fail(channel, `不允许字段 ${key}。`);
-      }
-      visit(child, depth + 1);
+    } finally {
+      activeAncestors.delete(item);
     }
   };
 
