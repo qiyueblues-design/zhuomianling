@@ -296,6 +296,98 @@ describe("expression mapping persistence", () => {
   });
 });
 
+describe("legacy Live2D model path migration", () => {
+  it("replaces a relative packaged-app model path with the validated local resource URL", async () => {
+    await writeLegacyPet();
+    const live2dDirectory = path.join(getPetDirectory(), "live2d");
+    const configPath = getPetConfigPath();
+    const existing = JSON.parse(await fs.readFile(configPath, "utf8")) as Record<string, unknown>;
+
+    await fs.mkdir(live2dDirectory, { recursive: true });
+    await fs.writeFile(
+      path.join(live2dDirectory, "model.json"),
+      JSON.stringify({ model: "model.moc", textures: [] }),
+      "utf8"
+    );
+    await fs.writeFile(path.join(live2dDirectory, "model.moc"), "fixture", "utf8");
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          ...existing,
+          modelPath: "pet-a/live2d/model.json",
+          live2dSettings: {
+            entryFileName: "model.json",
+            textureCount: 0,
+            motionCount: 0,
+            expressionCount: 0
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const { listLocalPets } = await import("./petConfigStore");
+    const [pet] = await listLocalPets();
+    const persisted = JSON.parse(await fs.readFile(configPath, "utf8")) as { modelPath: string };
+
+    expect(pet?.modelPath).toBe("pet-resource://local/pet-a/live2d/model.json");
+    expect(persisted.modelPath).toBe("pet-resource://local/pet-a/live2d/model.json");
+  });
+});
+
+describe("avatar draft cleanup", () => {
+  it("removes the temporary avatar draft after the new pet has been saved", async () => {
+    const draftPetId = "draft-avatar1";
+    const sourceAvatarPath = path.join(
+      getPetDirectory(draftPetId),
+      "assets",
+      "avatar-crop.png"
+    );
+    await fs.mkdir(path.dirname(sourceAvatarPath), { recursive: true });
+    await fs.writeFile(sourceAvatarPath, "avatar", "utf8");
+
+    const { saveLocalPetBasicInfo } = await import("./petConfigStore");
+    const result = await saveLocalPetBasicInfo({
+      name: "Saved pet",
+      avatarImage: `pet-resource://local/${draftPetId}/assets/avatar-crop.png`,
+      description: "",
+      role: "",
+      personality: "",
+      scenes: []
+    });
+
+    expect(result.ok).toBe(true);
+    await expect(fs.access(getPetDirectory(draftPetId))).rejects.toThrow();
+    await expect(fs.access(path.join(getPetDirectory("saved-pet"), "pet.local.json"))).resolves.toBeUndefined();
+  });
+
+  it("removes legacy avatar-only drafts but preserves formal or unknown directories", async () => {
+    const removableDraftId = "draft-old1";
+    const preservedDraftId = "draft-unknown1";
+    const removableAvatar = path.join(
+      getPetDirectory(removableDraftId),
+      "assets",
+      "avatar-old.png"
+    );
+    const unknownFile = path.join(getPetDirectory(preservedDraftId), "assets", "notes.txt");
+    await fs.mkdir(path.dirname(removableAvatar), { recursive: true });
+    await fs.mkdir(path.dirname(unknownFile), { recursive: true });
+    await fs.writeFile(removableAvatar, "avatar", "utf8");
+    await fs.writeFile(unknownFile, "keep", "utf8");
+    await writeLegacyPet("draft-config1");
+
+    const { cleanupOrphanedAvatarDrafts } = await import("./petConfigStore");
+    await cleanupOrphanedAvatarDrafts();
+
+    await expect(fs.access(getPetDirectory(removableDraftId))).rejects.toThrow();
+    await expect(fs.access(getPetDirectory(preservedDraftId))).resolves.toBeUndefined();
+    await expect(fs.access(getPetConfigPath("draft-config1"))).resolves.toBeUndefined();
+  });
+});
+
 describe("pet-resource protocol handler boundary", () => {
   it("rejects local config and voice paths while serving assets and Live2D resources", async () => {
     const petDirectory = getPetDirectory();

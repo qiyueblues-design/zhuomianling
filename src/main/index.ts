@@ -9,6 +9,7 @@ import {
   registerPetResourceProtocol
 } from "./services/config/petResourceProtocol";
 import {
+  cleanupOrphanedAvatarDrafts,
   resetLocalPetVoiceRuntimeState,
   stopManagedGptSoVitsApi
 } from "./services/config/petConfigStore";
@@ -57,6 +58,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    await cleanupOrphanedAvatarDrafts();
     await resetLocalPetVoiceRuntimeState();
 
     try {

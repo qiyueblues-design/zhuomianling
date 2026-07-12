@@ -61,6 +61,7 @@ import {
 const localThemesDirectoryName = "themes";
 const localThemeFileName = "theme.json";
 const live2dDirectoryName = "live2d";
+const avatarDraftPetIdPattern = /^draft-[a-z0-9]+$/;
 const themeIdPattern = /^[A-Za-z][A-Za-z0-9_-]{1,39}$/;
 const builtInThemeIds = new Set(["soft", "rock", "pixel", "journal", "cyber", "minimal", "custom"]);
 const expressionMappingKeyPattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
@@ -834,6 +835,21 @@ function withLive2DFeatureReady(features: PetFeature[] = []): PetFeature[] {
   return nextFeatures;
 }
 
+function hasLocalPetResourceModelPath(modelPath: string, petId: string): boolean {
+  try {
+    const parsedUrl = new URL(modelPath);
+    const expectedPathPrefix = `/${encodeURIComponent(petId)}/live2d/`;
+
+    return (
+      parsedUrl.protocol === `${petResourceProtocol}:` &&
+      parsedUrl.hostname === "local" &&
+      parsedUrl.pathname.startsWith(expectedPathPrefix)
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function syncImportedLive2DConfig(
   petId: string,
   existingPet: PetDefinition | undefined
@@ -928,6 +944,26 @@ function decodeSafeResourcePathParts(pathname: string): string[] {
     });
 }
 
+function getLocalAvatarResourcePetId(avatarImage: string): string | undefined {
+  if (!avatarImage.startsWith(`${petResourceProtocol}://`)) {
+    return undefined;
+  }
+
+  try {
+    const parsedUrl = new URL(avatarImage);
+
+    if (parsedUrl.hostname !== "local") {
+      return undefined;
+    }
+
+    const [petId, resourceRoot, ...resourceParts] = decodeSafeResourcePathParts(parsedUrl.pathname);
+
+    return resourceRoot === "assets" && resourceParts.length ? assertValidPetId(petId) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function avatarImageToPath(avatarImage: string, expectedPetId?: string): string {
   if (avatarImage.startsWith("file://")) {
     return fileURLToPath(avatarImage);
@@ -976,6 +1012,73 @@ async function copyAvatarIntoPetDirectory(avatarImage: string, petId: string): P
   }
 
   return toPetResourceUrl(targetPath);
+}
+
+async function isRemovableAvatarDraftDirectory(petId: string): Promise<boolean> {
+  if (!avatarDraftPetIdPattern.test(petId)) {
+    return false;
+  }
+
+  const draftDirectoryPath = await assertExistingLocalPetDirectoryContained(petId);
+  const draftStat = await fs.lstat(draftDirectoryPath);
+
+  if (!draftStat.isDirectory() || draftStat.isSymbolicLink()) {
+    return false;
+  }
+
+  try {
+    await fs.access(getPetConfigPath(petId));
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const entries = await fs.readdir(draftDirectoryPath, { withFileTypes: true });
+
+  if (!entries.length) {
+    return true;
+  }
+
+  if (entries.length !== 1 || entries[0]?.name !== "assets" || !entries[0].isDirectory()) {
+    return false;
+  }
+
+  const assetsDirectoryPath = path.join(draftDirectoryPath, "assets");
+  const assetsStat = await fs.lstat(assetsDirectoryPath);
+
+  if (!assetsStat.isDirectory() || assetsStat.isSymbolicLink()) {
+    return false;
+  }
+
+  const assetEntries = await fs.readdir(assetsDirectoryPath, { withFileTypes: true });
+
+  return assetEntries.every(
+    (entry) =>
+      entry.isFile() &&
+      !entry.isSymbolicLink() &&
+      entry.name.startsWith("avatar-") &&
+      allowedAvatarExtensions.has(path.extname(entry.name).toLowerCase())
+  );
+}
+
+async function removeAvatarDraftDirectory(petId: string): Promise<void> {
+  if (!(await isRemovableAvatarDraftDirectory(petId))) {
+    return;
+  }
+
+  await fs.rm(getPetDirectoryPath(petId), { recursive: true, force: true });
+}
+
+async function cleanupAvatarDraftAfterSave(avatarImage: string, savedPetId: string): Promise<void> {
+  const sourcePetId = getLocalAvatarResourcePetId(avatarImage);
+
+  if (!sourcePetId || sourcePetId === savedPetId || !avatarDraftPetIdPattern.test(sourcePetId)) {
+    return;
+  }
+
+  await withPetWriteLock(sourcePetId, () => removeAvatarDraftDirectory(sourcePetId));
 }
 
 async function createPetConfigCorruptedError(
@@ -1030,7 +1133,14 @@ async function readPetConfigUnlocked(
 
     let nextPet = migration.pet;
 
-    if (!nextPet.modelPath || !nextPet.live2dSettings) {
+    // Older releases stored a relative model path. In a packaged app the renderer
+    // resolves that against app.asar, so Cubism tries to load the window URL instead
+    // of the imported model. Rebuild it from the validated local import directory.
+    if (
+      !nextPet.modelPath ||
+      !nextPet.live2dSettings ||
+      !hasLocalPetResourceModelPath(nextPet.modelPath, nextPet.id)
+    ) {
       const syncedPet = await syncImportedLive2DConfig(nextPet.id, nextPet);
 
       if (syncedPet) {
@@ -1250,6 +1360,34 @@ export async function listLocalPets(): Promise<PetDefinition[]> {
   return result.pets;
 }
 
+export async function cleanupOrphanedAvatarDrafts(): Promise<void> {
+  let entries: fsSync.Dirent[];
+
+  try {
+    entries = await fs.readdir(getPetsRootPath(), { withFileTypes: true });
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && avatarDraftPetIdPattern.test(entry.name))
+      .map((entry) =>
+        withPetWriteLock(entry.name, async () => {
+          try {
+            await removeAvatarDraftDirectory(entry.name);
+          } catch (error) {
+            console.warn("Failed to clean orphaned avatar draft.", entry.name, error);
+          }
+        })
+      )
+  );
+}
+
 export async function listLocalUiThemes(): Promise<PetCustomThemeListResult> {
   try {
     const entries = await fs.readdir(getThemesRootPath(), { withFileTypes: true });
@@ -1357,6 +1495,7 @@ async function saveLocalPetBasicInfoForId(
     const pet = mergeBasicInfoIntoPet(existingPet, draft, petId, avatarImage);
 
     await writePetConfigUnlocked(petId, pet);
+    await cleanupAvatarDraftAfterSave(draft.avatarImage as string, petId);
 
     return {
       ok: true,
