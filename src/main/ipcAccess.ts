@@ -21,3 +21,15 @@ export function assertIpcSenderAllowed(
 
   throw new Error(`IPC ${channel} 不允许从当前窗口调用。`);
 }
+
+export function assertIpcPetIdBound(
+  channel: string,
+  requestedPetId: string,
+  boundPetId: string | undefined
+): void {
+  if (boundPetId && requestedPetId === boundPetId) {
+    return;
+  }
+
+  throw new Error(`IPC ${channel} 请求的桌宠与当前窗口不匹配。`);
+}

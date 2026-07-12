@@ -41,6 +41,7 @@ import {
 } from "./services/ai/aiSettings";
 import {
   getPetWindowState,
+  getBoundPetWindowPayload,
   getCurrentPetWindowPayload,
   clearCurrentPetWindowPayload,
   closePetWindow,
@@ -98,7 +99,7 @@ import {
 } from "./services/config/live2dImportService";
 import { revealMainWindowStartupSurface } from "./window";
 import { validateIpcArguments } from "./ipcValidation";
-import { assertIpcSenderAllowed, type IpcAccess } from "./ipcAccess";
+import { assertIpcPetIdBound, assertIpcSenderAllowed, type IpcAccess } from "./ipcAccess";
 
 export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow | null): void {
   const assertSenderAllowed = (
@@ -112,6 +113,18 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
       event.sender,
       getMainWindow()?.webContents,
       isPetWindowWebContents(event.sender)
+    );
+  };
+
+  const assertPetIdBound = (
+    channel: string,
+    event: IpcMainEvent | IpcMainInvokeEvent,
+    requestedPetId: string
+  ): void => {
+    assertIpcPetIdBound(
+      channel,
+      requestedPetId,
+      getBoundPetWindowPayload(event.sender)?.id
     );
   };
 
@@ -398,6 +411,8 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
       };
     }
 
+    assertPetIdBound("ai-chat:stream", event, request.petId);
+
     const streamId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     void startAiChatStream(event.sender, request, streamId);
 
@@ -409,13 +424,21 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
     };
   });
 
-  handle("ai-chat:cancel", "pet", (event, request?: AiChatStreamCancelRequest) =>
-    cancelAiChatStreams(event.sender, request)
-  );
+  handle("ai-chat:cancel", "pet", (event, request?: AiChatStreamCancelRequest) => {
+    if (request?.petId) {
+      assertPetIdBound("ai-chat:cancel", event, request.petId);
+    }
 
-  handle("speech-to-text:transcribe", "pet", (_event, request: SpeechToTextRequest) =>
-    transcribeSpeech(request)
-  );
+    return cancelAiChatStreams(event.sender, request);
+  });
+
+  handle("speech-to-text:transcribe", "pet", (event, request: SpeechToTextRequest) => {
+    if (request.petId) {
+      assertPetIdBound("speech-to-text:transcribe", event, request.petId);
+    }
+
+    return transcribeSpeech(request);
+  });
 
   handle("text-to-speech:speak", "pet", (event, request: TextToSpeechRequest) => {
     if (
@@ -429,16 +452,23 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
       };
     }
 
+    assertPetIdBound("text-to-speech:speak", event, request.petId);
+
     return speakText(event.sender, request);
   });
 
-  handle("text-to-speech:stop", "pet", (event, request?: TextToSpeechStopRequest) =>
-    stopSpeechPlayback(event.sender, request)
-  );
+  handle("text-to-speech:stop", "pet", (event, request?: TextToSpeechStopRequest) => {
+    if (request?.petId) {
+      assertPetIdBound("text-to-speech:stop", event, request.petId);
+    }
 
-  handle("speech-stream:start", "pet", (event, request: SpeechStreamStartRequest) =>
-    startSpeechStream(event.sender, request)
-  );
+    return stopSpeechPlayback(event.sender, request);
+  });
+
+  handle("speech-stream:start", "pet", (event, request: SpeechStreamStartRequest) => {
+    assertPetIdBound("speech-stream:start", event, request.petId);
+    return startSpeechStream(event.sender, request);
+  });
 
   on("speech-stream:audio", "pet", (_event, chunk: SpeechStreamAudioChunk) => {
     sendSpeechStreamAudio(chunk);

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { WebContents } from "electron";
 
 interface PendingLoad {
   resolve(): void;
@@ -191,6 +192,35 @@ describe("pet window operation generations", () => {
 
     electronMock.instances[0]?.loads.shift()?.resolve();
     await expect(replacementShow).resolves.toMatchObject({ visible: true, petId: "pet-b" });
+    await closePetWindow({ playEffect: false });
+  });
+
+  it("binds sensitive requests only after a pet load commits", async () => {
+    const { closePetWindow, getBoundPetWindowPayload, showPetWindow } = await import("./petWindow");
+    const firstShow = showPetWindow(payload("pet-a"));
+    await vi.waitFor(() => {
+      expect(electronMock.instances[0]?.loads.length).toBeGreaterThan(0);
+    });
+    const sender = electronMock.instances[0]?.webContents as unknown as WebContents;
+
+    expect(getBoundPetWindowPayload(sender)).toBeUndefined();
+
+    electronMock.instances[0]?.loads.shift()?.resolve();
+    await firstShow;
+    expect(getBoundPetWindowPayload(sender)?.id).toBe("pet-a");
+
+    const replacementShow = showPetWindow(payload("pet-b"));
+    await vi.waitFor(() => {
+      expect(electronMock.instances[0]?.loads.length).toBeGreaterThan(0);
+    });
+
+    expect(getBoundPetWindowPayload(sender)).toBeUndefined();
+
+    electronMock.instances[0]?.loads.shift()?.resolve();
+    await replacementShow;
+    expect(getBoundPetWindowPayload(sender)?.id).toBe("pet-b");
+    expect(getBoundPetWindowPayload({} as WebContents)).toBeUndefined();
+
     await closePetWindow({ playEffect: false });
   });
 

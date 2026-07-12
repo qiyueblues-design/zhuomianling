@@ -1,7 +1,7 @@
 import type { WebContents } from "electron";
 import fs from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { assertIpcSenderAllowed } from "./ipcAccess";
+import { assertIpcPetIdBound, assertIpcSenderAllowed } from "./ipcAccess";
 
 const mainSender = {} as WebContents;
 const petSender = {} as WebContents;
@@ -67,5 +67,24 @@ describe("assertIpcSenderAllowed", () => {
     }
     expect(accessByChannel.get("pet-window:close")).toBe("both");
     expect(accessByChannel.get("pet-window:get-state")).toBe("both");
+
+    for (const channel of [
+      "ai-chat:stream",
+      "ai-chat:cancel",
+      "speech-to-text:transcribe",
+      "text-to-speech:speak",
+      "text-to-speech:stop",
+      "speech-stream:start"
+    ]) {
+      expect(ipcSource).toContain(`assertPetIdBound("${channel}", event, request.petId)`);
+    }
+  });
+});
+
+describe("assertIpcPetIdBound", () => {
+  it("accepts only the pet ID bound by the main process", () => {
+    expect(() => assertIpcPetIdBound("ai-chat:stream", "pet-a", "pet-a")).not.toThrow();
+    expect(() => assertIpcPetIdBound("ai-chat:stream", "pet-b", "pet-a")).toThrow(/不匹配/);
+    expect(() => assertIpcPetIdBound("ai-chat:stream", "pet-a", undefined)).toThrow(/不匹配/);
   });
 });

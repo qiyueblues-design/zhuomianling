@@ -504,6 +504,23 @@ export function getCurrentPetWindowPayload(): DesktopPetPayload | undefined {
   return currentPet ?? undefined;
 }
 
+export function getBoundPetWindowPayload(sender: WebContents): DesktopPetPayload | undefined {
+  if (!isPetWindowWebContents(sender)) {
+    return undefined;
+  }
+
+  if (
+    pendingPetWindowLoad &&
+    pendingPetWindowLoad.generation === petWindowOperationGeneration &&
+    pendingPetWindowLoad.window === petWindow &&
+    !pendingPetWindowLoad.window.isDestroyed()
+  ) {
+    return undefined;
+  }
+
+  return currentPet ?? undefined;
+}
+
 export function isPetWindowWebContents(sender: WebContents): boolean {
   return Boolean(petWindow && !petWindow.isDestroyed() && petWindow.webContents === sender);
 }
