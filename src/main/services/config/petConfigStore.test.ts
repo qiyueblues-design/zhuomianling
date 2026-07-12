@@ -370,7 +370,7 @@ describe("avatar draft cleanup", () => {
     const removableAvatar = path.join(
       getPetDirectory(removableDraftId),
       "assets",
-      "avatar-old.png"
+      "avatar.png"
     );
     const unknownFile = path.join(getPetDirectory(preservedDraftId), "assets", "notes.txt");
     await fs.mkdir(path.dirname(removableAvatar), { recursive: true });

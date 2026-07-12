@@ -62,6 +62,7 @@ const localThemesDirectoryName = "themes";
 const localThemeFileName = "theme.json";
 const live2dDirectoryName = "live2d";
 const avatarDraftPetIdPattern = /^draft-[a-z0-9]+$/;
+const avatarDraftFileNamePattern = /^avatar(?:-[A-Za-z0-9-]+)?\.(?:png|jpe?g|webp)$/i;
 const themeIdPattern = /^[A-Za-z][A-Za-z0-9_-]{1,39}$/;
 const builtInThemeIds = new Set(["soft", "rock", "pixel", "journal", "cyber", "minimal", "custom"]);
 const expressionMappingKeyPattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
@@ -1058,7 +1059,7 @@ async function isRemovableAvatarDraftDirectory(petId: string): Promise<boolean> 
     (entry) =>
       entry.isFile() &&
       !entry.isSymbolicLink() &&
-      entry.name.startsWith("avatar-") &&
+      avatarDraftFileNamePattern.test(entry.name) &&
       allowedAvatarExtensions.has(path.extname(entry.name).toLowerCase())
   );
 }
