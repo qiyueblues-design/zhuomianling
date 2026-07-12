@@ -1,4 +1,4 @@
-import type { PetDefinition } from "./pet";
+import type { PetDefinition, PetExpressionSourceItem } from "./pet";
 
 export interface DesktopPetPayload {
   id: string;
@@ -30,6 +30,27 @@ export interface PetWindowCloseOptions {
   playEffect?: boolean;
 }
 
+export interface PetWindowSourcePreviewRequest {
+  petId: string;
+  source: PetExpressionSourceItem;
+}
+
+export interface PetWindowSourcePreviewEvent {
+  id: number;
+  source: PetExpressionSourceItem;
+}
+
+export interface PetWindowSourcePreviewResult {
+  ok: boolean;
+  message?: string;
+  state: PetWindowState;
+  previewId?: number;
+}
+
+export interface PetWindowSourcePreviewFinishedEvent {
+  id: number;
+}
+
 export interface DesktopAppWindowApi {
   isShown(): Promise<boolean>;
   revealStartupSurface(reason?: string): void;
@@ -47,7 +68,12 @@ export interface DesktopPetWindowApi {
   moveDrag(point: PetWindowDragPoint): Promise<void>;
   endDrag(): Promise<void>;
   getState(): Promise<PetWindowState>;
+  previewSource(request: PetWindowSourcePreviewRequest): Promise<PetWindowSourcePreviewResult>;
+  consumePendingSourcePreview(): Promise<PetWindowSourcePreviewEvent | undefined>;
+  completeSourcePreview(id: number): Promise<void>;
   onStateChanged(callback: (state: PetWindowState) => void): () => void;
+  onSourcePreview(callback: (event: PetWindowSourcePreviewEvent) => void): () => void;
+  onSourcePreviewFinished(callback: (event: PetWindowSourcePreviewFinishedEvent) => void): () => void;
   onCursorMoved(callback: (point: PetWindowCursorPoint) => void): () => void;
   onCloseEffect(callback: () => void): () => void;
 }

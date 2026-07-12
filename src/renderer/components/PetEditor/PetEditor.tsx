@@ -25,6 +25,7 @@ import {
   type Dispatch,
   type SetStateAction
 } from "react";
+import { createPortal } from "react-dom";
 import type {
   LocalPetSaveResult,
   PetDefinition,
@@ -344,6 +345,7 @@ export function PetEditor({
             <VoicePanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} />
           ) : null}
         </div>
+        <div className="editorCanvasOverlayHost" id="editor-canvas-overlay" />
       </div>
 
       {pendingPanel ? (
@@ -1034,6 +1036,22 @@ function VoicePanel({
   const runtimeEditable = !connected && connectionPopup !== "connecting";
   const serviceStatusText =
     connectionPopup === "connecting" ? "连接中" : connected ? "已连接" : "未连接";
+  const popupHost = document.getElementById("editor-canvas-overlay") ?? document.body;
+
+  useEffect(() => {
+    if (!result || result === saveResult) {
+      return;
+    }
+
+    const dismissTimer = window.setTimeout(() => {
+      setResult((currentResult) => (currentResult === result ? undefined : currentResult));
+    }, result.ok ? 1400 : 2200);
+
+    return () => {
+      window.clearTimeout(dismissTimer);
+    };
+  }, [result, saveResult]);
+
   const markVoiceDirty = (nextDraft: LocalPetVoiceModelDraft): void => {
     onDirtyChange(JSON.stringify(nextDraft) !== JSON.stringify(savedDraft));
   };
@@ -1109,7 +1127,7 @@ function VoicePanel({
       setConnectionState("connected");
       setDraft(connectedDraft);
       setSavedDraft(connectedDraft);
-      setResult(saveResult);
+      setResult(undefined);
       onDirtyChange(false);
       onSavedPet?.(saveResult.pet);
       setConnectionPopup("success");
@@ -1226,19 +1244,22 @@ function VoicePanel({
 
   return (
     <div className="editorPanel voiceEditorPanel">
-      {connectionPopup ? (
-        <div className="voiceConnectPopup" role="status" aria-live="polite">
-          <span className={connectionPopup === "connecting" ? "voiceConnectSpinner" : "voiceConnectSuccess"}>
-            {connectionPopup === "connecting" ? <LoaderCircle size={22} /> : <CheckCircle2 size={22} />}
-          </span>
-          <strong>{connectionPopup === "connecting" ? "正在连接" : "成功连接"}</strong>
-          <p>
-            {connectionPopup === "connecting"
-              ? "正在检查本地 GPT-SoVITS 服务和声音资源。"
-              : "本地 GPT-SoVITS 服务已可用。"}
-          </p>
-        </div>
-      ) : null}
+      {connectionPopup
+        ? createPortal(
+            <div className="voiceConnectPopup" role="status" aria-live="polite">
+              <span className={connectionPopup === "connecting" ? "voiceConnectSpinner" : "voiceConnectSuccess"}>
+                {connectionPopup === "connecting" ? <LoaderCircle size={22} /> : <CheckCircle2 size={22} />}
+              </span>
+              <strong>{connectionPopup === "connecting" ? "正在连接" : "成功连接"}</strong>
+              <p>
+                {connectionPopup === "connecting"
+                  ? "正在检查本地 GPT-SoVITS 服务和声音资源。"
+                  : "本地 GPT-SoVITS 服务已可用。"}
+              </p>
+            </div>,
+            popupHost
+          )
+        : null}
 
       <div className="panelTitleRow">
         <div>
@@ -1339,7 +1360,7 @@ function VoicePanel({
             icon={<FileAudio size={18} />}
             title="参考音频"
             fileName={draft.referenceAudioPath}
-            hint="干净的参考音频，时长 3–10 秒"
+            hint="干净的参考音频，时长 3-10 秒"
             onPick={() => void pickVoiceFile("referenceAudio")}
           />
         </div>
@@ -1428,12 +1449,22 @@ function VoicePanel({
         </div>
       </section>
 
-      {result && result !== saveResult ? (
-        <div className={result.ok ? "settingsResult ok voiceInlineResult" : "settingsResult error voiceInlineResult"}>
-          {result.ok ? <CheckCircle2 size={17} /> : <XCircle size={17} />}
-          <span>{result.message}</span>
-        </div>
-      ) : null}
+      {result && result !== saveResult
+        ? createPortal(
+            <div
+              className={result.ok ? "voiceConnectPopup voiceFeedbackPopup success" : "voiceConnectPopup voiceFeedbackPopup error"}
+              role={result.ok ? "status" : "alert"}
+              aria-live={result.ok ? "polite" : "assertive"}
+            >
+              <span className="voiceFeedbackIcon" aria-hidden="true">
+                {result.ok ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
+              </span>
+              <strong>{result.ok ? "操作成功" : "操作未完成"}</strong>
+              <p>{result.message}</p>
+            </div>,
+            popupHost
+          )
+        : null}
 
       <PanelSaveActions
         onSave={() => void saveVoiceModel()}

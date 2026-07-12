@@ -53,6 +53,29 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("validates a bounded desktop source preview request", () => {
+    expect(() =>
+      validateIpcArguments("pet-window:preview-source", [
+        {
+          petId: "pet-a",
+          source: {
+            sourceKind: "motion",
+            sourceFileName: "angry01.mtn",
+            runtimeName: "Tap"
+          }
+        }
+      ])
+    ).not.toThrow();
+    expect(() =>
+      validateIpcArguments("pet-window:preview-source", [
+        {
+          petId: "pet-a",
+          source: { sourceKind: "motion", sourceFileName: "angry01.mtn" }
+        }
+      ])
+    ).toThrow(/runtimeName/);
+  });
+
   it("fails closed for an unregistered IPC channel", () => {
     expect(() => validateIpcArguments("unknown:channel", [])).toThrow(/没有注册运行时 schema/);
   });

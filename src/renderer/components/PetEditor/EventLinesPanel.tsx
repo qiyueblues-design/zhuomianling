@@ -1,4 +1,4 @@
-import { Plus, Smile, X } from "lucide-react";
+import { Play, Plus, Smile, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type {
   LocalPetEventSettingsDraft,
@@ -104,6 +104,9 @@ export function EventLinesPanel({
   const [savedDraft, setSavedDraft] = useState<LocalPetEventSettingsDraft>(() => createEventSettingsDraft(pet));
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<LocalPetSaveResult | undefined>();
+  const [previewMessage, setPreviewMessage] = useState<string>();
+  const [activePreviewEvent, setActivePreviewEvent] = useState<PetLineEvent>();
+  const activePreviewIdRef = useRef<number | undefined>();
   const expressionSources = pet.expressionSources ?? [];
   const faceSources = expressionSources.filter((source) => source.sourceKind === "expression");
   const motionSources = expressionSources.filter((source) => source.sourceKind === "motion");
@@ -119,8 +122,18 @@ export function EventLinesPanel({
     setDraft(nextDraft);
     setSavedDraft(nextDraft);
     setResult(undefined);
+    setPreviewMessage(undefined);
     onDirtyChange(false);
   }, [onDirtyChange, pet]);
+
+  useEffect(() => {
+    return window.desktopPet?.petWindow.onSourcePreviewFinished(({ id }) => {
+      if (activePreviewIdRef.current === id) {
+        activePreviewIdRef.current = undefined;
+        setActivePreviewEvent(undefined);
+      }
+    });
+  }, []);
 
   const markEventDirty = (nextDraft: LocalPetEventSettingsDraft): void => {
     onDirtyChange(normalizeEventSettingsDraft(nextDraft) !== normalizeEventSettingsDraft(savedDraft));
@@ -186,6 +199,27 @@ export function EventLinesPanel({
     }
   };
 
+  const previewSource = async (
+    eventName: PetLineEvent,
+    source: PetExpressionSourceItem | undefined
+  ): Promise<void> => {
+    if (source?.runtimeName === undefined || !pet.modelPath) {
+      setPreviewMessage("请先选择可预览的动作或表情。");
+      return;
+    }
+
+    const result = await window.desktopPet?.petWindow.previewSource({ petId: pet.id, source });
+
+    if (!result?.ok) {
+      setPreviewMessage(result?.message ?? "桌面预览未能启动。");
+      return;
+    }
+
+    activePreviewIdRef.current = result.previewId;
+    setActivePreviewEvent(eventName);
+    setPreviewMessage("正在桌面桌宠中预览。");
+  };
+
   return (
     <div className="editorPanel eventSettingsPanel">
       <div className="panelTitleRow">
@@ -198,9 +232,10 @@ export function EventLinesPanel({
       {!hasExpressionSources ? (
         <div className="settingsHint">
           <Smile size={16} />
-          <span>当前还没有可绑定的动作 / 表情源。请先在 Live2D 导入页保存模型，或到“表现映射”点击扫描刷新源文件。</span>
+          <span>当前还没有可绑定的动作 / 表情源。请先在 Live2D 导入页保存模型。</span>
         </div>
       ) : null}
+      {previewMessage ? <p className="eventPreviewMessage">{previewMessage}</p> : null}
 
       <div className="eventGrid">
         {eventColumns.map((columnEvents, columnIndex) => (
@@ -224,6 +259,20 @@ export function EventLinesPanel({
                     <div className="eventTitleBlock">
                       <strong>{event.label}</strong>
                     </div>
+                    <button
+                      className={
+                        activePreviewEvent === event.id
+                          ? "eventSourcePreviewIconButton active"
+                          : "eventSourcePreviewIconButton"
+                      }
+                      type="button"
+                      disabled={selectedSource?.runtimeName === undefined}
+                      title="在桌面桌宠中预览当前选择"
+                      aria-label={`预览${event.label}的当前动作或表情`}
+                      onClick={() => void previewSource(event.id, selectedSource)}
+                    >
+                      <Play size={16} fill="currentColor" aria-hidden="true" />
+                    </button>
                   </div>
                   <div className="eventExpressionSection">
                     <div className="eventExpressionPickerGroup" aria-label={`${event.label} 触发表现`}>

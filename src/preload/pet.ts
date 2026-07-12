@@ -23,6 +23,7 @@ import type {
   PetWindowCloseOptions,
   PetWindowCursorPoint,
   PetWindowDragPoint,
+  PetWindowSourcePreviewEvent,
   PetWindowState
 } from "../shared/types/window";
 
@@ -90,6 +91,12 @@ const petDesktopApi = {
       ipcRenderer.invoke("pet-window:move-drag", point) as Promise<void>,
     endDrag: () => ipcRenderer.invoke("pet-window:end-drag") as Promise<void>,
     getState: () => ipcRenderer.invoke("pet-window:get-state") as Promise<PetWindowState>,
+    consumePendingSourcePreview: () =>
+      ipcRenderer.invoke("pet-window:consume-pending-source-preview") as Promise<
+        PetWindowSourcePreviewEvent | undefined
+      >,
+    completeSourcePreview: (id: number) =>
+      ipcRenderer.invoke("pet-window:complete-source-preview", id) as Promise<void>,
     getPayload: () =>
       ipcRenderer.invoke("pet-window:get-payload") as Promise<DesktopPetPayload | undefined>,
     onStateChanged: (callback: (state: PetWindowState) => void) => {
@@ -120,6 +127,16 @@ const petDesktopApi = {
       ipcRenderer.on("pet-window:play-close-effect", listener);
       return () => {
         ipcRenderer.off("pet-window:play-close-effect", listener);
+      };
+    },
+    onSourcePreview: (callback: (preview: PetWindowSourcePreviewEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, preview: PetWindowSourcePreviewEvent): void => {
+        callback(preview);
+      };
+
+      ipcRenderer.on("pet-window:preview-source", listener);
+      return () => {
+        ipcRenderer.off("pet-window:preview-source", listener);
       };
     }
   }

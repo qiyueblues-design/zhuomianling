@@ -250,6 +250,52 @@ describe("Tencent ASR credential migration", () => {
   });
 });
 
+describe("expression mapping persistence", () => {
+  it("rebuilds mappings from the current draft so an empty draft clears old mappings", async () => {
+    await writeLegacyPet();
+    const configPath = getPetConfigPath();
+    const existing = JSON.parse(await fs.readFile(configPath, "utf8")) as Record<string, unknown>;
+
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          ...existing,
+          expressions: { angry: "Tap" },
+          expressionDescriptions: { angry: "旧描述" },
+          expressionSourceKinds: { angry: "motion" },
+          expressionSourceFiles: { angry: "angry01.mtn" },
+          expressionEffects: { angry: { parameters: [{ id: "ParamAngleX", value: 1 }] } },
+          expressionSources: [
+            { sourceFileName: "angry01.mtn", runtimeName: "Tap", sourceKind: "motion" }
+          ]
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    const { saveLocalPetExpressionMappings } = await import("./petConfigStore");
+
+    const result = await saveLocalPetExpressionMappings({
+      petId: "pet-a",
+      mappings: [],
+      expressionSelectionMode: "semantic",
+      expressionRandomScope: "all"
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.pet?.expressions).toEqual({});
+    expect(result.pet?.expressionDescriptions).toEqual({});
+    expect(result.pet?.expressionSourceKinds).toEqual({});
+    expect(result.pet?.expressionSourceFiles).toEqual({});
+    expect(result.pet?.expressionEffects).toEqual({});
+    expect(result.pet?.expressionSources).toEqual([
+      { sourceFileName: "angry01.mtn", runtimeName: "Tap", sourceKind: "motion" }
+    ]);
+  });
+});
+
 describe("pet-resource protocol handler boundary", () => {
   it("rejects local config and voice paths while serving assets and Live2D resources", async () => {
     const petDirectory = getPetDirectory();

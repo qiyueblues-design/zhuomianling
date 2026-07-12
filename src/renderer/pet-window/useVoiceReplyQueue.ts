@@ -249,6 +249,7 @@ export function useVoiceReplyQueue(
   ): Promise<VoiceReplyAudio | undefined> => {
     const textToSpeechRequestId =
       `voice-${requestId}-${++textToSpeechRequestSequenceRef.current}`;
+    let failureMessage: string | undefined;
 
     for (let attempt = 1; attempt <= segmentMaxAttempts; attempt += 1) {
       if (requestId !== requestIdRef.current) {
@@ -266,6 +267,7 @@ export function useVoiceReplyQueue(
         if (requestId !== requestIdRef.current) {
           return undefined;
         }
+        failureMessage = "请求 GPT-SoVITS 时发生通信错误，请稍后重试。";
         if (attempt < segmentMaxAttempts) {
           await waitForRetry(segmentRetryBaseMs * attempt);
         }
@@ -293,9 +295,17 @@ export function useVoiceReplyQueue(
         return undefined;
       }
 
+      if (response?.message?.trim()) {
+        failureMessage = response.message.trim();
+      }
+
       if (attempt < segmentMaxAttempts) {
         await waitForRetry(segmentRetryBaseMs * attempt);
       }
+    }
+
+    if (requestId === requestIdRef.current && failureMessage) {
+      optionsRef.current.showVoiceMessage(`GPT-SoVITS：${failureMessage}`, "error");
     }
 
     return undefined;

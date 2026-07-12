@@ -91,6 +91,8 @@ vi.mock("electron", () => {
     }
   }
 
+  FakeBrowserWindow.getAllWindows = (): FakeBrowserWindow[] => electronMock.instances;
+
   return {
     BrowserWindow: FakeBrowserWindow,
     screen: {
@@ -206,6 +208,32 @@ describe("pet window operation generations", () => {
 
     await expect(replacementShow).rejects.toThrow("load failed");
     expect(getCurrentPetWindowPayload()?.id).toBe("pet-a");
+    await closePetWindow({ playEffect: false });
+  });
+
+  it("queues a preview while opening a pet and sends later previews to its desktop window", async () => {
+    const {
+      closePetWindow,
+      consumePendingPetWindowSourcePreview,
+      previewPetWindowSource
+    } = await import("./petWindow");
+    const source = {
+      sourceKind: "motion" as const,
+      sourceFileName: "angry01.mtn",
+      runtimeName: "Tap"
+    };
+
+    const openingPreview = previewPetWindowSource(payload("pet-a"), source);
+    await resolveNextLoad();
+    await expect(openingPreview).resolves.toMatchObject({ ok: true, state: { visible: true } });
+    expect(consumePendingPetWindowSourcePreview()).toMatchObject({ source });
+    expect(consumePendingPetWindowSourcePreview()).toBeUndefined();
+
+    await expect(previewPetWindowSource(payload("pet-a"), source)).resolves.toMatchObject({ ok: true });
+    expect(
+      electronMock.instances[0]?.sent.find((event) => event.channel === "pet-window:preview-source")
+    ).toMatchObject({ payload: { source } });
+
     await closePetWindow({ playEffect: false });
   });
 });

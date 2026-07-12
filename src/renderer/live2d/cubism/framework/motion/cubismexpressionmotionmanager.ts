@@ -95,6 +95,15 @@ export class CubismExpressionMotionManager extends CubismMotionQueueManager {
     this._fadeWeights[index] = expressionFadeWeight;
   }
 
+  /** Begin a graceful fade-out for every active expression. */
+  public fadeOutAllExpressions(fadeOutSeconds: number): void {
+    const normalizedDuration = Math.max(0, fadeOutSeconds);
+
+    for (const motionQueueEntry of this._motions) {
+      motionQueueEntry?.setFadeOut(normalizedDuration);
+    }
+  }
+
   /**
    * @brief モーションの更新
    *

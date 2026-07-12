@@ -24,7 +24,11 @@ import type {
   TextToSpeechRequest,
   TextToSpeechStopRequest
 } from "../shared/types/speech";
-import type { DesktopPetPayload, PetWindowDragPoint } from "../shared/types/window";
+import type {
+  DesktopPetPayload,
+  PetWindowDragPoint,
+  PetWindowSourcePreviewRequest
+} from "../shared/types/window";
 import type { PetWindowCloseOptions } from "../shared/types/window";
 import type { Live2DModelImportRequest } from "../shared/types/live2dImport";
 import { cancelAiChatStreams, startAiChatStream } from "./services/ai/aiChat";
@@ -49,7 +53,10 @@ import {
   startPetWindowDrag,
   togglePetWindowClickThrough,
   updateCurrentPetWindowPayload,
-  isPetWindowWebContents
+  isPetWindowWebContents,
+  previewPetWindowSource,
+  consumePendingPetWindowSourcePreview,
+  completePetWindowSourcePreview
 } from "./petWindow";
 import {
   sendSpeechStreamAudio,
@@ -63,6 +70,7 @@ import {
   deleteLocalPet,
   importLocalUiTheme,
   listLocalUiThemes,
+  listLocalPets,
   scanLocalPetsForRecovery,
   saveLocalPetAvatarCrop,
   saveLocalPetBasicInfo,
@@ -482,4 +490,39 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
   handle("pet-window:get-state", "both", () => getPetWindowState());
 
   handle("pet-window:get-payload", "pet", () => getCurrentPetWindowPayload());
+
+  handle("pet-window:consume-pending-source-preview", "pet", () =>
+    consumePendingPetWindowSourcePreview()
+  );
+
+  handle("pet-window:complete-source-preview", "pet", (event, previewId: number) =>
+    completePetWindowSourcePreview(event.sender, previewId)
+  );
+
+  handle("pet-window:preview-source", "main", async (_event, request: PetWindowSourcePreviewRequest) => {
+    const pet = (await listLocalPets()).find((candidate) => candidate.id === request.petId);
+
+    if (!pet?.modelPath) {
+      return {
+        ok: false,
+        message: "当前桌宠还没有可预览的 Live2D 模型。",
+        state: getPetWindowState()
+      };
+    }
+
+    return previewPetWindowSource(
+      {
+        id: pet.id,
+        name: pet.name,
+        modelPath: pet.modelPath,
+        avatar: pet.avatar,
+        definition: toPublicPetDefinition(pet)
+      },
+      {
+        sourceKind: request.source.sourceKind,
+        sourceFileName: request.source.sourceFileName,
+        runtimeName: request.source.runtimeName
+      }
+    );
+  });
 }

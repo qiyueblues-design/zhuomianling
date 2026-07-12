@@ -8,6 +8,9 @@ import type {
 import type {
   DesktopPetPayload,
   PetWindowCloseOptions,
+  PetWindowSourcePreviewRequest,
+  PetWindowSourcePreviewFinishedEvent,
+  PetWindowSourcePreviewResult,
   PetWindowState
 } from "../shared/types/window";
 import type {
@@ -138,6 +141,8 @@ const desktopPetApi = {
     close: (options?: PetWindowCloseOptions) =>
       ipcRenderer.invoke("pet-window:close", options) as Promise<PetWindowState>,
     getState: () => ipcRenderer.invoke("pet-window:get-state") as Promise<PetWindowState>,
+    previewSource: (request: PetWindowSourcePreviewRequest) =>
+      ipcRenderer.invoke("pet-window:preview-source", request) as Promise<PetWindowSourcePreviewResult>,
     onStateChanged: (callback: (state: PetWindowState) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, state: PetWindowState): void => {
         callback(state);
@@ -147,6 +152,16 @@ const desktopPetApi = {
 
       return () => {
         ipcRenderer.off("pet-window:state-changed", listener);
+      };
+    },
+    onSourcePreviewFinished: (callback: (event: PetWindowSourcePreviewFinishedEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, preview: PetWindowSourcePreviewFinishedEvent): void => {
+        callback(preview);
+      };
+
+      ipcRenderer.on("pet-window:source-preview-finished", listener);
+      return () => {
+        ipcRenderer.off("pet-window:source-preview-finished", listener);
       };
     }
   }

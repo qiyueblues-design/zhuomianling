@@ -47,6 +47,7 @@ export interface CubismLive2DModelOptions {
   autoIdle?: boolean;
   fitMode?: Live2DFitMode;
   abortSignal?: AbortSignal;
+  cursorFollowEnabled?: boolean;
   onHit?: () => void;
   onError?: (error: unknown) => void;
 }
@@ -354,6 +355,7 @@ export class CubismLive2DModel {
   private targetLookY = 0;
   private lookX = 0;
   private lookY = 0;
+  private cursorFollowEnabled: boolean;
   private disposed = false;
   private webglLost = false;
 
@@ -363,6 +365,7 @@ export class CubismLive2DModel {
     this.modelBaseUrl = createModelBaseUrl(options.modelPath);
     this.autoIdle = options.autoIdle ?? false;
     this.fitMode = options.fitMode ?? "stage";
+    this.cursorFollowEnabled = options.cursorFollowEnabled ?? true;
     this.externalAbortSignal = options.abortSignal;
     if (this.externalAbortSignal?.aborted) {
       this.abortResourceLoads(this.externalAbortSignal.reason);
@@ -560,6 +563,18 @@ export class CubismLive2DModel {
     }
   }
 
+  isMotionPlaying(): boolean {
+    return this.pendingMotionOperationSequence !== undefined || !this.motionManager.isFinished();
+  }
+
+  isExpressionPlaying(): boolean {
+    return !this.expressionManager.isFinished();
+  }
+
+  fadeExpressionToNeutral(fadeOutSeconds = 0.35): void {
+    this.expressionManager.fadeOutAllExpressions(fadeOutSeconds);
+  }
+
   resetToNeutralFace(): void {
     if (!this.model) {
       return;
@@ -602,6 +617,19 @@ export class CubismLive2DModel {
 
   lookAtClientPoint(clientX: number, clientY: number): void {
     this.updatePointerTargetFromClientPoint(clientX, clientY);
+  }
+
+  stopFollowingCursor(): void {
+    this.targetLookX = 0;
+    this.targetLookY = 0;
+  }
+
+  setCursorFollowEnabled(enabled: boolean): void {
+    this.cursorFollowEnabled = enabled;
+
+    if (!enabled) {
+      this.stopFollowingCursor();
+    }
   }
 
   destroy(): void {
@@ -1303,7 +1331,9 @@ export class CubismLive2DModel {
       return;
     }
 
-    this.updatePointerTarget(event);
+    if (this.cursorFollowEnabled) {
+      this.updatePointerTarget(event);
+    }
     const rect = this.canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -1314,7 +1344,9 @@ export class CubismLive2DModel {
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
-    this.updatePointerTarget(event);
+    if (this.cursorFollowEnabled) {
+      this.updatePointerTarget(event);
+    }
   };
 
   private readonly handlePointerLeave = (): void => {

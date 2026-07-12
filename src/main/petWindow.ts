@@ -1,7 +1,14 @@
 import { BrowserWindow, screen } from "electron";
 import path from "node:path";
 import type { PetDefinition, PetLineEvent } from "../shared/types/pet";
-import type { DesktopPetPayload, PetWindowDragPoint, PetWindowState } from "../shared/types/window";
+import type {
+  DesktopPetPayload,
+  PetWindowDragPoint,
+  PetWindowSourcePreviewEvent,
+  PetWindowSourcePreviewResult,
+  PetWindowState
+} from "../shared/types/window";
+import type { PetExpressionSourceItem } from "../shared/types/pet";
 import type { WebContents } from "electron";
 import { hardenWindowNavigation } from "./windowSecurity";
 
@@ -30,6 +37,9 @@ let dragStart:
       window: { x: number; y: number; width: number; height: number };
     }
   | null = null;
+let pendingSourcePreview: PetWindowSourcePreviewEvent | undefined;
+let activeSourcePreview: PetWindowSourcePreviewEvent | undefined;
+let sourcePreviewSequence = 0;
 const stateListeners = new Set<(state: PetWindowState) => void>();
 const petWindowWidth = 380;
 const petWindowHeight = 480;
@@ -246,6 +256,8 @@ function createPetWindow(): BrowserWindow {
     clickThrough = false;
     clickThroughControlInteractive = false;
     dragStart = null;
+    pendingSourcePreview = undefined;
+    activeSourcePreview = undefined;
     emitStateChanged();
   });
   createdWindow.on("show", applyPetWindowState);
@@ -311,6 +323,86 @@ export async function showPetWindow(payload: DesktopPetPayload): Promise<PetWind
   return emitStateChanged();
 }
 
+function nextSourcePreviewEvent(source: PetExpressionSourceItem): PetWindowSourcePreviewEvent {
+  sourcePreviewSequence += 1;
+
+  return {
+    id: Date.now() * 1000 + (sourcePreviewSequence % 1000),
+    source
+  };
+}
+
+function emitSourcePreviewFinished(preview: PetWindowSourcePreviewEvent | undefined): void {
+  if (!preview) {
+    return;
+  }
+
+  for (const targetWindow of BrowserWindow.getAllWindows()) {
+    targetWindow.webContents.send("pet-window:source-preview-finished", { id: preview.id });
+  }
+}
+
+export async function previewPetWindowSource(
+  payload: DesktopPetPayload,
+  source: PetExpressionSourceItem
+): Promise<PetWindowSourcePreviewResult> {
+  const samePetWindow = Boolean(
+    petWindow && !petWindow.isDestroyed() && currentPet?.id === payload.id
+  );
+  const preview = nextSourcePreviewEvent(source);
+  emitSourcePreviewFinished(activeSourcePreview ?? pendingSourcePreview);
+  activeSourcePreview = preview;
+  pendingSourcePreview = undefined;
+
+  if (!samePetWindow) {
+    pendingSourcePreview = preview;
+    try {
+      const state = await showPetWindow(payload);
+
+      return { ok: state.visible, state, previewId: state.visible ? preview.id : undefined };
+    } catch {
+      if (pendingSourcePreview === preview) {
+        pendingSourcePreview = undefined;
+      }
+      if (activeSourcePreview === preview) {
+        activeSourcePreview = undefined;
+      }
+
+      return {
+        ok: false,
+        message: "桌面预览窗口未能启动。",
+        state: snapshot()
+      };
+    }
+  }
+
+  currentPet = payload;
+  applyPetWindowState();
+  petWindow?.show();
+  petWindow?.focus();
+  startCursorTracking();
+  petWindow?.webContents.send("pet-window:preview-source", preview);
+
+  return { ok: true, state: emitStateChanged(), previewId: preview.id };
+}
+
+export function consumePendingPetWindowSourcePreview(): PetWindowSourcePreviewEvent | undefined {
+  const preview = pendingSourcePreview;
+  pendingSourcePreview = undefined;
+
+  return preview;
+}
+
+export function completePetWindowSourcePreview(sender: WebContents, previewId: number): void {
+  if (!isPetWindowWebContents(sender) || activeSourcePreview?.id !== previewId) {
+    return;
+  }
+
+  const preview = activeSourcePreview;
+  activeSourcePreview = undefined;
+  emitSourcePreviewFinished(preview);
+}
+
 export async function showExistingPetWindow(): Promise<PetWindowState> {
   if (!petWindow && currentPet) {
     return showPetWindow(currentPet);
@@ -362,6 +454,8 @@ export async function closePetWindow(options: ClosePetWindowOptions = {}): Promi
       clickThrough = false;
       clickThroughControlInteractive = false;
       dragStart = null;
+      pendingSourcePreview = undefined;
+      activeSourcePreview = undefined;
       return emitStateChanged();
     }
 

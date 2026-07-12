@@ -24,8 +24,11 @@ export function QuickActionsPanel({
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
   const currentOpacity = normalizeClickThroughOpacity(pet.uiSettings?.clickThroughOpacity);
+  const currentCursorFollowEnabled = pet.uiSettings?.cursorFollowEnabled !== false;
   const [savedOpacity, setSavedOpacity] = useState(currentOpacity);
   const [selectedOpacity, setSelectedOpacity] = useState(currentOpacity);
+  const [savedCursorFollowEnabled, setSavedCursorFollowEnabled] = useState(currentCursorFollowEnabled);
+  const [cursorFollowEnabled, setCursorFollowEnabled] = useState(currentCursorFollowEnabled);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<LocalPetSaveResult | undefined>();
 
@@ -33,9 +36,12 @@ export function QuickActionsPanel({
     const nextOpacity = normalizeClickThroughOpacity(pet.uiSettings?.clickThroughOpacity);
     setSavedOpacity(nextOpacity);
     setSelectedOpacity(nextOpacity);
+    const nextCursorFollowEnabled = pet.uiSettings?.cursorFollowEnabled !== false;
+    setSavedCursorFollowEnabled(nextCursorFollowEnabled);
+    setCursorFollowEnabled(nextCursorFollowEnabled);
     setResult(undefined);
     onDirtyChange(false);
-  }, [pet.id, pet.uiSettings?.clickThroughOpacity, onDirtyChange]);
+  }, [pet.id, pet.uiSettings?.clickThroughOpacity, pet.uiSettings?.cursorFollowEnabled, onDirtyChange]);
 
   const saveQuickActions = async (): Promise<void> => {
     if (pet.id === "new-pet") {
@@ -51,7 +57,8 @@ export function QuickActionsPanel({
         petId: pet.id,
         theme: pet.uiSettings?.theme ?? "soft",
         customThemeId: pet.uiSettings?.customThemeId,
-        clickThroughOpacity: selectedOpacity
+        clickThroughOpacity: selectedOpacity,
+        cursorFollowEnabled
       });
 
       if (!saveResult) {
@@ -64,6 +71,9 @@ export function QuickActionsPanel({
         const nextOpacity = normalizeClickThroughOpacity(saveResult.pet.uiSettings?.clickThroughOpacity);
         setSavedOpacity(nextOpacity);
         setSelectedOpacity(nextOpacity);
+        const nextCursorFollowEnabled = saveResult.pet.uiSettings?.cursorFollowEnabled !== false;
+        setSavedCursorFollowEnabled(nextCursorFollowEnabled);
+        setCursorFollowEnabled(nextCursorFollowEnabled);
         onDirtyChange(false);
         onSavedPet?.(saveResult.pet);
       }
@@ -103,13 +113,36 @@ export function QuickActionsPanel({
                 const nextOpacity = normalizeClickThroughOpacity(Number(event.target.value) / 100);
                 setSelectedOpacity(nextOpacity);
                 setResult(undefined);
-                onDirtyChange(nextOpacity !== savedOpacity);
+                onDirtyChange(
+                  nextOpacity !== savedOpacity || cursorFollowEnabled !== savedCursorFollowEnabled
+                );
               }}
             />
             <strong>{Math.round(selectedOpacity * 100)}%</strong>
           </div>
           <p className="settingsFieldNote">数值越低，开启穿透后越容易看清桌宠后方的内容。</p>
         </fieldset>
+        <div className="settingsToggleRow">
+          <div>
+            <h3>鼠标光标跟随</h3>
+            <p>开启后，模型会随桌面鼠标光标转头和移动视线；关闭不影响拖拽。</p>
+          </div>
+          <button
+            className={cursorFollowEnabled ? "settingsToggle active" : "settingsToggle"}
+            type="button"
+            role="switch"
+            aria-checked={cursorFollowEnabled}
+            aria-label="鼠标光标跟随"
+            onClick={() => {
+              const nextValue = !cursorFollowEnabled;
+              setCursorFollowEnabled(nextValue);
+              setResult(undefined);
+              onDirtyChange(nextValue !== savedCursorFollowEnabled || selectedOpacity !== savedOpacity);
+            }}
+          >
+            <span aria-hidden="true" />
+          </button>
+        </div>
         <PanelSaveActions onSave={() => void saveQuickActions()} saving={saving} result={result} />
       </section>
     </div>

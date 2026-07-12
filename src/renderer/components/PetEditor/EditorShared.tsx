@@ -1,5 +1,6 @@
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, FolderInput, Save, XCircle } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties } from "react";
 import type { LocalPetSaveResult } from "../../../shared/types/pet";
 
@@ -204,12 +205,14 @@ export function UnsavedChangesDialog({
 
 export function SaveSuccessToast({
   result,
-  message = "保存成功"
+  title = "保存成功",
+  message
 }: {
   result?: SaveFeedbackResult;
+  title?: string;
   message?: string;
 }): JSX.Element | null {
-  const [toast, setToast] = useState<{ id: number; message: string } | undefined>();
+  const [toast, setToast] = useState<{ id: number; title: string; message: string } | undefined>();
   const dismissTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -221,11 +224,12 @@ export function SaveSuccessToast({
       dismissTimerRef.current = window.setTimeout(() => {
         setToast(undefined);
         dismissTimerRef.current = undefined;
-      }, 2800);
+      }, 1400);
 
       setToast((currentToast) => ({
         id: (currentToast?.id ?? 0) + 1,
-        message
+        title,
+        message: message ?? result.message ?? "修改已保存。"
       }));
     }
 
@@ -237,7 +241,7 @@ export function SaveSuccessToast({
 
       setToast(undefined);
     }
-  }, [message, result]);
+  }, [message, result, title]);
 
   useEffect(() => {
     return () => {
@@ -247,17 +251,21 @@ export function SaveSuccessToast({
     };
   }, []);
 
-  if (!toast) {
+  const popupHost = document.getElementById("editor-canvas-overlay");
+
+  if (!toast || !popupHost) {
     return null;
   }
 
-  return (
-    <div className="saveSuccessToast" role="status" aria-live="polite" key={toast.id}>
-      <span className="saveSuccessToastIcon" aria-hidden="true">
-        <CheckCircle2 size={16} />
+  return createPortal(
+    <div className="voiceConnectPopup voiceFeedbackPopup success" role="status" aria-live="polite" key={toast.id}>
+      <span className="voiceFeedbackIcon" aria-hidden="true">
+        <CheckCircle2 size={22} />
       </span>
-      <span>{toast.message}</span>
-    </div>
+      <strong>{toast.title}</strong>
+      <p>{toast.message}</p>
+    </div>,
+    popupHost
   );
 }
 

@@ -69,6 +69,9 @@ const gptSoVitsBaseUrl = "http://127.0.0.1:9880" as const;
 const gptSoVitsLogLineLimit = 40;
 const defaultVoiceInferenceDevice = "auto" as const;
 const defaultVoiceHalfPrecision = true;
+const minReferenceAudioDurationSeconds = 3;
+const maxReferenceAudioDurationSeconds = 10;
+const referenceAudioDurationProbeTimeoutMs = 10_000;
 const minVoiceInputSilenceSeconds = 0.4;
 const maxVoiceInputSilenceSeconds = 2;
 const defaultVoiceInputSilenceSeconds = 1;
@@ -91,6 +94,72 @@ interface TencentAsrCredentials {
 interface VoiceCredentialMigrationResult {
   pet: PetDefinition;
   blocked: boolean;
+}
+
+function isReferenceAudioDurationAllowed(durationSeconds: number): boolean {
+  return (
+    Number.isFinite(durationSeconds) &&
+    durationSeconds >= minReferenceAudioDurationSeconds &&
+    durationSeconds <= maxReferenceAudioDurationSeconds
+  );
+}
+
+async function readReferenceAudioDurationSeconds(filePath: string): Promise<number> {
+  await fs.access(filePath, fsSync.constants.R_OK);
+
+  const probeScript = [
+    "$ErrorActionPreference = 'Stop'",
+    "$audioPath = $env:ZHUOMIANLING_REFERENCE_AUDIO_PATH",
+    "$shell = New-Object -ComObject Shell.Application",
+    "$folder = $shell.Namespace([System.IO.Path]::GetDirectoryName($audioPath))",
+    "$item = $folder.ParseName([System.IO.Path]::GetFileName($audioPath))",
+    "$duration = $item.ExtendedProperty('System.Media.Duration')",
+    "if ($null -eq $duration) { throw '未读取到音频时长。' }",
+    "[Console]::Out.WriteLine((([double]$duration / 10000000).ToString('R', [System.Globalization.CultureInfo]::InvariantCulture)))"
+  ].join("; ");
+
+  return await new Promise<number>((resolve, reject) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", probeScript],
+      {
+        timeout: referenceAudioDurationProbeTimeoutMs,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          ZHUOMIANLING_REFERENCE_AUDIO_PATH: filePath
+        }
+      },
+      (error, stdout) => {
+        const durationSeconds = Number.parseFloat(stdout.trim());
+
+        if (error || !Number.isFinite(durationSeconds)) {
+          reject(new Error("无法读取参考音频时长，请使用系统可播放的本地音频文件。"));
+          return;
+        }
+
+        resolve(durationSeconds);
+      }
+    );
+  });
+}
+
+async function validateReferenceAudioDuration(filePath: string): Promise<void> {
+  let durationSeconds: number;
+
+  try {
+    durationSeconds = await readReferenceAudioDurationSeconds(filePath);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : "无法读取参考音频时长，请重新选择文件。"
+    );
+  }
+
+  if (!isReferenceAudioDurationAllowed(durationSeconds)) {
+    throw new Error(
+      `参考音频时长为 ${durationSeconds.toFixed(1)} 秒，必须在 ${minReferenceAudioDurationSeconds}-${maxReferenceAudioDurationSeconds} 秒之间。`
+    );
+  }
 }
 
 class VoiceCredentialMigrationBlockedError extends Error {
@@ -1398,16 +1467,11 @@ export async function saveLocalPetExpressionMappings(
     };
   }
 
-  const expressions: PetDefinition["expressions"] = { ...(pet.expressions ?? {}) };
-  const expressionDescriptions: PetDefinition["expressionDescriptions"] = {
-    ...(pet.expressionDescriptions ?? {})
-  };
-  const expressionSourceKinds: PetDefinition["expressionSourceKinds"] = {
-    ...(pet.expressionSourceKinds ?? {})
-  };
-  const expressionSourceFiles: PetDefinition["expressionSourceFiles"] = {
-    ...(pet.expressionSourceFiles ?? {})
-  };
+  const expressions: PetDefinition["expressions"] = {};
+  const expressionDescriptions: PetDefinition["expressionDescriptions"] = {};
+  const expressionSourceKinds: PetDefinition["expressionSourceKinds"] = {};
+  const expressionSourceFiles: PetDefinition["expressionSourceFiles"] = {};
+  const expressionEffects: NonNullable<PetDefinition["expressionEffects"]> = {};
   const expressionSources = (draft.sources ?? [])
     .map((source) => {
       const sourceFileName = source.sourceFileName.trim();
@@ -1461,10 +1525,16 @@ export async function saveLocalPetExpressionMappings(
       continue;
     }
 
-    expressions[key] = runtimeName || expressions[key] || sourceFileName;
+    expressions[key] = runtimeName === undefined || runtimeName === "" ? sourceFileName : runtimeName;
     expressionSourceKinds[key] = item.sourceKind;
     expressionSourceFiles[key] = sourceFileName;
     expressionDescriptions[key] = description;
+
+    const effects = item.effects ?? pet.expressionEffects?.[key];
+
+    if (effects) {
+      expressionEffects[key] = effects;
+    }
   }
 
   const nextPet: PetDefinition = {
@@ -1475,6 +1545,7 @@ export async function saveLocalPetExpressionMappings(
     expressionRandomScope: draft.expressionRandomScope ?? "all",
     expressionSourceKinds,
     expressionSourceFiles,
+    expressionEffects,
     expressionSources: expressionSources.length ? expressionSources : pet.expressionSources,
     isLocal: true
   };
@@ -1680,6 +1751,10 @@ export async function saveLocalPetUiSettings(
     typeof clickThroughOpacitySource === "number" && Number.isFinite(clickThroughOpacitySource)
       ? Math.min(0.8, Math.max(0.2, Math.round(clickThroughOpacitySource * 100) / 100))
       : 0.45;
+  const cursorFollowEnabled =
+    typeof draft.cursorFollowEnabled === "boolean"
+      ? draft.cursorFollowEnabled
+      : pet.uiSettings?.cursorFollowEnabled !== false;
 
   const nextPet: PetDefinition = {
     ...pet,
@@ -1689,11 +1764,13 @@ export async function saveLocalPetUiSettings(
             theme: "custom",
             customThemeId: customTheme.id,
             customTheme,
-            clickThroughOpacity
+            clickThroughOpacity,
+            cursorFollowEnabled
           }
         : {
             theme: draft.theme,
-            clickThroughOpacity
+            clickThroughOpacity,
+            cursorFollowEnabled
           },
     isLocal: true
   };
@@ -1840,6 +1917,17 @@ export async function pickLocalPetVoiceModelFile(
     };
   }
 
+  if (kind === "referenceAudio") {
+    try {
+      await validateReferenceAudioDuration(result.filePaths[0]);
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "参考音频校验失败。"
+      };
+    }
+  }
+
   return {
     ok: true,
     message: "已选择文件。",
@@ -1859,6 +1947,7 @@ export async function testLocalPetVoiceModelConnection(
   }
 
   try {
+    await validateReferenceAudioDuration(draft.referenceAudioPath);
     await launchGptSoVitsApiIfNeeded(draft);
     const connected = await waitForGptSoVitsApi(120_000);
 
@@ -1908,6 +1997,17 @@ export async function saveLocalPetVoiceModel(
   const petId = assertValidPetId(rawPetId);
 
   assertSafePetDirectory(petId);
+
+  if (draft.referenceAudioPath) {
+    try {
+      await validateReferenceAudioDuration(draft.referenceAudioPath);
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "参考音频校验失败。"
+      };
+    }
+  }
 
   return withPetWriteLock(petId, async () => {
   const pet = await readPetConfigUnlocked(getPetConfigPath(petId), { forMutation: true });

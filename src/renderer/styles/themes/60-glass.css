@@ -391,7 +391,6 @@ h3 {
 .readyIcon,
 .voiceConnectSpinner,
 .voiceConnectSuccess,
-.voiceFileIcon,
 .importDropzoneIcon {
   border-radius: 14px;
   background:
@@ -399,6 +398,18 @@ h3 {
     linear-gradient(145deg, #3e8be4, #1859b5);
   color: #fff;
   box-shadow: 0 14px 30px rgba(36, 104, 216, 0.22);
+}
+
+.voiceFileIcon {
+  border: 1px solid rgba(76, 92, 112, 0.12);
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(228, 234, 241, 0.88)),
+    #edf1f5;
+  color: #42566d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 22px rgba(42, 55, 71, 0.1);
 }
 
 .primaryAction,
@@ -936,7 +947,7 @@ h3 {
 
 .eventTileHeader p,
 .previewEmptyText,
-.mappingScanMessage {
+.mappingSourceSummary {
   color: var(--ui-muted);
 }
 

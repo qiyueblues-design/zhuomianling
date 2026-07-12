@@ -508,7 +508,11 @@ export function AiPanel({
         </div>
       ) : null}
 
-      <SaveSuccessToast result={modelFeedbackResult} message={modelResult?.message ?? "连接成功"} />
+      <SaveSuccessToast
+        result={modelFeedbackResult}
+        title="连接成功"
+        message={modelResult?.message ?? "AI 服务已连接。"}
+      />
 
       {modelResult && !modelResult.ok ? (
         <div className="settingsResult error">

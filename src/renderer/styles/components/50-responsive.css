@@ -57,6 +57,10 @@
     grid-template-columns: 1fr;
   }
 
+  .editorCanvasOverlayHost {
+    grid-column: 1;
+  }
+
   .editorTabs,
   .voiceStatusPanel {
     position: static;
@@ -84,7 +88,6 @@
   .voiceCardHeader,
   .voiceServiceRow,
   .voiceEnableSection,
-  .eventTileHeader,
   .eventExpressionSection,
   .mappingRow,
   .voiceFileRow {

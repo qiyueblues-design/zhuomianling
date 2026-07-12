@@ -26,9 +26,9 @@ interface GptSoVitsConfig {
 }
 
 interface GptSoVitsErrorBody {
-  message?: string;
-  detail?: string;
-  error?: string;
+  message?: unknown;
+  detail?: unknown;
+  error?: unknown;
 }
 
 const configPath = path.resolve(process.cwd(), "config/tts.local.json");
@@ -266,10 +266,32 @@ function normalizePetConfig(
 
 async function readErrorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as GptSoVitsErrorBody;
-    return body.message ?? body.detail ?? body.error ?? `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
-  } catch {
+    const body = (await response.clone().json()) as GptSoVitsErrorBody;
+    const detail = body.message ?? body.detail ?? body.error;
+
+    if (typeof detail === "string" && detail.trim()) {
+      return detail.trim();
+    }
+
+    if (detail !== undefined) {
+      try {
+        const serialized = JSON.stringify(detail);
+        if (serialized && serialized !== "{}" && serialized !== "[]") {
+          return serialized;
+        }
+      } catch {
+        // Fall through to the status-based message below.
+      }
+    }
+
     return `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+  } catch {
+    try {
+      const body = (await response.text()).trim();
+      return body || `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+    } catch {
+      return `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+    }
   }
 }
 

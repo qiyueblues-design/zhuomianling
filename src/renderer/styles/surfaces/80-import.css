@@ -381,8 +381,7 @@
   .appTopbar,
   .appleSelectMenu,
   .mappingKeyMenu,
-  .startupCard,
-  .saveSuccessToast {
+  .startupCard {
     background: rgba(255, 255, 255, 0.97);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;

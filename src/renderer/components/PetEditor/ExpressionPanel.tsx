@@ -1,4 +1,4 @@
-import { ChevronDown, RefreshCw, Shuffle, X } from "lucide-react";
+import { ChevronDown, Play, Shuffle, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Live2DImportedSource } from "../../../shared/types/live2dImport";
 import type {
@@ -313,8 +313,6 @@ export function ExpressionPanel({
   const [mappingRows, setMappingRows] = useState<MappingRowDraft[]>(() =>
     createExpressionMappingRows(pet)
   );
-  const [hasScannedSources, setHasScannedSources] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSourceKind, setActiveSourceKind] = useState<MappingRowDraft["sourceKind"]>("motion");
   const [expressionSelectionMode, setExpressionSelectionMode] = useState(
@@ -327,7 +325,9 @@ export function ExpressionPanel({
   const [draftRandomScope, setDraftRandomScope] = useState<PetExpressionRandomScope>(
     pet.expressionRandomScope ?? "all"
   );
-  const [scanMessage, setScanMessage] = useState<string>();
+  const [previewMessage, setPreviewMessage] = useState<string>();
+  const [activePreviewRowId, setActivePreviewRowId] = useState<string>();
+  const activePreviewIdRef = useRef<number | undefined>();
   const [saveResult, setSaveResult] = useState<LocalPetSaveResult>();
   const validation = validateMappingRows(mappingRows);
   const randomMode = expressionSelectionMode === "random";
@@ -363,41 +363,43 @@ export function ExpressionPanel({
     setExpressionSelectionMode(pet.expressionSelectionMode ?? "semantic");
     setExpressionRandomScope(pet.expressionRandomScope ?? "all");
     setDraftRandomScope(pet.expressionRandomScope ?? "all");
-    setHasScannedSources(Boolean(pet.expressionSources?.length));
-    setScanMessage(undefined);
+    setPreviewMessage(undefined);
     setSaveResult(undefined);
     onDirtyChange(false);
   }, [onDirtyChange, pet]);
 
-  const scanSources = async (): Promise<void> => {
-    if (!pet.modelPath) {
-      setScanMessage("当前桌宠还没有导入 Live2D 模型。");
+  useEffect(() => {
+    return window.desktopPet?.petWindow.onSourcePreviewFinished(({ id }) => {
+      if (activePreviewIdRef.current === id) {
+        activePreviewIdRef.current = undefined;
+        setActivePreviewRowId(undefined);
+      }
+    });
+  }, []);
+
+  const previewSource = async (row: MappingRowDraft): Promise<void> => {
+    if (!pet.modelPath || row.runtimeName === undefined) {
+      setPreviewMessage("该资源暂时不能在桌面桌宠中预览。");
       return;
     }
 
-    setScanning(true);
-    setScanMessage(undefined);
+    const result = await window.desktopPet?.petWindow.previewSource({
+      petId: pet.id,
+      source: {
+        sourceFileName: row.sourceFileName,
+        runtimeName: row.runtimeName,
+        sourceKind: row.sourceKind
+      }
+    });
 
-    try {
-      const result = await window.desktopPet?.live2dImport.scanImportedSources(pet.id);
-      const sources = result?.sources ?? [];
-      const sourceItems = sources.map((source) => ({
-        sourceFileName: source.fileName,
-        runtimeName: source.name,
-        sourceKind: source.kind
-      }));
-      const nextRows = rowsFromSources(pet, sourceItems);
-
-      setMappingRows(nextRows);
-      setActiveSourceKind((current) => getPreferredSourceKind(nextRows, current));
-      setHasScannedSources(true);
-      onDirtyChange(true);
-      setScanMessage(result?.message ?? "扫描完成。");
-    } catch {
-      setScanMessage("扫描失败，请确认当前桌宠已导入 Live2D 文件夹。");
-    } finally {
-      setScanning(false);
+    if (!result?.ok) {
+      setPreviewMessage(result?.message ?? "桌面预览未能启动。");
+      return;
     }
+
+    activePreviewIdRef.current = result.previewId;
+    setActivePreviewRowId(row.id);
+    setPreviewMessage("正在桌面桌宠中预览。");
   };
 
   const updateMappingRow = (id: string, nextDraft: Partial<MappingRowDraft>): void => {
@@ -473,7 +475,7 @@ export function ExpressionPanel({
     setExpressionRandomScope(draftRandomScope);
     setRandomDialogOpen(false);
     setSaveResult(undefined);
-    setScanMessage("随机表现已开启：AI 回复时会随机播放表情。");
+    setPreviewMessage("随机表现已开启：AI 回复时会随机播放表情。");
     onDirtyChange(true);
   };
 
@@ -481,7 +483,7 @@ export function ExpressionPanel({
     setExpressionSelectionMode("semantic");
     setRandomDialogOpen(false);
     setSaveResult(undefined);
-    setScanMessage("随机表现已关闭：AI 回复时会按映射描述选择表情。");
+    setPreviewMessage("随机表现已关闭：AI 回复时会按映射描述选择表情。");
     onDirtyChange(true);
   };
 
@@ -501,20 +503,22 @@ export function ExpressionPanel({
           <Shuffle size={16} />
           随机
         </button>
-        <button className="mappingScanButton" type="button" onClick={() => void scanSources()} disabled={scanning}>
-          <RefreshCw size={16} className={scanning ? "spinIcon" : undefined} />
-          {scanning ? "扫描中" : "扫描"}
-        </button>
       </div>
 
-      {scanMessage ? <p className="mappingScanMessage">{scanMessage}</p> : null}
-      {randomMode ? (
-        <p className="mappingRandomStatus">
-          随机表现已开启，当前范围：
-          {expressionRandomScope === "motion" ? "动作" : expressionRandomScope === "expression" ? "表情" : "全部"}
-          ，可用 {selectedRandomScopeCount} 个。下方映射编辑已暂时锁定。
+      <div className="mappingMetaRow">
+        <p className="mappingSourceSummary">
+          {pet.modelPath
+            ? `已自动识别：${sourceKindCounts.motion} 个动作 · ${sourceKindCounts.expression} 个表情`
+            : "导入 Live2D 模型后会自动识别动作和表情。"}
         </p>
-      ) : null}
+        {randomMode ? (
+          <p className="mappingRandomStatus">
+            随机：
+            {expressionRandomScope === "motion" ? "动作" : expressionRandomScope === "expression" ? "表情" : "全部"}
+            · {selectedRandomScopeCount} 个（编辑已锁定）
+          </p>
+        ) : previewMessage ? <p className="mappingPreviewMessage">{previewMessage}</p> : null}
+      </div>
 
       <div className="mappingSourceSwitch" aria-label="源文件类型">
         <button
@@ -540,6 +544,7 @@ export function ExpressionPanel({
       <div className={randomMode ? "mappingEditArea randomLocked" : "mappingEditArea"}>
         <div className="mappingHeaderRow" aria-hidden="true">
           <span>源文件</span>
+          <span>预览</span>
           <span>映射 key</span>
           <span>{activeSourceLabel}描述</span>
         </div>
@@ -555,9 +560,19 @@ export function ExpressionPanel({
               value={row.sourceFileName}
               readOnly
               disabled={randomMode}
-              placeholder={hasScannedSources ? "未识别源文件" : "扫描后显示源文件"}
+              placeholder="导入后显示源文件"
               aria-label={`${row.id} 源文件名`}
             />
+            <button
+              className={activePreviewRowId === row.id ? "mappingPreviewButton active" : "mappingPreviewButton"}
+              type="button"
+              disabled={row.runtimeName === undefined}
+              title="在桌面桌宠中预览"
+              onClick={() => void previewSource(row)}
+            >
+              <Play size={14} fill="currentColor" aria-hidden="true" />
+              预览
+            </button>
             <MappingKeyInput
               id={row.id}
               value={row.mappingKey}
@@ -580,7 +595,7 @@ export function ExpressionPanel({
           );
         }) : (
           <div className="mappingEmptyState">
-            {hasScannedSources ? `没有扫描到${activeSourceLabel}源文件。` : "扫描后显示源文件。"}
+            {pet.modelPath ? `没有识别到${activeSourceLabel}源文件。` : "导入模型后显示源文件。"}
           </div>
         )}
         </div>

@@ -444,8 +444,7 @@ html:not(.startupAnimationsActive) .startupProgress span {
   .startupEye,
   .startupPaw,
   .startupFoot,
-  .startupProgress span,
-  .saveSuccessToast {
+  .startupProgress span {
     animation: none;
   }
 

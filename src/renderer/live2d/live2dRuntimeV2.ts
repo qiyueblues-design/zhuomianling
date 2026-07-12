@@ -447,6 +447,13 @@ export class Cubism2Live2DModel {
   private readonly onError?: (error: unknown) => void;
   private readonly motionCache = new DeferredLive2DAssetCache<Cubism2Motion>();
   private readonly expressionCache = new DeferredLive2DAssetCache<Cubism2Motion>();
+  private expressionNeutralFade:
+    | {
+        fromValues: number[];
+        startedAt: number;
+        durationMs: number;
+      }
+    | undefined;
   private gl: WebGLRenderingContext;
   private baseModel: Cubism2BaseModel;
   private modelJson?: Cubism2ModelJson;
@@ -469,6 +476,7 @@ export class Cubism2Live2DModel {
   private targetLookY = 0;
   private lookX = 0;
   private lookY = 0;
+  private cursorFollowEnabled: boolean;
 
   private constructor(options: CubismLive2DModelOptions, framework: Live2DFrameworkExports) {
     this.canvas = options.canvas;
@@ -477,6 +485,7 @@ export class Cubism2Live2DModel {
     this.framework = framework;
     this.autoIdle = options.autoIdle ?? false;
     this.fitMode = options.fitMode ?? "stage";
+    this.cursorFollowEnabled = options.cursorFollowEnabled ?? true;
     this.externalAbortSignal = options.abortSignal;
     this.onHit = options.onHit;
     this.onError = options.onError;
@@ -677,6 +686,35 @@ export class Cubism2Live2DModel {
     }
   }
 
+  isMotionPlaying(): boolean {
+    return !this.baseModel.mainMotionManager.isFinished();
+  }
+
+  isExpressionPlaying(): boolean {
+    return !this.baseModel.expressionManager.isFinished() || Boolean(this.expressionNeutralFade);
+  }
+
+  fadeExpressionToNeutral(durationSeconds = 0.35): void {
+    const rawModel = this.baseModel.live2DModel;
+
+    if (!rawModel || !this.initialSavedParameterSnapshot.length) {
+      this.baseModel.expressionManager.stopAllMotions?.();
+      return;
+    }
+
+    const fromValues = this.initialSavedParameterSnapshot.map((fallback, index) => {
+      const current = rawModel.getParamFloat?.(index);
+      return Number.isFinite(current) ? current : fallback;
+    });
+
+    this.baseModel.expressionManager.stopAllMotions?.();
+    this.expressionNeutralFade = {
+      fromValues,
+      startedAt: window.performance.now(),
+      durationMs: Math.max(1, Math.round(durationSeconds * 1000))
+    };
+  }
+
   resetToNeutralFace(): void {
     const rawModel = this.baseModel.live2DModel;
 
@@ -687,6 +725,7 @@ export class Cubism2Live2DModel {
     this.motionOperationSequence += 1;
     this.expressionOperationSequence += 1;
     this.stopMotionManagers();
+    this.expressionNeutralFade = undefined;
     this.baseModel.lipSync = false;
     this.baseModel.lipSyncValue = 0;
     this.baseModel.dragX = 0;
@@ -711,6 +750,19 @@ export class Cubism2Live2DModel {
 
   lookAtClientPoint(clientX: number, clientY: number): void {
     this.updatePointerTargetFromClientPoint(clientX, clientY);
+  }
+
+  stopFollowingCursor(): void {
+    this.targetLookX = 0;
+    this.targetLookY = 0;
+  }
+
+  setCursorFollowEnabled(enabled: boolean): void {
+    this.cursorFollowEnabled = enabled;
+
+    if (!enabled) {
+      this.stopFollowingCursor();
+    }
   }
 
   destroy(): void {
@@ -1146,6 +1198,7 @@ export class Cubism2Live2DModel {
     rawModel.addToParamFloat("PARAM_ANGLE_Y", Number(8 * Math.sin(t / 3.5345)), 0.5);
     rawModel.addToParamFloat("PARAM_ANGLE_Z", Number(10 * Math.sin(t / 5.5345)), 0.5);
     rawModel.addToParamFloat("PARAM_BODY_ANGLE_X", Number(4 * Math.sin(t / 15.5345)), 0.5);
+    this.applyExpressionNeutralFade(rawModel);
     rawModel.setParamFloat("PARAM_BREATH", Number(0.5 + 0.5 * Math.sin(t / 3.2345)), 1);
 
     this.baseModel.physics?.updateParam(rawModel);
@@ -1161,6 +1214,27 @@ export class Cubism2Live2DModel {
     rawModel.setMatrix(multiplyMatrix(this.viewProjectionMatrix, modelMatrix));
     this.bindGL();
     rawModel.draw();
+  }
+
+  private applyExpressionNeutralFade(rawModel: Cubism2RawModel): void {
+    const fade = this.expressionNeutralFade;
+
+    if (!fade) {
+      return;
+    }
+
+    const progress = Math.min(1, Math.max(0, (window.performance.now() - fade.startedAt) / fade.durationMs));
+    const eased = 1 - (1 - progress) * (1 - progress);
+
+    for (let index = 0; index < this.initialSavedParameterSnapshot.length; index += 1) {
+      const target = this.initialSavedParameterSnapshot[index];
+      const from = fade.fromValues[index] ?? target;
+      rawModel.setParamFloat(index, from + (target - from) * eased, 1);
+    }
+
+    if (progress >= 1) {
+      this.expressionNeutralFade = undefined;
+    }
   }
 
   private bindGL(): void {
@@ -1236,11 +1310,15 @@ export class Cubism2Live2DModel {
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
     this.onHit?.();
-    this.updatePointerTarget(event);
+    if (this.cursorFollowEnabled) {
+      this.updatePointerTarget(event);
+    }
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
-    this.updatePointerTarget(event);
+    if (this.cursorFollowEnabled) {
+      this.updatePointerTarget(event);
+    }
   };
 
   private readonly handlePointerLeave = (): void => {

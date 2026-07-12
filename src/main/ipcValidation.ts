@@ -79,7 +79,10 @@ export const validatedIpcChannels = new Set([
   "pet-window:move-drag",
   "pet-window:end-drag",
   "pet-window:get-state",
-  "pet-window:get-payload"
+  "pet-window:get-payload",
+  "pet-window:preview-source",
+  "pet-window:consume-pending-source-preview",
+  "pet-window:complete-source-preview"
 ]);
 
 function fail(channel: string, message: string): never {
@@ -310,7 +313,8 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     "pet-window:toggle-click-through",
     "pet-window:end-drag",
     "pet-window:get-state",
-    "pet-window:get-payload"
+    "pet-window:get-payload",
+    "pet-window:consume-pending-source-preview"
   ]);
 
   if (noArgumentChannels.has(channel)) {
@@ -542,6 +546,35 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
       maxTotalStringLength: 4_000_000,
       maxNodes: 40_000
     });
+    return;
+  }
+
+  if (channel === "pet-window:preview-source") {
+    expectArgumentCount(channel, args, 1);
+    const request = assertRecord(channel, args[0]);
+    assertPetId(channel, request.petId);
+    const source = assertRecord(channel, request.source, "source");
+    if (source.sourceKind !== "motion" && source.sourceKind !== "expression") {
+      fail(channel, "sourceKind 无效。");
+    }
+    assertString(channel, source.sourceFileName, "sourceFileName", 1024);
+    if (typeof source.runtimeName !== "string" && typeof source.runtimeName !== "number") {
+      fail(channel, "runtimeName 必须是字符串或数字。");
+    }
+    if (typeof source.runtimeName === "string") {
+      assertString(channel, source.runtimeName, "runtimeName", 1024);
+    } else if (!Number.isFinite(source.runtimeName)) {
+      fail(channel, "runtimeName 必须是有限数字。");
+    }
+    assertSafePayload(channel, request, { maxStringLength: 1024, maxTotalStringLength: 4096 });
+    return;
+  }
+
+  if (channel === "pet-window:complete-source-preview") {
+    expectArgumentCount(channel, args, 1);
+    if (typeof args[0] !== "number" || !Number.isSafeInteger(args[0]) || args[0] < 1) {
+      fail(channel, "previewId 无效。");
+    }
     return;
   }
 

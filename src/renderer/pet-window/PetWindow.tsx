@@ -94,6 +94,7 @@ export function PetWindow(): JSX.Element {
   const voiceInputEnabled = Boolean(petDefinition?.capabilities.voiceInput);
   const uiTheme = petDefinition?.uiSettings?.theme ?? "soft";
   const clickThroughOpacity = getClickThroughOpacity(petDefinition?.uiSettings?.clickThroughOpacity);
+  const cursorFollowEnabled = petDefinition?.uiSettings?.cursorFollowEnabled !== false;
   const customThemeStyle = getCustomThemeStyle(petDefinition?.uiSettings?.customTheme);
   const subtitle = useSubtitle();
   const clickThroughButtonRef = useRef<HTMLButtonElement>(null);
@@ -436,6 +437,41 @@ export function PetWindow(): JSX.Element {
     });
   }, [subtitle.hide]);
 
+  useEffect(() => {
+    let disposed = false;
+    const applyPreview = (preview: { id: number; source: PetExpressionSourceItem }): void => {
+      if (disposed) {
+        return;
+      }
+
+      setExpressionEvent({
+        id: preview.id,
+        source: {
+          sourceKind: preview.source.sourceKind,
+          runtimeName: preview.source.runtimeName ?? preview.source.sourceFileName,
+          index:
+            preview.source.sourceKind === "motion"
+              ? getMotionSourceIndex(preview.source)
+              : undefined
+        },
+        priority: "high",
+        durationMs: preview.source.sourceKind === "expression" ? 5000 : undefined
+      });
+    };
+
+    void window.desktopPet?.petWindow.consumePendingSourcePreview().then((preview) => {
+      if (preview) {
+        applyPreview(preview);
+      }
+    });
+    const unsubscribe = window.desktopPet?.petWindow.onSourcePreview(applyPreview);
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, []);
+
   const getMotionSourceIndex = (source: PetExpressionSourceItem): number => {
     const runtimeName = source.runtimeName;
 
@@ -443,7 +479,7 @@ export function PetWindow(): JSX.Element {
       return 0;
     }
 
-    const sameGroupSources = (petDefinition?.expressionSources ?? []).filter(
+    const sameGroupSources = (petDefinitionRef.current?.expressionSources ?? []).filter(
       (item) => item.sourceKind === "motion" && String(item.runtimeName) === String(runtimeName)
     );
     const index = sameGroupSources.findIndex(
@@ -867,6 +903,9 @@ export function PetWindow(): JSX.Element {
           expressions={petDefinition?.expressions}
           expressionEffects={petDefinition?.expressionEffects}
           expressionEvent={expressionEvent}
+          onExpressionEventFinished={(eventId) => {
+            void window.desktopPet?.petWindow.completeSourcePreview(eventId);
+          }}
           explodeEventId={explodeEventId}
           onModelReady={() => {
             triggerEventExpression("ready", "normal", "nervous");
@@ -885,6 +924,7 @@ export function PetWindow(): JSX.Element {
               lookAtListenersRef.current.delete(callback);
             };
           }}
+          lookAtEnabled={cursorFollowEnabled}
         />
       </div>
 

@@ -301,27 +301,81 @@
 .mappingRow {
   position: relative;
   align-items: start;
-  grid-template-columns: minmax(132px, 0.72fr) minmax(132px, 0.72fr) minmax(160px, 1fr);
+  grid-template-columns: minmax(132px, 0.72fr) auto minmax(132px, 0.72fr) minmax(160px, 1fr);
 }
 
-.mappingScanMessage {
-  margin: -2px 0 2px;
+.mappingSourceSummary,
+.mappingPreviewMessage {
+  margin: 0;
   color: #607080;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 
+.mappingPreviewMessage {
+  color: #1766c2;
+}
+
+.mappingPreviewButton {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(82, 96, 112, 0.2);
+  border-radius: 9px;
+  padding: 0 10px;
+  background: #f5f7fa;
+  color: #52606d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.mappingPreviewButton:hover:not(:disabled) {
+  border-color: rgba(52, 64, 82, 0.36);
+  background: #e9edf2;
+  color: #344052;
+}
+
+.mappingPreviewButton.active {
+  border-color: rgba(38, 132, 255, 0.5);
+  background: #eaf3ff;
+  color: #1766c2;
+}
+
+.mappingPreviewButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.eventPreviewMessage {
+  margin: 0;
+  color: #1766c2;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mappingMetaRow {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(38, 132, 255, 0.12);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: rgba(244, 249, 255, 0.72);
+}
+
 .mappingRandomStatus {
-  margin: -2px 0 2px;
-  border: 1px solid rgba(0, 122, 255, 0.16);
-  border-radius: 14px;
-  padding: 9px 12px;
-  background:
-    linear-gradient(135deg, rgba(232, 244, 255, 0.92), rgba(255, 255, 255, 0.74)),
-    #f4f9ff;
+  margin: 0;
   color: #24517d;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 850;
+  white-space: nowrap;
 }
 
 .mappingEditArea {
@@ -337,25 +391,23 @@
 
 .mappingEditArea.randomLocked .mappingRow,
 .mappingEditArea.randomLocked .mappingHeaderRow {
-  pointer-events: none;
+  filter: grayscale(0.12);
 }
 
 .mappingHeaderRow {
   display: grid;
-  grid-template-columns: minmax(132px, 0.72fr) minmax(132px, 0.72fr) minmax(160px, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(132px, 0.72fr) auto minmax(132px, 0.72fr) minmax(160px, 1fr);
+  gap: 8px;
   border: 1px solid rgba(73, 103, 138, 0.2);
   border-radius: 14px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   background:
     linear-gradient(135deg, rgba(211, 226, 244, 0.96), rgba(229, 237, 248, 0.92)),
     #dce8f6;
   color: #17202a;
   font-size: 12px;
   font-weight: 900;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.68),
-    0 10px 22px rgba(38, 50, 65, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
 }
 
 .mappingHeaderRow span {
@@ -366,22 +418,20 @@
 .mappingSourceSwitch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 5px;
   border: 1px solid rgba(73, 103, 138, 0.16);
   border-radius: 14px;
-  padding: 5px;
+  padding: 3px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(241, 247, 255, 0.72)),
     rgba(255, 255, 255, 0.66);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 10px 24px rgba(38, 50, 65, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .mappingSourceButton {
   display: inline-flex;
   min-width: 0;
-  min-height: 38px;
+  min-height: 32px;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -440,7 +490,38 @@
   min-height: 0;
   max-height: calc(100vh - 156px);
   overflow: hidden;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+  gap: 8px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+.expressionMappingPanel .panelTitleRow {
+  align-items: center;
+}
+
+.expressionMappingPanel .panelTitleRow p {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.expressionMappingPanel .mappingRandomToggle {
+  min-width: 90px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.expressionMappingPanel .mappingEditArea {
+  gap: 8px;
+}
+
+.expressionMappingPanel .mappingList {
+  gap: 8px;
+}
+
+.expressionMappingPanel .mappingRow {
+  gap: 8px;
+  padding: 8px 10px;
 }
 
 .expressionMappingPanel .mappingList {

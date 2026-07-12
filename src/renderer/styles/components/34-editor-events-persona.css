@@ -16,14 +16,47 @@
 
 .eventTileHeader {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  align-items: start;
+  align-items: center;
   border-bottom: 1px solid rgba(23, 32, 42, 0.08);
   padding-bottom: 9px;
 }
 
 .eventTileHeader strong {
   color: #17202a;
+  font-size: 15px;
+  font-weight: 950;
+  letter-spacing: 0.01em;
+}
+
+.eventSourcePreviewIconButton {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid rgba(82, 96, 112, 0.2);
+  border-radius: 10px;
+  background: #f5f7fa;
+  color: #52606d;
+  cursor: pointer;
+}
+
+.eventSourcePreviewIconButton:hover:not(:disabled) {
+  border-color: rgba(52, 64, 82, 0.36);
+  background: #e9edf2;
+  color: #344052;
+}
+
+.eventSourcePreviewIconButton.active {
+  border-color: rgba(38, 132, 255, 0.52);
+  background: #eaf3ff;
+  color: #1766c2;
+}
+
+.eventSourcePreviewIconButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .eventTileHeader select {

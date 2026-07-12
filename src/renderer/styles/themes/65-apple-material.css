@@ -358,13 +358,25 @@ h2,
 .readyIcon,
 .voiceConnectSpinner,
 .voiceConnectSuccess,
-.voiceFileIcon,
 .importDropzoneIcon {
   border-radius: 14px;
   background:
     radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.72), transparent 34%),
     linear-gradient(145deg, #1683ff, #0057c2);
   box-shadow: 0 16px 32px rgba(0, 122, 255, 0.22);
+}
+
+.voiceFileIcon {
+  border: 1px solid rgba(70, 84, 101, 0.12);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.94), transparent 38%),
+    linear-gradient(145deg, rgba(248, 250, 252, 0.98), rgba(222, 229, 237, 0.92));
+  color: #3f5369;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -1px 0 rgba(70, 84, 101, 0.06),
+    0 10px 24px rgba(42, 55, 71, 0.1);
 }
 
 .primaryAction,
@@ -841,7 +853,7 @@ h2,
 .eventTileHeader {
   border-bottom: 1px solid rgba(54, 72, 91, 0.08);
   border-radius: 0;
-  padding: 0 0 7px;
+  padding: 0 0 9px;
   background: transparent;
 }
 
@@ -853,7 +865,7 @@ h2,
 
 .eventTitleBlock strong {
   color: #17202a;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 950;
 }
 
@@ -879,6 +891,11 @@ h2,
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   justify-self: stretch;
+}
+
+.eventSourcePreviewIconButton {
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .eventTimingGrid {
@@ -1106,4 +1123,3 @@ h2,
 .resourceItem {
   overflow: visible;
 }
-
