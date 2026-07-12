@@ -14,13 +14,17 @@ import {
   stopManagedGptSoVitsApi
 } from "./services/config/petConfigStore";
 import { migrateLegacyAiConnections } from "./services/ai/aiSettings";
+import { clearSafeAppCaches } from "./services/cache/appCacheCleanup";
 
 let mainWindow: Electron.BrowserWindow | null = null;
 let isQuitting = false;
+let shutdownCleanupCompleted = false;
+let shutdownCleanupPromise: Promise<void> | undefined;
 
 app.setName("桌面灵");
 
 const userDataDirectoryName = "zhuomianling";
+const shutdownCleanupTimeoutMs = 5_000;
 
 app.setPath("userData", path.join(app.getPath("appData"), userDataDirectoryName));
 
@@ -37,12 +41,56 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
+async function runShutdownCleanup(): Promise<void> {
+  const cleanup = (async () => {
+    stopManagedGptSoVitsApi();
+    await resetLocalPetVoiceRuntimeState();
+
+    try {
+      await session.defaultSession.clearCache();
+    } catch (error) {
+      console.warn("Failed to clear Chromium HTTP cache during shutdown.", error);
+    }
+
+    await clearSafeAppCaches();
+  })();
+
+  let timeout: NodeJS.Timeout | undefined;
+
+  try {
+    await Promise.race([
+      cleanup,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Application shutdown cleanup timed out.")),
+          shutdownCleanupTimeoutMs
+        );
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 if (!gotLock) {
   app.quit();
 } else {
-  app.on("before-quit", () => {
-    stopManagedGptSoVitsApi();
-    void resetLocalPetVoiceRuntimeState();
+  app.on("before-quit", (event) => {
+    if (shutdownCleanupCompleted) {
+      return;
+    }
+
+    event.preventDefault();
+    shutdownCleanupPromise ??= runShutdownCleanup()
+      .catch((error) => {
+        console.warn("Failed to complete application shutdown cleanup.", error);
+      })
+      .finally(() => {
+        shutdownCleanupCompleted = true;
+        app.quit();
+      });
   });
 
   app.on("second-instance", () => {
@@ -101,7 +149,6 @@ if (!gotLock) {
       event.preventDefault();
       isQuitting = true;
       void closePetWindow({ playEffect: false })
-        .then(() => resetLocalPetVoiceRuntimeState())
         .finally(() => app.quit());
     });
 
@@ -120,7 +167,6 @@ if (!gotLock) {
     if (process.platform !== "darwin") {
       isQuitting = true;
       void closePetWindow({ playEffect: false })
-        .then(() => resetLocalPetVoiceRuntimeState())
         .finally(() => app.quit());
     }
   });
