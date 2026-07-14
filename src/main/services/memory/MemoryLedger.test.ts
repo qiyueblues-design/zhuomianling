@@ -181,6 +181,24 @@ describe("MemoryLedger mutations and recovery", () => {
     expect(duplicate).toMatchObject({ duplicate: true, outboxSequences: [] });
     expect(ledger.snapshot()).toHaveLength(1);
     expect(ledger.getSourceTurns()).toHaveLength(1);
+    expect(ledger.getSourceConversation("automatic-1")).toEqual({
+      userText: turn.userText,
+      assistantReply: turn.assistantReply,
+      occurredAt: turn.occurredAt,
+      organizedAt: expect.any(String)
+    });
+    const edited = await ledger.update({
+      petId: "pet-a",
+      memoryId: "automatic-1",
+      expectedRevision: 1,
+      content: "Now prefers calm mornings"
+    });
+    expect(edited.memory.revision).toBe(2);
+    expect(ledger.getSourceConversation("automatic-1")).toMatchObject({
+      userText: turn.userText,
+      assistantReply: turn.assistantReply
+    });
+    expect(ledger.getSourceConversation("missing-memory")).toBeUndefined();
     await expect(ledger.commitAutomaticTurn(turn, "b".repeat(64), entries)).rejects.toMatchObject({
       code: "MEMORY_REVISION_CONFLICT"
     });

@@ -3,12 +3,19 @@ import {
   advanceMemoryBookPage,
   createMemoryBookRouteState,
   formatMemoryDate,
+  formatMemoryDateTime,
+  getMemoryBookRequestPageSizes,
   getMemoryBookRestoreScrollTop,
+  MEMORY_CHAPTER_META,
   memoryErrorMessage,
   resetMemoryBookPagination
 } from "./memoryBookState";
 
 describe("memory book route state", () => {
+  it("formats source conversation timestamps with date and minute precision", () => {
+    expect(formatMemoryDateTime("2026-07-14T10:05:00.000Z")).not.toBe("时间未知");
+    expect(formatMemoryDateTime("invalid")).toBe("时间未知");
+  });
   it("starts at a keyboard-openable cover with bounded first page", () => {
     expect(createMemoryBookRouteState()).toMatchObject({
       section: "cover",
@@ -17,6 +24,18 @@ describe("memory book route state", () => {
       cursors: [undefined],
       pageIndex: 0
     });
+  });
+
+  it("fills both paper pages without exceeding the five-record IPC limit", () => {
+    expect(getMemoryBookRequestPageSizes("book", false)).toEqual([3, 3]);
+    expect(getMemoryBookRequestPageSizes("book", true)).toEqual([3]);
+    expect(getMemoryBookRequestPageSizes("list", false)).toEqual([5]);
+  });
+
+  it("keeps chapter descriptions aligned with the automatic organizer rules", () => {
+    expect(MEMORY_CHAPTER_META.preferences_habits.description).toBe("偏好、习惯与稳定互动方式");
+    expect(MEMORY_CHAPTER_META.important_events.description).toBe("共同经历、具体承诺与重要行动");
+    expect(MEMORY_CHAPTER_META.relationships_goals.description).toBe("称呼、相处约定、边界与长期目标");
   });
 
   it("resets cursor history whenever filters change", () => {

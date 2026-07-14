@@ -8,6 +8,7 @@ describe("preload capability separation", () => {
     expect(source).toContain('ipcRenderer.invoke("pet-config:delete"');
     expect(source).toContain('ipcRenderer.invoke("live2d-import:import-model"');
     expect(source).toContain('ipcRenderer.invoke("memory:list"');
+    expect(source).toContain('ipcRenderer.invoke("memory:get-source-conversation"');
     expect(source).toContain('ipcRenderer.invoke("memory:clear"');
     for (const forbiddenChannel of [
       "ai-chat:stream",

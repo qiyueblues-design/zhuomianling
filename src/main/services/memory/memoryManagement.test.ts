@@ -82,6 +82,43 @@ describe("MemoryManagementService", () => {
       memoryId: petA.ok ? petA.value.items[0]!.id : "missing"
     });
     expect(missing).toEqual({ ok: true, value: undefined });
+    await expect(service.getSourceConversation({
+      petId: "pet-b",
+      memoryId: petA.ok ? petA.value.items[0]!.id : "missing"
+    })).resolves.toEqual({ ok: true, value: undefined });
+  });
+
+  it("returns only the retained source turn associated with the requested memory", async () => {
+    const { service, dependencies } = fixture();
+    const ledger = await dependencies.openLedger("pet-a");
+    await ledger.commitAutomaticTurn({
+      petId: "pet-a",
+      requestId: "source-request",
+      userText: "用户来源内容",
+      assistantReply: "桌宠最终回复",
+      occurredAt: "2026-07-14T10:00:00.000Z",
+      retainSource: true
+    }, "c".repeat(64), [{
+      id: "source-memory",
+      petId: "pet-a",
+      chapter: "important_events",
+      memoryType: "event",
+      content: "我记得这一轮对话",
+      origin: "automatic"
+    }]);
+    ledger.close();
+
+    const result = await service.getSourceConversation({ petId: "pet-a", memoryId: "source-memory" });
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        userText: "用户来源内容",
+        assistantReply: "桌宠最终回复",
+        occurredAt: "2026-07-14T10:00:00.000Z",
+        organizedAt: expect.any(String)
+      }
+    });
+    expect(JSON.stringify(result)).not.toMatch(/requestId|ledger|sqlite|indexPath|[A-Z]:\\/i);
   });
 
   it("serializes duplicate mutations so stale revisions fail without duplicating outbox writes", async () => {

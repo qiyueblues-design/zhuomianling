@@ -22,6 +22,7 @@ import {
   type MemoryRevisionRequest,
   type MemorySettingsSaveRequest,
   type MemorySettings,
+  type MemorySourceConversationRequest,
   type MemoryUpdateRequest
 } from "../types/memory";
 import { assertValidPetId } from "./petId";
@@ -219,6 +220,12 @@ export function assertMemoryGetRequest(value: MemoryGetRequest): void {
   assertValidPetId(value.petId);
   assertBoundedMemoryString(value.memoryId, "memoryId", MEMORY_LIMITS.idChars);
   if (value.includeDeleted !== undefined) assertBoolean(value.includeDeleted, "includeDeleted");
+  assertMemoryObjectBudget(value);
+}
+
+export function assertMemorySourceConversationRequest(value: MemorySourceConversationRequest): void {
+  assertValidPetId(value.petId);
+  assertBoundedMemoryString(value.memoryId, "memoryId", MEMORY_LIMITS.idChars);
   assertMemoryObjectBudget(value);
 }
 

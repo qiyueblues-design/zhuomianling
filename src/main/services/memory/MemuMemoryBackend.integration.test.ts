@@ -101,6 +101,11 @@ describe.skipIf(!pythonPath || !memuRoot || !onnxRoot || !modelRoot)("real memU 
       expect(normalizeMessages[0]?.content).toContain("‘我’始终指当前桌宠/助手");
       expect(normalizeMessages[0]?.content).toContain("‘你’始终指当前用户");
       expect(normalizeMessages[0]?.content).toContain("用户说‘你喜欢喝奶茶’应整理为‘我喜欢喝奶茶’");
+      expect(normalizeMessages[0]?.content).toContain("用户与桌宠共同确认的称呼、约定、边界和稳定互动方式");
+      expect(normalizeMessages[0]?.content).toContain("桌宠在 assistantReply 中明确作出的具体承诺");
+      expect(normalizeMessages[0]?.content).toContain("本轮真实发生的共同经历");
+      expect(normalizeMessages[0]?.content).toContain("即时情绪，不得保存");
+      expect(normalizeMessages[0]?.content).toContain("与核心人格有关的变化不能由本轮回复自行确立");
       await expect(client.request("health")).resolves.toMatchObject({ embeddingLoaded: false });
       await expect(fs.readdir(path.join(indexDirectoryForPet("pet-a"), "current", "resources"))).resolves.toEqual([]);
     } finally {

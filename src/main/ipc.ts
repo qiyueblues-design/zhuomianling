@@ -41,6 +41,7 @@ import type {
   MemoryRevisionRequest,
   MemorySearchRequest,
   MemorySettingsSaveRequest,
+  MemorySourceConversationRequest,
   MemoryUpdateRequest
 } from "../shared/types/memory";
 import type { StartupRendererStage } from "../shared/types/startup";
@@ -444,6 +445,10 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
 
   handle("memory:get", "main", (_event, request: MemoryGetRequest) =>
     memoryManagementService.get(request)
+  );
+
+  handle("memory:get-source-conversation", "main", (_event, request: MemorySourceConversationRequest) =>
+    memoryManagementService.getSourceConversation(request)
   );
 
   handle("memory:search", "main", (_event, request: MemorySearchRequest) =>

@@ -278,7 +278,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
                 "memories": [{
                     "chapter": "preferences_habits",
                     "memoryType": "behavior",
-                    "content": "  用户喜欢雨天散步  ",
+                    "content": "  你喜欢雨天散步  ",
                     "tags": ["散步", "家", "walking"],
                 }]
             }, ensure_ascii=False)
@@ -294,7 +294,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
                 "chatModel": "model",
                 "provider": "openai-compatible",
             })
-            self.assertEqual(result["entries"][0]["content"], "用户喜欢雨天散步")
+            self.assertEqual(result["entries"][0]["content"], "你喜欢雨天散步")
             self.assertEqual(result["entries"][0]["tags"], ["散步", "家"])
             self.assertEqual(result["entries"][0]["petId"], "pet-a")
             self.assertEqual(index.inspect()["indexedCount"], 0)
@@ -313,6 +313,15 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("用户说‘你喜欢喝奶茶’应整理为‘我喜欢喝奶茶’", system_prompt)
             self.assertIn("用户说‘你称赞我很可爱’应整理为‘我称赞你很可爱’", system_prompt)
             self.assertIn("不能因为缺少另一个人称而省略判断", system_prompt)
+            self.assertIn("用户与桌宠共同确认的称呼、约定、边界和稳定互动方式", system_prompt)
+            self.assertIn("桌宠在 assistantReply 中明确作出的具体承诺", system_prompt)
+            self.assertIn("本轮真实发生的共同经历", system_prompt)
+            self.assertIn("我以后称呼你为小睦", system_prompt)
+            self.assertIn("我答应继续陪你完成这件事", system_prompt)
+            self.assertIn("即时情绪，不得保存", system_prompt)
+            self.assertIn("普通回应，不得单独保存", system_prompt)
+            self.assertIn("与核心人格有关的变化不能由本轮回复自行确立", system_prompt)
+            self.assertIn("共同经历、桌宠具体承诺或已完成的重要行为放入 important_events", system_prompt)
             conversation = json.loads(request["body"]["messages"][1]["content"])
             self.assertEqual(conversation, {
                 "assistantReply": "我记住了",

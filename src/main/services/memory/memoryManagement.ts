@@ -18,6 +18,8 @@ import type {
   MemorySearchRequest,
   MemorySettings,
   MemorySettingsSaveRequest,
+  MemorySourceConversation,
+  MemorySourceConversationRequest,
   MemorySummary,
   MemoryUpdateRequest
 } from "../../../shared/types/memory";
@@ -31,6 +33,7 @@ import {
   assertMemoryRevisionRequest,
   assertMemorySearchRequest,
   assertMemorySettingsSaveRequest,
+  assertMemorySourceConversationRequest,
   assertMemoryUpdateRequest,
   normalizeMemorySettings
 } from "../../../shared/validation/memory";
@@ -169,6 +172,20 @@ export class MemoryManagementService {
     return this.execute(request.petId, (petId) => this.withLedger(
       petId,
       (ledger) => ledger.get(request.memoryId, request.includeDeleted)
+    ));
+  }
+
+  getSourceConversation(
+    request: MemorySourceConversationRequest
+  ): Promise<MemoryResult<MemorySourceConversation | undefined>> {
+    try {
+      assertMemorySourceConversationRequest(request);
+    } catch (error) {
+      return Promise.resolve({ ok: false, error: toMemoryErrorDto(error) });
+    }
+    return this.execute(request.petId, (petId) => this.withLedger(
+      petId,
+      (ledger) => ledger.getSourceConversation(request.memoryId)
     ));
   }
 

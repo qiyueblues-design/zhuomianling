@@ -11,8 +11,10 @@ import {
   Download,
   FileJson,
   FileText,
+  HardDrive,
   Heart,
   LayoutList,
+  MessageSquareQuote,
   MoonStar,
   Pencil,
   Plus,
@@ -38,6 +40,7 @@ import type {
   MemoryChapter,
   MemoryManagementStatus,
   MemoryRecord,
+  MemorySourceConversation,
   MemorySettings as MemorySettingsDto,
   MemorySummary
 } from "../../../shared/types/memory";
@@ -48,13 +51,15 @@ import {
   advanceMemoryBookPage,
   createMemoryBookRouteState,
   formatMemoryDate,
+  getMemoryBookRequestPageSizes,
   getMemoryBookRestoreScrollTop,
   memoryErrorMessage,
   resetMemoryBookPagination
 } from "./memoryBookState";
 import type { MemoryBookChapterFilter, MemoryBookRouteState } from "./memoryBookState";
+import { MemorySourcePanel } from "./MemorySourcePanel";
 
-const PAGE_SIZE = 5;
+const LIST_PAGE_SIZE = 5;
 const MEMORY_ONBOARDING_PAGE_TURN_MS = 1200;
 
 interface MemoryBookProps {
@@ -71,6 +76,13 @@ interface UndoState {
 }
 
 type EditorState = { mode: "create"; chapter: MemoryChapter } | { mode: "edit"; memory: MemoryRecord };
+
+interface SourceConversationState {
+  memory: MemoryRecord;
+  loading: boolean;
+  source?: MemorySourceConversation;
+  error?: string;
+}
 
 function initialChapter(value: MemoryBookChapterFilter): MemoryChapter {
   return value === "all" ? "about_you" : value;
@@ -92,6 +104,7 @@ function MemoryDialog({
   wide?: boolean;
 }): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -107,18 +120,35 @@ function MemoryDialog({
         className={wide ? "memoryDialog memoryDialogWide" : "memoryDialog"}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         ref={panelRef}
         tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation();
             onClose();
+            return;
+          }
+          if (event.key === "Tab") {
+            const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+              "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])"
+            )).filter((element) => !element.hasAttribute("hidden"));
+            const first = focusable[0];
+            const last = focusable.at(-1);
+            if (!first || !last) {
+              event.preventDefault();
+            } else if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
           }
         }}
       >
         <header>
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button className="memoryIconButton" type="button" aria-label="关闭" onClick={onClose}><X size={18} /></button>
         </header>
         {children}
@@ -402,6 +432,41 @@ function MemorySettingsPanel({
   onRebuild: () => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(settings);
+  const [confirmSourceRetention, setConfirmSourceRetention] = useState(false);
+  const sourceRetentionToggleRef = useRef<HTMLInputElement>(null);
+  const sourceRetentionHelpId = useId();
+  const finishSourceRetentionConfirmation = (enabled: boolean): void => {
+    if (enabled) setDraft((current) => ({ ...current, retainSources: true }));
+    setConfirmSourceRetention(false);
+    window.requestAnimationFrame(() => sourceRetentionToggleRef.current?.focus());
+  };
+
+  if (confirmSourceRetention) {
+    return (
+      <MemoryDialog title="开启来源对话保留？" onClose={() => finishSourceRetentionConfirmation(false)} wide>
+        <div className="memoryRetentionConsent">
+          <div className="memoryRetentionConsentLead">
+            <span aria-hidden="true"><MessageSquareQuote size={25} /></span>
+            <div>
+              <p className="eyebrow">来源追溯</p>
+              <h3>保存生成记忆所依据的一轮对话</h3>
+              <p>开启后，新记忆可以在详情中查看当时的用户消息和桌宠回复，帮助你判断这条记忆是怎样整理出来的。</p>
+            </div>
+          </div>
+          <div className="memoryRetentionConsentPoints">
+            <p><HardDrive size={19} aria-hidden="true" /><span><strong>会增加本机存储占用</strong>来源文本会随对话逐渐积累；此选项本身不会让记忆模型额外常驻运行内存。</span></p>
+            <p><BookOpen size={19} aria-hidden="true" /><span><strong>可从记忆详情追溯</strong>打开一条已保留来源的记忆，点击“查看来源对话”即可查看。</span></p>
+          </div>
+          <p className="memoryRetentionConsentFootnote"><CircleAlert size={17} aria-hidden="true" />之后关闭只会停止保存新的来源对话；已有来源仍跟随对应记忆一起管理和删除。</p>
+          <div className="memoryDialogActions">
+            <button className="secondaryAction" type="button" onClick={() => finishSourceRetentionConfirmation(false)}>暂不开启</button>
+            <button className="primaryAction" type="button" onClick={() => finishSourceRetentionConfirmation(true)}>我知道了，开启</button>
+          </div>
+        </div>
+      </MemoryDialog>
+    );
+  }
+
   return (
     <MemoryDialog title="记忆设置与状态" onClose={onClose} wide>
       <div className="memorySettingsPanel">
@@ -409,7 +474,13 @@ function MemorySettingsPanel({
           <h3>对话记忆</h3>
           <label className="memoryToggleRow"><span><strong>在对话中召回</strong><small>用相关记忆帮助桌宠理解上下文</small></span><input type="checkbox" checked={draft.recallEnabled} onChange={(event) => setDraft({ ...draft, recallEnabled: event.target.checked })} /></label>
           <label className="memoryToggleRow"><span><strong>自动整理新记忆</strong><small>{MEMORY_AUTO_CAPTURE_CONSENT_NOTICE}</small></span><input type="checkbox" checked={draft.autoCaptureEnabled} onChange={(event) => setDraft({ ...draft, autoCaptureEnabled: event.target.checked })} /></label>
-          <label className="memoryToggleRow"><span><strong>保留原始对话来源</strong><small>来源会保存在当前桌宠的本机记忆目录中</small></span><input type="checkbox" checked={draft.retainSources} onChange={(event) => setDraft({ ...draft, retainSources: event.target.checked })} /></label>
+          <label className="memoryToggleRow"><span><strong>保留来源对话</strong><small id={sourceRetentionHelpId}>生成记忆所依据的一轮对话会保存在当前桌宠的本机记忆目录中</small></span><input ref={sourceRetentionToggleRef} type="checkbox" checked={draft.retainSources} aria-describedby={sourceRetentionHelpId} onChange={(event) => {
+            if (event.target.checked) {
+              setConfirmSourceRetention(true);
+            } else {
+              setDraft((current) => ({ ...current, retainSources: false }));
+            }
+          }} /></label>
           <div className="memorySettingsGrid">
             <label>每次召回条数<input type="number" min={1} max={10} value={draft.recallLimit} onChange={(event) => setDraft({ ...draft, recallLimit: Number(event.target.value) })} /></label>
             <label>上下文字符预算<input type="number" min={512} max={4096} step={128} value={draft.contextBudgetChars} onChange={(event) => setDraft({ ...draft, contextBudgetChars: Number(event.target.value) })} /></label>
@@ -455,6 +526,7 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
   const [notice, setNotice] = useState<string>();
   const [editor, setEditor] = useState<EditorState>();
   const [readingMemory, setReadingMemory] = useState<MemoryRecord>();
+  const [sourceConversation, setSourceConversation] = useState<SourceConversationState>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -468,6 +540,7 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
   const searchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const onboardingTimerRef = useRef<number>();
+  const sourceRequestSequenceRef = useRef(0);
 
   useEffect(() => () => {
     if (onboardingTimerRef.current !== undefined) window.clearTimeout(onboardingTimerRef.current);
@@ -476,6 +549,8 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
   useEffect(() => {
     setOnboardingDismissed(false);
     setOnboardingError(undefined);
+    sourceRequestSequenceRef.current += 1;
+    setSourceConversation(undefined);
   }, [pet.id]);
 
   useEffect(() => onStateChange?.(route), [onStateChange, route]);
@@ -501,16 +576,26 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
     if (!api) return undefined;
     const common = {
       petId: pet.id,
-      cursor,
-      pageSize: PAGE_SIZE,
       chapters: route.chapter === "all" ? undefined : [route.chapter],
       importantOnly: route.importantOnly || undefined,
       sort: route.sort,
       fromTime: route.fromTime ? new Date(`${route.fromTime}T00:00:00`).toISOString() : undefined,
       toTime: route.toTime ? new Date(`${route.toTime}T23:59:59.999`).toISOString() : undefined
     } as const;
-    return debouncedQuery ? api.search({ ...common, query: debouncedQuery }) : api.list(common);
-  }, [api, debouncedQuery, pet.id, route.chapter, route.fromTime, route.importantOnly, route.sort, route.toTime]);
+    const items: MemoryRecord[] = [];
+    let nextPageCursor = cursor;
+    for (const pageSize of getMemoryBookRequestPageSizes(route.displayMode, singlePage)) {
+      const request = { ...common, cursor: nextPageCursor, pageSize };
+      const result = debouncedQuery
+        ? await api.search({ ...request, query: debouncedQuery })
+        : await api.list(request);
+      if (!result.ok) return result;
+      items.push(...result.value.items);
+      nextPageCursor = result.value.nextCursor;
+      if (!nextPageCursor) break;
+    }
+    return { ok: true as const, value: { items, nextCursor: nextPageCursor } };
+  }, [api, debouncedQuery, pet.id, route.chapter, route.displayMode, route.fromTime, route.importantOnly, route.sort, route.toTime, singlePage]);
 
   const refreshOverview = useCallback(async (): Promise<void> => {
     if (!api) {
@@ -627,7 +712,7 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
       }
       if (typing) return;
       if (event.key === "Escape") {
-        if (editor || readingMemory || settingsOpen || exportOpen || clearOpen) return;
+        if (editor || readingMemory || sourceConversation || settingsOpen || exportOpen || clearOpen) return;
         onBack();
       } else if (route.section === "cover" && event.key === "Enter") {
         updateRoute({ section: "reading" });
@@ -640,7 +725,7 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [clearOpen, editor, exportOpen, goNext, goPrevious, jumpToEnd, onBack, readingMemory, route.section, settingsOpen, updateRoute]);
+  }, [clearOpen, editor, exportOpen, goNext, goPrevious, jumpToEnd, onBack, readingMemory, route.section, settingsOpen, sourceConversation, updateRoute]);
 
   const refreshAfterMutation = (message: string): void => {
     setNotice(message);
@@ -677,6 +762,39 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
     setBusy(false);
     if (!result.ok) { setError(memoryErrorMessage(result.error)); return; }
     refreshAfterMutation(result.value.memory.important ? "已标记为重要记忆" : "已取消重要标记");
+  };
+
+  const openSourceConversation = async (memory: MemoryRecord): Promise<void> => {
+    const requestSequence = sourceRequestSequenceRef.current + 1;
+    sourceRequestSequenceRef.current = requestSequence;
+    setReadingMemory(undefined);
+    setSourceConversation({ memory, loading: true });
+    if (!api) {
+      setSourceConversation({ memory, loading: false, error: "当前窗口无法访问记忆来源。" });
+      return;
+    }
+    const result = await api.getSourceConversation({ petId: pet.id, memoryId: memory.id });
+    if (sourceRequestSequenceRef.current !== requestSequence) return;
+    if (!result.ok) {
+      setSourceConversation({ memory, loading: false, error: memoryErrorMessage(result.error) });
+      return;
+    }
+    if (!result.value) {
+      setSourceConversation({
+        memory,
+        loading: false,
+        error: "这条记忆标记为已保留来源，但对应的一轮对话没有找到。原记忆仍然可以正常使用。"
+      });
+      return;
+    }
+    setSourceConversation({ memory, loading: false, source: result.value });
+  };
+
+  const closeSourceConversation = (): void => {
+    sourceRequestSequenceRef.current += 1;
+    const memory = sourceConversation?.memory;
+    setSourceConversation(undefined);
+    if (memory) setReadingMemory(memory);
   };
 
   const forgetMemory = async (memory: MemoryRecord): Promise<void> => {
@@ -808,7 +926,7 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
           chapters: [memory.chapter],
           sort: route.sort,
           cursor,
-          pageSize: PAGE_SIZE
+          pageSize: LIST_PAGE_SIZE
         });
         if (!result.ok) { setError(memoryErrorMessage(result.error)); return; }
         if (result.value.items.some((item) => item.id === memory.id)) {
@@ -921,7 +1039,7 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
             <span className="memoryCoverOpen"><BookOpen size={17} />点击或按 Enter 翻开</span>
           </button>
           <div className="memoryContents" aria-label="章节目录">
-            <p className="eyebrow">Contents</p><h2>四个章节，一段共同经历</h2>
+            <p className="eyebrow">Contents</p><h2>四个章节，记录相伴点滴</h2>
             {MEMORY_CHAPTERS.map((chapter, index) => <button key={chapter} type="button" onClick={() => selectChapter(chapter)}><span>{String(index + 1).padStart(2, "0")}</span><span><strong>{MEMORY_CHAPTER_META[chapter].label}</strong><small>{MEMORY_CHAPTER_META[chapter].description}</small></span><em>{summary?.byChapter[chapter] ?? 0}</em></button>)}
             {summary?.total === 0 ? <div className="memoryCoverEmpty"><CircleAlert size={18} /><span>这本书还是空白。可以先手动写下一条记忆。</span></div> : null}
           </div>
@@ -936,8 +1054,8 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
               <div><p className="eyebrow">Chapter</p><h1 ref={pageHeadingRef} tabIndex={-1}>{chapterTitle}</h1><p aria-live="polite">第 {pageNumber} 页 · 本页 {records.length} 条</p></div>
             </div>
             <div className="memoryViewControls" aria-label="阅读显示">
-              <button className={route.displayMode === "book" ? "active" : ""} type="button" aria-pressed={route.displayMode === "book"} onClick={() => updateRoute({ displayMode: "book" })}><BookOpen size={16} />书页</button>
-              <button className={route.displayMode === "list" ? "active" : ""} type="button" aria-pressed={route.displayMode === "list"} onClick={() => updateRoute({ displayMode: "list" })}><LayoutList size={16} />列表</button>
+              <button className={route.displayMode === "book" ? "active" : ""} type="button" aria-pressed={route.displayMode === "book"} onClick={() => updateRoute({ displayMode: "book" }, true)}><BookOpen size={16} />书页</button>
+              <button className={route.displayMode === "list" ? "active" : ""} type="button" aria-pressed={route.displayMode === "list"} onClick={() => updateRoute({ displayMode: "list" }, true)}><LayoutList size={16} />列表</button>
               <button className={!route.animationsEnabled ? "active" : ""} type="button" aria-pressed={!route.animationsEnabled} onClick={() => updateRoute({ animationsEnabled: !route.animationsEnabled })}>动画 {route.animationsEnabled ? "开" : "关"}</button>
             </div>
           </header>
@@ -983,9 +1101,10 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
 
       {!loading && status && !status.settings.onboardingCompleted && !onboardingDismissed ? <MemoryOnboardingDialog petName={pet.name} busy={busy || onboardingClosing} animationsEnabled={route.animationsEnabled} turningPage={onboardingClosing} error={onboardingError} onConfirm={() => void completeMemoryOnboarding()} onDecline={() => { setOnboardingDismissed(true); setOnboardingError(undefined); }} /> : null}
       {editor ? <MemoryEditor state={editor} busy={busy} onClose={() => setEditor(undefined)} onSubmit={(value) => void saveEditor(value)} /> : null}
-      {readingMemory ? <MemoryDialog title={MEMORY_CHAPTER_META[readingMemory.chapter].label} onClose={() => setReadingMemory(undefined)} wide><article className="memoryDetail"><p>{readingMemory.content}</p>{readingMemory.tags.length ? <div className="memoryTags">{readingMemory.tags.map((tag) => <em key={tag}>#{tag}</em>)}</div> : null}<dl><div><dt>来源</dt><dd>{MEMORY_ORIGIN_LABELS[readingMemory.origin]}</dd></div><div><dt>来源时间</dt><dd>{formatMemoryDate(readingMemory.sourceTime)}</dd></div><div><dt>最后更新</dt><dd>{formatMemoryDate(readingMemory.updatedAt)}</dd></div><div><dt>原始对话</dt><dd>{readingMemory.sourceAvailable ? "已在本机保留" : "未保留"}</dd></div><div><dt>版本</dt><dd>{readingMemory.revision}</dd></div></dl><div className="memoryDialogActions">{route.query ? <button className="secondaryAction" type="button" disabled={busy} onClick={() => void locateInChapter(readingMemory)}><BookOpen size={16} />在章节中定位</button> : null}<button className="secondaryAction dangerText" type="button" onClick={() => void forgetMemory(readingMemory)}><Trash2 size={16} />忘记</button><button className="primaryAction" type="button" onClick={() => { setEditor({ mode: "edit", memory: readingMemory }); setReadingMemory(undefined); }}><Pencil size={16} />编辑</button></div></article></MemoryDialog> : null}
+      {readingMemory ? <MemoryDialog title={MEMORY_CHAPTER_META[readingMemory.chapter].label} onClose={() => setReadingMemory(undefined)} wide><article className="memoryDetail"><p>{readingMemory.content}</p>{readingMemory.tags.length ? <div className="memoryTags">{readingMemory.tags.map((tag) => <em key={tag}>#{tag}</em>)}</div> : null}<dl><div><dt>来源</dt><dd>{MEMORY_ORIGIN_LABELS[readingMemory.origin]}</dd></div><div><dt>来源时间</dt><dd>{formatMemoryDate(readingMemory.sourceTime)}</dd></div><div><dt>最后更新</dt><dd>{formatMemoryDate(readingMemory.updatedAt)}</dd></div><div><dt>来源对话</dt><dd>{readingMemory.sourceAvailable ? <button className="memorySourceLink" type="button" onClick={() => void openSourceConversation(readingMemory)}><MessageSquareQuote size={16} aria-hidden="true" />查看来源对话</button> : "未保存"}</dd></div><div><dt>版本</dt><dd>{readingMemory.revision}</dd></div></dl><div className="memoryDialogActions">{route.query ? <button className="secondaryAction" type="button" disabled={busy} onClick={() => void locateInChapter(readingMemory)}><BookOpen size={16} />在章节中定位</button> : null}<button className="secondaryAction dangerText" type="button" onClick={() => void forgetMemory(readingMemory)}><Trash2 size={16} />忘记</button><button className="primaryAction" type="button" onClick={() => { setEditor({ mode: "edit", memory: readingMemory }); setReadingMemory(undefined); }}><Pencil size={16} />编辑</button></div></article></MemoryDialog> : null}
+      {sourceConversation ? <MemoryDialog title="来源对话" onClose={closeSourceConversation} wide><MemorySourcePanel petName={pet.name} source={sourceConversation.source} loading={sourceConversation.loading} error={sourceConversation.error} memoryWasEdited={sourceConversation.memory.revision > 1} onRetry={() => void openSourceConversation(sourceConversation.memory)} onBack={closeSourceConversation} /></MemoryDialog> : null}
       {settingsOpen && status ? <MemorySettingsPanel settings={status.settings} status={status} busy={busy} onClose={() => setSettingsOpen(false)} onSave={(value) => void saveSettings(value)} onTestProvider={() => void runStatusAction("test")} onRebuild={() => void runStatusAction("rebuild")} /> : null}
-      {exportOpen ? <MemoryDialog title="导出记忆书" onClose={() => setExportOpen(false)}><div className="memoryExportPanel"><p>导出由主进程生成并保存，不会包含密钥、绝对路径或派生索引字段。</p><label className="memoryCheckRow"><input type="checkbox" checked={includeSources} onChange={(event) => setIncludeSources(event.target.checked)} />包含已保留的原始对话来源</label>{includeSources ? <div className="memoryConsentNotice"><CircleAlert size={18} />原始对话可能含敏感内容。继续导出表示你确认将其写入所选文件。</div> : null}<div className="memoryExportChoices"><button type="button" disabled={busy} onClick={() => void exportMemories("markdown")}><FileText size={22} /><span><strong>Markdown</strong><small>按章节与时间阅读</small></span></button><button type="button" disabled={busy} onClick={() => void exportMemories("json")}><FileJson size={22} /><span><strong>JSON</strong><small>结构化完整记录</small></span></button></div></div></MemoryDialog> : null}
+      {exportOpen ? <MemoryDialog title="导出记忆书" onClose={() => setExportOpen(false)}><div className="memoryExportPanel"><p>导出由主进程生成并保存，不会包含密钥、绝对路径或派生索引字段。</p><label className="memoryCheckRow"><input type="checkbox" checked={includeSources} onChange={(event) => setIncludeSources(event.target.checked)} />包含已保留的来源对话</label>{includeSources ? <div className="memoryConsentNotice"><CircleAlert size={18} />来源对话可能含敏感内容。继续导出表示你确认将其写入所选文件。</div> : null}<div className="memoryExportChoices"><button type="button" disabled={busy} onClick={() => void exportMemories("markdown")}><FileText size={22} /><span><strong>Markdown</strong><small>按章节与时间阅读</small></span></button><button type="button" disabled={busy} onClick={() => void exportMemories("json")}><FileJson size={22} /><span><strong>JSON</strong><small>结构化完整记录</small></span></button></div></div></MemoryDialog> : null}
       {clearOpen ? <MemoryDialog title="清空整本记忆" onClose={() => { setClearOpen(false); setClearConfirm(""); }}><div className="memoryDangerPanel"><AlertTriangle size={28} /><p>此操作会忘记当前桌宠的全部记忆。请输入桌宠名称 <strong>{pet.name}</strong> 以确认。</p><label>桌宠名称<input value={clearConfirm} autoComplete="off" onChange={(event) => setClearConfirm(event.target.value)} /></label><div className="memoryDialogActions"><button className="secondaryAction" type="button" onClick={() => { setClearOpen(false); setClearConfirm(""); }}>取消</button><button className="primaryAction danger" type="button" disabled={busy || clearConfirm !== pet.name} onClick={() => void clearAll()}>确认清空</button></div></div></MemoryDialog> : null}
 
       <footer className="memoryBookFooter"><span>记忆仅属于当前桌宠，并保存在本机。</span><button type="button" onClick={() => setClearOpen(true)}><Trash2 size={15} />清空记忆书</button></footer>

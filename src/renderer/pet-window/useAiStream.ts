@@ -28,7 +28,10 @@ interface UseAiStreamOptions {
   settings: SpeechFrontendSettings;
   draftRef: MutableRefObject<string>;
   setDraft: Dispatch<SetStateAction<string>>;
-  subtitle: Pick<ReturnType<typeof useSubtitle>, "show">;
+  subtitle: Pick<
+    ReturnType<typeof useSubtitle>,
+    "show" | "showTypewriterProgress" | "finishTypewriterProgress"
+  >;
   voiceReply: UseVoiceReplyQueueResult;
   clearVoiceTypewriter: () => void;
   triggerExpression: (
@@ -44,10 +47,6 @@ interface UseAiStreamOptions {
   ) => void;
   pickRandomExpressionSource: () => PetExpressionSourceItem | undefined;
   speakLine: (eventName: PetLineEvent, fallbackText: string) => void;
-  showAiReplySubtitle: (
-    text: string,
-    options?: { holdMs?: number; mode?: "instant" | "typewriter" }
-  ) => void;
   resetIdleTimer: () => void;
   scheduleVoiceRestart: (isVoiceTriggered: boolean) => void;
 }
@@ -57,11 +56,20 @@ interface AiStreamContext {
   petId: string;
   pendingMessageId: number;
   isVoiceTriggered: boolean;
-  streamedTextShown: boolean;
   voiceReplyRequestId: number;
   voiceReplyEnabled: boolean;
   syncTextWithVoice: boolean;
   useReplyAsVoiceText: boolean;
+}
+
+interface TypewriterPresentation {
+  messageId: number;
+  fullText: string;
+  displayedCharacters: number;
+  voiceText?: string;
+  aiRawContent?: string;
+  finalized: boolean;
+  holdMs?: number;
 }
 
 export interface AiStreamSettingsSnapshot {
@@ -113,6 +121,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
   const streamEventHandlerRef = useRef<(event: AiChatStreamEvent) => void>(() => undefined);
   const typewriterTimerRef = useRef<number | undefined>();
   const typewriterSequenceRef = useRef(0);
+  const typewriterPresentationRef = useRef<TypewriterPresentation | undefined>();
   const cancelRef = useRef<(options?: { updateUi?: boolean }) => void>(() => undefined);
 
   useLayoutEffect(() => {
@@ -132,50 +141,94 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     typewriterSequenceRef.current += 1;
     window.clearTimeout(typewriterTimerRef.current);
     typewriterTimerRef.current = undefined;
+    typewriterPresentationRef.current = undefined;
   };
 
-  const showPetMessageWithTypewriter = (
-    messageId: number,
-    fullText: string,
-    messageOptions?: { voiceText?: string; aiRawContent?: string }
-  ): void => {
-    clearTypewriter();
-    const characters = Array.from(fullText);
-    const sequenceId = typewriterSequenceRef.current;
-    let nextIndex = Math.min(1, characters.length);
-
+  const renderTypewriterProgress = (presentation: TypewriterPresentation): void => {
+    const visibleText = Array.from(presentation.fullText)
+      .slice(0, presentation.displayedCharacters)
+      .join("");
+    const currentDefinition = optionsRef.current.petDefinition;
     setMessages((current) =>
       current.map((message) =>
-        message.id === messageId
+        message.id === presentation.messageId
           ? {
-              id: messageId,
-              role: "pet",
-              text: characters.slice(0, nextIndex).join(""),
-              voiceText: messageOptions?.voiceText,
-              aiRawContent: messageOptions?.aiRawContent
+              ...message,
+              text: visibleText,
+              status: undefined,
+              voiceText: presentation.finalized ? presentation.voiceText : message.voiceText,
+              aiRawContent: presentation.finalized ? presentation.aiRawContent : message.aiRawContent
             }
           : message
       )
     );
+    optionsRef.current.subtitle.showTypewriterProgress({
+      text: visibleText,
+      fullText: presentation.fullText,
+      tone: currentDefinition?.subtitleStyle?.tone,
+      maxWidth: currentDefinition?.subtitleStyle?.maxWidth
+    });
+  };
 
-    const typeNext = (): void => {
-      if (sequenceId !== typewriterSequenceRef.current) {
-        return;
+  const advanceTypewriter = (sequenceId: number): void => {
+    if (sequenceId !== typewriterSequenceRef.current) return;
+    const presentation = typewriterPresentationRef.current;
+    if (!presentation) return;
+    const characterCount = Array.from(presentation.fullText).length;
+
+    if (presentation.displayedCharacters >= characterCount) {
+      typewriterTimerRef.current = undefined;
+      if (presentation.finalized) {
+        renderTypewriterProgress(presentation);
+        optionsRef.current.subtitle.finishTypewriterProgress(presentation.holdMs);
       }
-      nextIndex += 1;
-      const nextText = characters.slice(0, nextIndex).join("");
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === messageId ? { ...message, text: nextText } : message
-        )
+      return;
+    }
+
+    presentation.displayedCharacters += 1;
+    renderTypewriterProgress(presentation);
+    typewriterTimerRef.current = window.setTimeout(
+      () => advanceTypewriter(sequenceId),
+      chatReplyTypewriterDelayMs
+    );
+  };
+
+  const queuePetMessageWithTypewriter = (
+    messageId: number,
+    fullText: string,
+    messageOptions?: { voiceText?: string; aiRawContent?: string },
+    completionOptions?: { finalized?: boolean; holdMs?: number }
+  ): void => {
+    const normalizedText = fullText.trim();
+    if (!normalizedText) return;
+    let presentation = typewriterPresentationRef.current;
+
+    if (!presentation || presentation.messageId !== messageId) {
+      clearTypewriter();
+      presentation = {
+        messageId,
+        fullText: normalizedText,
+        displayedCharacters: 0,
+        voiceText: messageOptions?.voiceText,
+        aiRawContent: messageOptions?.aiRawContent,
+        finalized: Boolean(completionOptions?.finalized),
+        holdMs: completionOptions?.holdMs
+      };
+      typewriterPresentationRef.current = presentation;
+    } else {
+      presentation.fullText = normalizedText;
+      presentation.voiceText = messageOptions?.voiceText ?? presentation.voiceText;
+      presentation.aiRawContent = messageOptions?.aiRawContent ?? presentation.aiRawContent;
+      presentation.finalized ||= Boolean(completionOptions?.finalized);
+      presentation.holdMs = completionOptions?.holdMs ?? presentation.holdMs;
+      presentation.displayedCharacters = Math.min(
+        presentation.displayedCharacters,
+        Array.from(normalizedText).length
       );
-      if (nextIndex < characters.length) {
-        typewriterTimerRef.current = window.setTimeout(typeNext, chatReplyTypewriterDelayMs);
-      }
-    };
+    }
 
-    if (nextIndex < characters.length) {
-      typewriterTimerRef.current = window.setTimeout(typeNext, chatReplyTypewriterDelayMs);
+    if (typewriterTimerRef.current === undefined) {
+      advanceTypewriter(typewriterSequenceRef.current);
     }
   };
 
@@ -185,26 +238,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       return false;
     }
 
-    clearTypewriter();
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === pendingMessageId
-          ? { ...message, text: replyText, status: undefined }
-          : message
-      )
-    );
-    const currentDefinition = optionsRef.current.petDefinition;
-    optionsRef.current.subtitle.show({
-      text: replyText,
-      mode: "instant",
-      holdMs: Number.POSITIVE_INFINITY,
-      tone: currentDefinition?.subtitleStyle?.tone,
-      maxWidth: currentDefinition?.subtitleStyle?.maxWidth
-    });
-    const context = streamContextRef.current;
-    if (context?.pendingMessageId === pendingMessageId) {
-      context.streamedTextShown = true;
-    }
+    queuePetMessageWithTypewriter(pendingMessageId, replyText);
     return true;
   };
 
@@ -262,27 +296,15 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       }
     }
 
-    if (context.streamedTextShown) {
-      clearTypewriter();
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === context.pendingMessageId
-            ? {
-                ...message,
-                text: replyText,
-                status: undefined,
-                voiceText: effectiveVoiceText,
-                aiRawContent: rawContent
-              }
-            : message
-        )
-      );
-    } else {
-      showPetMessageWithTypewriter(context.pendingMessageId, replyText, {
+    queuePetMessageWithTypewriter(
+      context.pendingMessageId,
+      replyText,
+      {
         voiceText: effectiveVoiceText,
         aiRawContent: rawContent
-      });
-    }
+      },
+      { finalized: true, holdMs: shouldHoldSubtitleForVoice ? Number.POSITIVE_INFINITY : undefined }
+    );
 
     if (randomReplySource) {
       currentOptions.triggerExpressionSource(
@@ -308,10 +330,6 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     if (shouldHoldSubtitleForVoice) {
       currentOptions.voiceReply.holdSubtitle(requestId);
     }
-    currentOptions.showAiReplySubtitle(replyText, {
-      mode: context.streamedTextShown ? "instant" : "typewriter",
-      holdMs: shouldHoldSubtitleForVoice ? Number.POSITIVE_INFINITY : undefined
-    });
 
     if (!syncTextWithVoice && shouldHoldSubtitleForVoice) {
       currentOptions.voiceReply.enqueueFinalText(
@@ -505,7 +523,6 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       petId: currentOptions.petId,
       pendingMessageId,
       isVoiceTriggered,
-      streamedTextShown: false,
       voiceReplyRequestId,
       ...settingsSnapshot
     };

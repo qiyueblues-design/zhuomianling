@@ -11,6 +11,7 @@ import {
   assertMemoryRevisionRequest,
   assertMemorySearchRequest,
   assertMemorySettingsSaveRequest,
+  assertMemorySourceConversationRequest,
   assertMemoryUpdateRequest
 } from "../shared/validation/memory";
 
@@ -78,6 +79,7 @@ export const validatedIpcChannels = new Set([
   "memory:get-summary",
   "memory:list",
   "memory:get",
+  "memory:get-source-conversation",
   "memory:search",
   "memory:create",
   "memory:update",
@@ -559,6 +561,17 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
   if (channel === "memory:get") {
     expectArgumentCount(channel, args, 1);
     validateMemoryObject(channel, args[0], ["petId", "memoryId", "includeDeleted"], assertMemoryGetRequest);
+    return;
+  }
+
+  if (channel === "memory:get-source-conversation") {
+    expectArgumentCount(channel, args, 1);
+    validateMemoryObject(
+      channel,
+      args[0],
+      ["petId", "memoryId"],
+      assertMemorySourceConversationRequest
+    );
     return;
   }
 

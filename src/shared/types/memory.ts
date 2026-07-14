@@ -134,6 +134,18 @@ export interface MemoryGetRequest {
   includeDeleted?: boolean;
 }
 
+export interface MemorySourceConversationRequest {
+  petId: string;
+  memoryId: string;
+}
+
+export interface MemorySourceConversation {
+  userText: string;
+  assistantReply: string;
+  occurredAt: string;
+  organizedAt: string;
+}
+
 export interface MemorySummary {
   petId: string;
   total: number;

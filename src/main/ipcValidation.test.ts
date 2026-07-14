@@ -55,6 +55,10 @@ describe("validateIpcArguments", () => {
 
   it("accepts bounded memory management requests and explicit destructive confirmations", () => {
     expect(() => validateIpcArguments("memory:list", [{ petId: "pet-a", pageSize: 5 }])).not.toThrow();
+    expect(() => validateIpcArguments("memory:get-source-conversation", [{
+      petId: "pet-a",
+      memoryId: "memory-1"
+    }])).not.toThrow();
     expect(() => validateIpcArguments("memory:create", [{
       petId: "pet-a",
       chapter: "about_you",
@@ -81,6 +85,11 @@ describe("validateIpcArguments", () => {
       memoryId: "memory-1",
       databasePath: "C:\\private\\ledger.sqlite3"
     }])).toThrow(/databasePath/);
+    expect(() => validateIpcArguments("memory:get-source-conversation", [{
+      petId: "pet-a",
+      memoryId: "memory-1",
+      requestId: "private-source-request"
+    }])).toThrow(/requestId/);
     expect(() => validateIpcArguments("memory:clear", [{
       petId: "pet-a",
       confirmPetId: "pet-b"

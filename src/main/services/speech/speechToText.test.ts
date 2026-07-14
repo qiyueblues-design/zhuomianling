@@ -97,6 +97,17 @@ async function waitForSocket(index = 0): Promise<FakeWebSocket> {
   return FakeWebSocket.instances[index];
 }
 
+async function waitForSessionSocket(sessionId: string): Promise<FakeWebSocket> {
+  await vi.waitFor(() => {
+    expect(FakeWebSocket.instances.some((socket) =>
+      new URL(socket.url).searchParams.get("voice_id") === sessionId
+    )).toBe(true);
+  });
+  return FakeWebSocket.instances.find((socket) =>
+    new URL(socket.url).searchParams.get("voice_id") === sessionId
+  )!;
+}
+
 beforeEach(() => {
   electronMock.userDataPath = path.join(os.tmpdir(), `zhuomianling-speech-${Date.now()}`);
   FakeWebSocket.instances = [];
@@ -163,8 +174,8 @@ describe("speech stream lifecycle", () => {
       petId: "pet-a",
       sessionId: secondSessionId
     });
-    const firstSocket = await waitForSocket(0);
-    const secondSocket = await waitForSocket(1);
+    const firstSocket = await waitForSessionSocket(firstSessionId);
+    const secondSocket = await waitForSessionSocket(secondSessionId);
     firstSocket.completeHandshake();
     secondSocket.completeHandshake();
     await expect(firstStart).resolves.toMatchObject({ ok: true, sessionId: firstSessionId });

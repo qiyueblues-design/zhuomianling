@@ -12,6 +12,7 @@ import {
   assertMemoryRecordInput,
   assertMemoryRetrieveResponse,
   assertMemorySettingsSaveRequest,
+  assertMemorySourceConversationRequest,
   MemoryValidationError,
   normalizeMemoryPageRequest,
   normalizeMemorySettings
@@ -63,6 +64,16 @@ describe("memory settings validation", () => {
 });
 
 describe("memory DTO validation", () => {
+  it("accepts only bounded pet and memory IDs for a source conversation lookup", () => {
+    expect(() => assertMemorySourceConversationRequest({
+      petId: "pet-a",
+      memoryId: "memory-1"
+    })).not.toThrow();
+    expect(() => assertMemorySourceConversationRequest({
+      petId: "pet-a",
+      memoryId: "x".repeat(MEMORY_LIMITS.idChars + 1)
+    })).toThrow(MemoryValidationError);
+  });
   it("accepts a bounded record and rejects cross-contract content", () => {
     const record = {
       id: "memory-1",

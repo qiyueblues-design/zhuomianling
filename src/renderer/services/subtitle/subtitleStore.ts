@@ -12,6 +12,13 @@ export interface SubtitleRequest {
   maxWidth?: number;
 }
 
+export interface SubtitleProgressRequest {
+  text: string;
+  fullText: string;
+  tone?: PetSubtitleTone;
+  maxWidth?: number;
+}
+
 export interface SubtitleState {
   visible: boolean;
   text: string;
@@ -148,6 +155,37 @@ function createSubtitleStore() {
     typingTimer = window.setTimeout(typeNext, charDelayMs);
   };
 
+  const showTypewriterProgress = (request: SubtitleProgressRequest): void => {
+    clearTimers();
+    sequence += 1;
+    const fullText = request.fullText.trim();
+    const text = request.text.trim();
+
+    if (!fullText) {
+      hide();
+      return;
+    }
+
+    setState({
+      visible: true,
+      text,
+      fullText,
+      tone: request.tone ?? "soft",
+      maxWidth: request.maxWidth,
+      isTyping: text.length < fullText.length
+    });
+  };
+
+  const finishTypewriterProgress = (holdMs?: number): void => {
+    if (!state.visible) return;
+    const requestId = sequence;
+    setState({ ...state, isTyping: false });
+    scheduleHide(
+      requestId,
+      holdMs ?? Math.min(Math.max(state.fullText.length * 110, 2200), 6200)
+    );
+  };
+
   return {
     getSnapshot: () => state,
     subscribe: (listener: Listener) => {
@@ -158,6 +196,8 @@ function createSubtitleStore() {
       };
     },
     show,
+    showTypewriterProgress,
+    finishTypewriterProgress,
     hide,
     hideAfter: (holdMs: number) => {
       scheduleHide(sequence, holdMs);
@@ -176,6 +216,14 @@ export function useSubtitle() {
   }, [snapshot]);
 
   const show = useCallback((request: SubtitleRequest) => subtitleStore.show(request), []);
+  const showTypewriterProgress = useCallback(
+    (request: SubtitleProgressRequest) => subtitleStore.showTypewriterProgress(request),
+    []
+  );
+  const finishTypewriterProgress = useCallback(
+    (holdMs?: number) => subtitleStore.finishTypewriterProgress(holdMs),
+    []
+  );
   const hide = useCallback(() => subtitleStore.hide(), []);
   const hideAfter = useCallback((holdMs: number) => subtitleStore.hideAfter(holdMs), []);
 
@@ -184,9 +232,11 @@ export function useSubtitle() {
       state: snapshot,
       current: snapshotRef,
       show,
+      showTypewriterProgress,
+      finishTypewriterProgress,
       hide,
       hideAfter
     }),
-    [hide, hideAfter, show, snapshot]
+    [finishTypewriterProgress, hide, hideAfter, show, showTypewriterProgress, snapshot]
   );
 }

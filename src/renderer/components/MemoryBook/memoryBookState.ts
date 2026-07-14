@@ -1,4 +1,4 @@
-import type { MemoryChapter, MemoryErrorDto, MemoryRecord } from "../../../shared/types/memory";
+import type { MemoryChapter, MemoryErrorDto } from "../../../shared/types/memory";
 
 export type MemoryBookDisplayMode = "book" | "list";
 export type MemoryBookSection = "cover" | "reading";
@@ -21,9 +21,9 @@ export interface MemoryBookRouteState {
 
 export const MEMORY_CHAPTER_META = {
   about_you: { label: "关于你", shortLabel: "你", description: "身份、经历与稳定背景" },
-  preferences_habits: { label: "偏好与习惯", shortLabel: "习惯", description: "喜欢、讨厌与日常规律" },
-  important_events: { label: "重要事件", shortLabel: "事件", description: "值得记住的时刻与变化" },
-  relationships_goals: { label: "关系与目标", shortLabel: "目标", description: "重要的人、承诺与未来方向" }
+  preferences_habits: { label: "偏好与习惯", shortLabel: "习惯", description: "偏好、习惯与稳定互动方式" },
+  important_events: { label: "重要事件", shortLabel: "事件", description: "共同经历、具体承诺与重要行动" },
+  relationships_goals: { label: "关系与目标", shortLabel: "目标", description: "称呼、相处约定、边界与长期目标" }
 } as const satisfies Record<MemoryChapter, { label: string; shortLabel: string; description: string }>;
 
 export const MEMORY_ORIGIN_LABELS = {
@@ -70,6 +70,14 @@ export function getMemoryBookRestoreScrollTop(state: MemoryBookRouteState): numb
   return state.section === "reading" ? Math.max(0, state.scrollTop) : 0;
 }
 
+export function getMemoryBookRequestPageSizes(
+  displayMode: MemoryBookDisplayMode,
+  singlePage: boolean
+): number[] {
+  if (displayMode === "list") return [5];
+  return singlePage ? [3] : [3, 3];
+}
+
 export function formatMemoryDate(value: string | undefined): string {
   if (!value) return "时间未知";
   const date = new Date(value);
@@ -78,6 +86,20 @@ export function formatMemoryDate(value: string | undefined): string {
     year: "numeric",
     month: "short",
     day: "numeric"
+  }).format(date);
+}
+
+export function formatMemoryDateTime(value: string | undefined): string {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
   }).format(date);
 }
 
@@ -91,8 +113,4 @@ export function memoryErrorMessage(error: MemoryErrorDto): string {
     conflict: "这条记忆已在别处更新，请刷新后重试。"
   };
   return `${prefix[error.code] ?? "记忆操作失败。"}${error.message ? ` ${error.message}` : ""}`;
-}
-
-export function getVisiblePageRecords(records: MemoryRecord[], displayMode: MemoryBookDisplayMode): MemoryRecord[] {
-  return displayMode === "book" ? records.slice(0, 5) : records;
 }

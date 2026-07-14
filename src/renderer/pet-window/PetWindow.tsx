@@ -510,21 +510,6 @@ export function PetWindow(): JSX.Element {
     return sources[Math.floor(Math.random() * sources.length)] ?? sources[0];
   };
 
-  const showAiReplySubtitle = (
-    text: string,
-    options?: { holdMs?: number; mode?: "instant" | "typewriter" }
-  ): void => {
-    const currentPetDefinition = petDefinitionRef.current;
-
-    subtitle.show({
-      text,
-      mode: options?.mode ?? "typewriter",
-      holdMs: options?.holdMs,
-      tone: currentPetDefinition?.subtitleStyle?.tone,
-      maxWidth: currentPetDefinition?.subtitleStyle?.maxWidth
-    });
-  };
-
   const triggerExpressionSource = (
     source: PetExpressionSourceItem,
     priority: PetExpressionEvent["priority"] = "normal",
@@ -569,7 +554,6 @@ export function PetWindow(): JSX.Element {
     triggerExpressionSource,
     pickRandomExpressionSource,
     speakLine,
-    showAiReplySubtitle,
     resetIdleTimer,
     scheduleVoiceRestart: (isVoiceTriggered) =>
       scheduleVoiceRestartRef.current(isVoiceTriggered)

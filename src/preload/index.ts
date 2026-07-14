@@ -62,6 +62,8 @@ import type {
   MemorySearchRequest,
   MemorySettings,
   MemorySettingsSaveRequest,
+  MemorySourceConversation,
+  MemorySourceConversationRequest,
   MemorySummary,
   MemoryUpdateRequest
 } from "../shared/types/memory";
@@ -173,6 +175,10 @@ const desktopPetApi = {
       ipcRenderer.invoke("memory:list", request) as Promise<MemoryResult<MemoryPage<MemoryRecord>>>,
     get: (request: MemoryGetRequest) =>
       ipcRenderer.invoke("memory:get", request) as Promise<MemoryResult<MemoryRecord | undefined>>,
+    getSourceConversation: (request: MemorySourceConversationRequest) =>
+      ipcRenderer.invoke("memory:get-source-conversation", request) as Promise<
+        MemoryResult<MemorySourceConversation | undefined>
+      >,
     search: (request: MemorySearchRequest) =>
       ipcRenderer.invoke("memory:search", request) as Promise<MemoryResult<MemoryPage<MemoryRecord>>>,
     create: (request: MemoryCreateRequest) =>

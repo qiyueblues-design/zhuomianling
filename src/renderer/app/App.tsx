@@ -42,7 +42,7 @@ function DeferredViewFallback({ label }: { label: string }): JSX.Element {
       </div>
       <div className="selectorGuideCopy">
         <h2>{label}</h2>
-        <p>正在按需载入当前页面…</p>
+        <p>正在加载，请稍候…</p>
       </div>
     </section>
   );
@@ -503,6 +503,7 @@ export function App(): JSX.Element {
 
   const openMemoryBook = (petId: string): void => {
     selectorScrollPositionRef.current = window.scrollY;
+    delete memoryBookStateRef.current[petId];
     setSelectedPetId(petId);
     setCurrentView("memoryBook");
   };

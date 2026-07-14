@@ -16,6 +16,7 @@ import type {
   MemoryRecord,
   MemoryRecordInput,
   MemorySearchRequest,
+  MemorySourceConversation,
   MemorySourceTurn,
   MemoryUpdateRequest
 } from "../../../shared/types/memory";
@@ -454,6 +455,40 @@ export class MemoryLedger {
       .prepare(`SELECT * FROM memories WHERE id = ? AND pet_id = ?${includeDeleted ? "" : " AND deleted_at IS NULL"}`)
       .get(memoryId, this.petId) as MemoryRow | undefined;
     return row ? rowToRecord(row) : undefined;
+  }
+
+  getSourceConversation(memoryId: string): MemorySourceConversation | undefined {
+    this.assertOpen();
+    assertBoundedMemoryString(memoryId, "memoryId", MEMORY_LIMITS.idChars);
+    const memory = this.get(memoryId);
+    if (!memory?.sourceAvailable) return undefined;
+    let row: MemorySourceConversation | undefined;
+    try {
+      row = this.database.prepare(`
+        SELECT
+          source_turns.user_text userText,
+          source_turns.assistant_reply assistantReply,
+          source_turns.occurred_at occurredAt,
+          source_turns.created_at organizedAt
+        FROM idempotency
+        JOIN source_turns
+          ON source_turns.request_id = idempotency.request_id
+         AND source_turns.pet_id = idempotency.pet_id
+        JOIN json_each(idempotency.memory_ids_json) memory_ids
+          ON memory_ids.value = ?
+        WHERE idempotency.pet_id = ?
+        LIMIT 1
+      `).get(memoryId, this.petId) as MemorySourceConversation | undefined;
+    } catch (error) {
+      throw sqliteError(error, "LEDGER_CORRUPTED");
+    }
+    if (!row) return undefined;
+    try {
+      assertMemoryObjectBudget(row);
+    } catch (error) {
+      throw new MemoryLedgerError("LEDGER_CORRUPTED", "Stored memory source exceeds its public data boundary.", error);
+    }
+    return row;
   }
 
   async create(request: MemoryCreateRequest): Promise<MemoryMutationResult> {

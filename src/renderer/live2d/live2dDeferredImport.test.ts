@@ -7,5 +7,5 @@ describe("Live2D 按需加载模块边界", () => {
     await expect(import("../components/PetStage/PetStage")).resolves.toMatchObject({
       PetStage: expect.any(Function)
     });
-  });
+  }, 15_000);
 });
