@@ -2,12 +2,20 @@ import { app, type WebContents } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { PetDefinition } from "../../../shared/types/pet";
+import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
+import { resolveLegacyVoiceModelPaths } from "../config/legacyVoiceModelPath";
 import type {
   TextToSpeechRequest,
   TextToSpeechResponse,
   TextToSpeechStopRequest,
   TextToSpeechStopResponse
 } from "../../../shared/types/speech";
+import {
+  VoiceResourceValidationError,
+  sanitizeVoiceDiagnosticText,
+  toUserFacingGptSoVitsError,
+  validateReadableVoiceFile
+} from "./voiceResourceValidation";
 
 interface GptSoVitsPetConfig {
   baseUrl: string;
@@ -35,6 +43,7 @@ const configPath = path.resolve(process.cwd(), "config/tts.local.json");
 const localPetFileName = "pet.local.json";
 const localGptSoVitsBaseUrl = "http://127.0.0.1:9880";
 const textToSpeechTimeoutMs = 45_000;
+const maximumGptSoVitsErrorBodyChars = 16_000;
 const warmupControllers = new Map<string, AbortController>();
 
 type TextToSpeechAbortReason = "renderer" | "owner-destroyed" | "replaced" | "timeout";
@@ -194,14 +203,17 @@ function getPetConfigPath(petId: string): string {
 async function readLocalPetVoiceConfig(petId: string): Promise<Required<GptSoVitsPetConfig> | undefined> {
   try {
     const content = await fs.readFile(getPetConfigPath(petId), "utf8");
-    const pet = JSON.parse(content) as PetDefinition;
-    const settings = pet.voiceModelSettings;
+    let pet = normalizeLegacyPetDefinition(JSON.parse(content) as PetDefinition);
+    let settings = pet.voiceModelSettings;
 
     if (!settings?.enabled || !settings.connected) {
       return undefined;
     }
 
-    if (!settings.referenceAudioPath || !settings.referenceText.trim()) {
+    pet = (await resolveLegacyVoiceModelPaths(pet)).pet;
+    settings = pet.voiceModelSettings;
+
+    if (!settings?.referenceAudioPath || !settings.referenceText?.trim()) {
       throw new Error("请先在声音模型页选择参考音频并填写参考文本。");
     }
 
@@ -265,34 +277,52 @@ function normalizePetConfig(
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
+  let rawBody = "";
+
   try {
-    const body = (await response.clone().json()) as GptSoVitsErrorBody;
-    const detail = body.message ?? body.detail ?? body.error;
-
-    if (typeof detail === "string" && detail.trim()) {
-      return detail.trim();
-    }
-
-    if (detail !== undefined) {
-      try {
-        const serialized = JSON.stringify(detail);
-        if (serialized && serialized !== "{}" && serialized !== "[]") {
-          return serialized;
-        }
-      } catch {
-        // Fall through to the status-based message below.
-      }
-    }
-
-    return `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+    rawBody = (await response.text()).slice(0, maximumGptSoVitsErrorBodyChars);
   } catch {
+    return `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+  }
+
+  let detail: unknown = rawBody;
+
+  try {
+    const body = JSON.parse(rawBody) as GptSoVitsErrorBody;
+    detail = body.message ?? body.detail ?? body.error ?? rawBody;
+  } catch {
+    // Non-JSON error bodies are handled as plain text below.
+  }
+
+  if (typeof detail === "string") {
+    return toUserFacingGptSoVitsError(detail, response.status);
+  }
+
+  if (detail !== undefined) {
     try {
-      const body = (await response.text()).trim();
-      return body || `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+      const serialized = JSON.stringify(detail);
+      if (serialized && serialized !== "{}" && serialized !== "[]") {
+        return toUserFacingGptSoVitsError(serialized, response.status);
+      }
     } catch {
-      return `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+      // Fall through to the bounded status-based message below.
     }
   }
+
+  return `GPT-SoVITS 请求失败，状态码 ${response.status}。`;
+}
+
+function toVoiceConfigurationMessage(error: unknown): string {
+  if (error instanceof VoiceResourceValidationError) {
+    return error.message;
+  }
+
+  const rawMessage = error instanceof Error ? error.message : "";
+  if (/ENOENT|no such file or directory/i.test(rawMessage)) {
+    return "未找到声音模型配置，请回到声音模型页重新保存并连接。";
+  }
+
+  return sanitizeVoiceDiagnosticText(rawMessage, 600) || "读取 GPT-SoVITS 配置失败。";
 }
 
 async function synthesizeText(
@@ -346,12 +376,28 @@ async function synthesizeText(
     return {
       ok: false,
       requestId,
-      message: error instanceof Error ? error.message : "读取 GPT-SoVITS 配置失败。"
+      code: "INVALID_CONFIG",
+      message: toVoiceConfigurationMessage(error)
     };
   }
 
   if (options?.signal?.aborted) {
     return getAbortResponse(options.signal, requestId);
+  }
+
+  try {
+    await validateReadableVoiceFile(petConfig.refAudioPath, "referenceAudio");
+  } catch (error) {
+    if (options?.signal?.aborted) {
+      return getAbortResponse(options.signal, requestId);
+    }
+
+    return {
+      ok: false,
+      requestId,
+      code: "INVALID_CONFIG",
+      message: toVoiceConfigurationMessage(error)
+    };
   }
 
   let response: Response;

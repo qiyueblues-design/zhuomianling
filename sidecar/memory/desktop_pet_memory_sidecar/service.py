@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from . import __version__
+from .embedding_runtime import embedding_runtime_loaded
 from .protocol import PROTOCOL_VERSION, ProtocolError, Request
 from .service_pool import MemuServicePool
 
@@ -101,7 +102,12 @@ class SidecarService:
         if request.method == "health":
             if request.pet_id is not None or request.params:
                 raise ProtocolError("invalid-request", "Health does not accept pet or params.")
-            return {"status": "ready", "pid": os.getpid(), "rssBytes": _rss_bytes()}
+            return {
+                "status": "ready",
+                "pid": os.getpid(),
+                "rssBytes": _rss_bytes(),
+                "embeddingLoaded": embedding_runtime_loaded(),
+            }
         if request.method == "configure":
             return self._configure(request)
         if request.method == "configureMemoryProvider":
@@ -257,12 +263,14 @@ class SidecarService:
         if not isinstance(records, list) or not 1 <= len(records) <= 25:
             raise ProtocolError("invalid-request", "Rebuild batch is invalid.")
         index = await self.pool.get(request.pet_id, request.params["indexPath"])
-        for record in records:
-            await index.upsert(record)
+        await index.upsert_many(records)
         return {"appendedCount": len(records)}
 
     async def _rebuild_finish(self, request: Request) -> object:
-        self._require_pet(request, {"indexPath", "expectedCount", "expectedContentFingerprint"})
+        self._require_pet(
+            request,
+            {"indexPath", "expectedCount", "expectedContentFingerprint", "expectedChapterCounts"},
+        )
         expected = request.params["expectedCount"]
         if not isinstance(expected, int) or isinstance(expected, bool) or expected < 0:
             raise ProtocolError("invalid-request", "Rebuild count is invalid.")
@@ -277,6 +285,19 @@ class SidecarService:
             or result["contentFingerprint"] != expected_fingerprint
         ):
             raise ProtocolError("index-dirty", "Rebuilt index content did not match its authority snapshot.")
+        expected_chapters = request.params["expectedChapterCounts"]
+        if (
+            not isinstance(expected_chapters, dict)
+            or set(expected_chapters) != {
+                "about_you", "preferences_habits", "important_events", "relationships_goals"
+            }
+            or any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in expected_chapters.values()
+            )
+            or result["chapterCounts"] != expected_chapters
+        ):
+            raise ProtocolError("index-dirty", "Rebuilt index chapters did not match its authority snapshot.")
         return result
 
     async def _inspect_index(self, request: Request) -> object:

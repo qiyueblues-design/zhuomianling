@@ -13,6 +13,8 @@ export interface MemoryIndexCoordinatorOptions {
   backend: MemoryBackend;
   indexDirectoryForPet: IndexDirectoryResolver;
   modelFingerprint: string;
+  forgottenRetentionMs?: number;
+  now?: () => number;
 }
 
 export interface MemoryIndexSyncResult {
@@ -103,6 +105,33 @@ export class MemoryIndexCoordinator {
     }
   }
 
+  private async recoverInterruptedSwap(root: string): Promise<void> {
+    const current = this.child(root, "current");
+    const backup = this.child(root, "backup");
+    for (const name of await fs.readdir(root)) {
+      if (!name.startsWith("staging-")) continue;
+      if (!/^staging-[A-Za-z0-9_-]{1,96}$/.test(name)) {
+        throw new MemoryBackendError("unavailable", "Memory index contains an unsafe staging entry.", false);
+      }
+      await this.removeChild(root, this.child(root, name as `staging-${string}`));
+    }
+    if (!await exists(current) && await exists(backup)) {
+      await this.assertSafeTree(root, backup);
+      await fs.rename(backup, current);
+    }
+  }
+
+  private async removeObsoleteBackup(root: string): Promise<void> {
+    const backup = this.child(root, "backup");
+    await this.removeChild(root, backup);
+  }
+
+  private async purgeSynchronizedForgotten(ledger: MemoryLedger): Promise<void> {
+    const retention = this.options.forgottenRetentionMs ?? 7_000;
+    const cutoff = new Date((this.options.now?.() ?? Date.now()) - retention).toISOString();
+    await ledger.purgeDeleted(ledger.petId, cutoff).catch(() => undefined);
+  }
+
   private outboxAfter(ledger: MemoryLedger, afterSequence: number): MemoryOutboxEntry[] {
     const result: MemoryOutboxEntry[] = [];
     let cursor = afterSequence;
@@ -123,6 +152,7 @@ export class MemoryIndexCoordinator {
     throwIfAborted(signal);
     const metadata = ledger.getIndexMetadata();
     const root = await this.indexRoot(ledger.petId);
+    await this.recoverInterruptedSwap(root);
     const current = this.child(root, "current");
     if (
       metadata.dirty ||
@@ -134,9 +164,13 @@ export class MemoryIndexCoordinator {
     }
 
     const entries = this.outboxAfter(ledger, metadata.lastAppliedSequence);
-    if (!entries.length) return { rebuilt: false, appliedCount: 0 };
+    if (!entries.length) {
+      await this.removeObsoleteBackup(root);
+      await this.purgeSynchronizedForgotten(ledger);
+      return { rebuilt: false, appliedCount: 0 };
+    }
     if (entries.some((entry) => entry.operation === "clear")) {
-      const appliedCount = await this.rebuildPet(ledger, signal, root);
+      const appliedCount = await this.rebuildPet(ledger, signal, root, true);
       return { rebuilt: true, appliedCount };
     }
 
@@ -159,6 +193,8 @@ export class MemoryIndexCoordinator {
         await ledger.markOutboxProcessed(ledger.petId, entry.sequence);
         appliedCount += 1;
       }
+      await this.removeObsoleteBackup(root);
+      await this.purgeSynchronizedForgotten(ledger);
       return { rebuilt: false, appliedCount };
     } catch (error) {
       await ledger.setIndexState(ledger.petId, true, this.options.modelFingerprint).catch(() => undefined);
@@ -169,12 +205,18 @@ export class MemoryIndexCoordinator {
   async rebuild(ledger: MemoryLedger, signal: AbortSignal): Promise<MemoryIndexSyncResult> {
     return this.enqueue(ledger.petId, async () => {
       const root = await this.indexRoot(ledger.petId);
+      await this.recoverInterruptedSwap(root);
       const appliedCount = await this.rebuildPet(ledger, signal, root);
       return { rebuilt: true, appliedCount };
     });
   }
 
-  private async rebuildPet(ledger: MemoryLedger, signal: AbortSignal, root: string): Promise<number> {
+  private async rebuildPet(
+    ledger: MemoryLedger,
+    signal: AbortSignal,
+    root: string,
+    purgeAllDeleted = false
+  ): Promise<number> {
     const petId = ledger.petId;
     throwIfAborted(signal);
     const targetId = `staging-${randomUUID()}` as const;
@@ -192,6 +234,7 @@ export class MemoryIndexCoordinator {
     await fs.mkdir(staging);
 
     let movedCurrent = false;
+    let swappedCurrent = false;
     try {
       const response = await this.options.backend.rebuild({ petId, records, targetId }, signal);
       if (response.indexedCount !== records.length) {
@@ -203,6 +246,8 @@ export class MemoryIndexCoordinator {
       // Windows cannot rename an open SQLite database. closePet is deliberately
       // called with a cleanup signal after the rebuild has completed.
       await this.options.backend.closePet(petId, new AbortController().signal);
+      // A previous validated swap may have left a recovery copy. The current
+      // directory is authoritative now, so make room for this operation's backup.
       await this.removeChild(root, backup);
       if (await exists(current)) {
         await this.assertSafeTree(root, current);
@@ -211,6 +256,7 @@ export class MemoryIndexCoordinator {
       }
       try {
         await fs.rename(staging, current);
+        swappedCurrent = true;
       } catch (error) {
         if (movedCurrent && !await exists(current) && await exists(backup)) {
           await fs.rename(backup, current).catch(() => undefined);
@@ -219,9 +265,21 @@ export class MemoryIndexCoordinator {
       }
       if (throughSequence > 0) await ledger.markOutboxProcessed(petId, throughSequence);
       await ledger.setIndexState(petId, false, this.options.modelFingerprint);
+      await this.removeObsoleteBackup(root);
+      if (purgeAllDeleted) {
+        await ledger.purgeDeleted(petId, "9999-12-31T23:59:59.999Z");
+      } else {
+        await this.purgeSynchronizedForgotten(ledger);
+      }
       return records.length;
     } catch (error) {
       await this.options.backend.closePet(petId, new AbortController().signal).catch(() => undefined);
+      if (swappedCurrent) {
+        await this.removeChild(root, current).catch(() => undefined);
+        if (movedCurrent && await exists(backup)) {
+          await fs.rename(backup, current).catch(() => undefined);
+        }
+      }
       await this.removeChild(root, staging).catch(() => undefined);
       await ledger.setIndexState(petId, true, this.options.modelFingerprint).catch(() => undefined);
       throw error;

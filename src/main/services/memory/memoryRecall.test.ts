@@ -53,7 +53,13 @@ describe("AiMemoryRecallService", () => {
     const retrieve = vi.fn(async (_petId, query: string) => {
       expect(query).toContain("current-question");
       expect(query).not.toContain("persona-secret");
-      return { ok: true as const, value: { items: [{ memory: memory("private-memory-content"), score: 0.9 }] } };
+      return {
+        ok: true as const,
+        value: {
+          items: [{ memory: memory("private-memory-content"), score: 0.9 }],
+          answerPolicy: "reference" as const
+        }
+      };
     });
     const service = new AiMemoryRecallService({
       getSettings: vi.fn(async () => enabledSettings),
@@ -132,5 +138,23 @@ describe("AiMemoryRecallService", () => {
       .resolves.toEqual({ recalledCount: 0 });
     expect(diagnostics).toEqual([expect.objectContaining({ stage: "retrieve", code: "unavailable" })]);
     expect(JSON.stringify(diagnostics)).not.toContain("sensitive-query");
+  });
+
+  it("injects a no-guessing constraint when a memory check has no high-confidence match", async () => {
+    const service = new AiMemoryRecallService({
+      getSettings: async () => ({ ...DEFAULT_MEMORY_SETTINGS, recallEnabled: true }),
+      synchronize: async () => undefined,
+      retrieve: async () => ({
+        ok: true,
+        value: { items: [], answerPolicy: "unknown" }
+      })
+    });
+    const result = await service.recall(
+      "pet-a",
+      [{ role: "user", content: "你记得我喜欢什么颜色吗？" }],
+      new AbortController().signal
+    );
+    expect(result.recalledCount).toBe(0);
+    expect(result.context).toContain("必须明确承认不知道或记不清");
   });
 });

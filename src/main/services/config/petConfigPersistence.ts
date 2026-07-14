@@ -2,6 +2,7 @@ import { app } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { PetDefinition } from "../../../shared/types/pet";
+import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
 import { assertValidPetId, isValidPetId } from "../../../shared/validation/petId";
 import { writeJsonFileAtomically } from "./durableJsonFile";
 import { withPetConfigWriteLock } from "./petConfigWriteQueue";
@@ -182,7 +183,9 @@ export async function readValidPetConfigBackup(
       ""
     );
     const parsed = JSON.parse(content) as unknown;
-    return isStoredPetDefinitionForId(parsed, targetPetId) ? parsed : undefined;
+    return isStoredPetDefinitionForId(parsed, targetPetId)
+      ? normalizeLegacyPetDefinition(parsed)
+      : undefined;
   } catch {
     return undefined;
   }

@@ -232,7 +232,11 @@ export class MemoryManagementService {
     }
     return this.execute(request.petId, (petId) => this.withLedger(petId, async (ledger) => {
       const { clearedCount } = await ledger.clear(petId);
-      return this.synchronizeMutation(ledger, { clearedCount });
+      const result = await this.synchronizeMutation(ledger, { clearedCount });
+      if (result.indexState === "synced") {
+        await ledger.purgeDeleted(petId, "9999-12-31T23:59:59.999Z");
+      }
+      return result;
     }));
   }
 

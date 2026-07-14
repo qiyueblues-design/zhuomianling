@@ -1,0 +1,25 @@
+{
+  "memories": [
+    { "id": "coffee", "content": "用户平时喜欢喝手冲咖啡", "tags": ["咖啡", "手冲"] },
+    { "id": "walk", "content": "用户习惯晚饭后散步", "tags": ["散步", "晚饭后"] },
+    { "id": "name", "content": "用户希望被称为若叶睦", "tags": ["若叶睦", "称呼"] },
+    { "id": "birthday", "content": "用户的生日是7月13日", "tags": ["生日", "7月13日"] },
+    { "id": "guitar", "content": "用户计划今年学会弹吉他", "tags": ["吉他", "目标"] },
+    { "id": "cat", "content": "用户养了一只叫雪球的白猫", "tags": ["雪球", "白猫"] },
+    { "id": "spicy", "content": "用户不喜欢太辣的食物", "tags": ["忌口", "辣"] },
+    { "id": "exam", "content": "用户将在2026年8月20日参加资格考试", "tags": ["考试", "2026年8月20日"] }
+  ],
+  "queries": [
+    { "query": "我平时最爱喝哪种饮品？", "expected": "coffee" },
+    { "query": "晚饭之后我通常会做什么？", "expected": "walk" },
+    { "query": "你应该怎么称呼我？", "expected": "name" },
+    { "query": "我的生日是哪一天？", "expected": "birthday" },
+    { "query": "我今年想掌握什么乐器？", "expected": "guitar" },
+    { "query": "雪球是谁？", "expected": "cat" },
+    { "query": "我吃东西有什么忌口？", "expected": "spicy" },
+    { "query": "我明确说过自己不爱吃哪种口味？", "expected": "spicy" },
+    { "query": "考试安排在什么时候？", "expected": "exam" },
+    { "query": "你记得我最喜欢什么颜色吗？", "expected": null },
+    { "query": "你记得我在哪里工作吗？", "expected": null }
+  ]
+}

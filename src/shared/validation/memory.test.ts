@@ -10,6 +10,7 @@ import {
   assertMemoryExportRequest,
   assertMemoryObjectBudget,
   assertMemoryRecordInput,
+  assertMemoryRetrieveResponse,
   assertMemorySettingsSaveRequest,
   MemoryValidationError,
   normalizeMemoryPageRequest,
@@ -111,5 +112,31 @@ describe("memory DTO validation", () => {
       options: { format: "json", includeSources: true },
       sourceExportConsent: MEMORY_SOURCE_EXPORT_CONSENT
     })).not.toThrow();
+  });
+
+  it("requires an explicit recall answer policy and forbids items on unknown checks", () => {
+    const memory = {
+      id: "memory-1",
+      petId: "pet-a",
+      chapter: "about_you" as const,
+      memoryType: "profile" as const,
+      content: "用户喜欢咖啡",
+      tags: [],
+      important: false,
+      origin: "manual" as const,
+      sourceAvailable: false,
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+      revision: 1
+    };
+    expect(() => assertMemoryRetrieveResponse({
+      items: [{ memory, score: 0.9 }],
+      answerPolicy: "verified"
+    }, "pet-a")).not.toThrow();
+    expect(() => assertMemoryRetrieveResponse({
+      items: [{ memory, score: 0.9 }],
+      answerPolicy: "unknown"
+    }, "pet-a")).toThrow(MemoryValidationError);
+    expect(() => assertMemoryRetrieveResponse({ items: [] } as never)).toThrow(MemoryValidationError);
   });
 });

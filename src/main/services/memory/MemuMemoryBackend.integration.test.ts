@@ -10,6 +10,8 @@ import { MemorySidecarClient } from "./MemorySidecarClient";
 
 const pythonPath = process.env.MEMORY_SIDECAR_PYTHON;
 const memuRoot = process.env.MEMORY_SIDECAR_MEMU_ROOT;
+const onnxRoot = process.env.MEMORY_SIDECAR_ONNX_ROOT;
+const modelRoot = process.env.MEMORY_SIDECAR_MODEL_ROOT;
 const sidecarRoot = path.resolve(__dirname, "../../../../sidecar/memory");
 
 let temporaryDirectory = "";
@@ -22,7 +24,7 @@ afterEach(async () => {
   await fs.rm(temporaryDirectory, { recursive: true, force: true });
 });
 
-describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () => {
+describe.skipIf(!pythonPath || !memuRoot || !onnxRoot || !modelRoot)("real memU 1.5.1 + BGE derived index", () => {
   it("normalizes through the configured provider without mutating the derived index", async () => {
     const requests: Array<{ authorization?: string; body: Record<string, unknown> }> = [];
     const server = http.createServer((request, response) => {
@@ -37,7 +39,7 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
           memories: [{
             chapter: "preferences_habits",
             memoryType: "behavior",
-            content: "用户喜欢雨天散步",
+            content: "你喜欢雨天散步",
             tags: ["散步"]
           }]
         });
@@ -54,7 +56,8 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
     const client = new MemorySidecarClient({
       executablePath: pythonPath!,
       sidecarRoot,
-      dependencyRoots: [memuRoot!],
+      dependencyRoots: [memuRoot!, onnxRoot!],
+      modelRoot: modelRoot!,
       startupTimeoutMs: 15_000,
       shutdownTimeoutMs: 5_000
     });
@@ -84,7 +87,7 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
           petId: "pet-a",
           chapter: "preferences_habits",
           memoryType: "behavior",
-          content: "用户喜欢雨天散步",
+          content: "你喜欢雨天散步",
           origin: "automatic"
         })
       ]);
@@ -95,6 +98,10 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
       const normalizeMessages = requests[1]?.body.messages as Array<{ role: string; content: string }>;
       expect(normalizeMessages[0]?.content).toContain("userText 的主要自然语言");
       expect(normalizeMessages[0]?.content).toContain("必须使用自然的简体中文");
+      expect(normalizeMessages[0]?.content).toContain("‘我’始终指当前桌宠/助手");
+      expect(normalizeMessages[0]?.content).toContain("‘你’始终指当前用户");
+      expect(normalizeMessages[0]?.content).toContain("用户说‘你喜欢喝奶茶’应整理为‘我喜欢喝奶茶’");
+      await expect(client.request("health")).resolves.toMatchObject({ embeddingLoaded: false });
       await expect(fs.readdir(path.join(indexDirectoryForPet("pet-a"), "current", "resources"))).resolves.toEqual([]);
     } finally {
       await backend.close(new AbortController().signal).catch(() => undefined);
@@ -106,7 +113,8 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
     const client = new MemorySidecarClient({
       executablePath: pythonPath!,
       sidecarRoot,
-      dependencyRoots: [memuRoot!],
+      dependencyRoots: [memuRoot!, onnxRoot!],
+      modelRoot: modelRoot!,
       startupTimeoutMs: 15_000,
       shutdownTimeoutMs: 5_000
     });
@@ -125,6 +133,8 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
     });
     const signal = new AbortController().signal;
     try {
+      await client.ensureStarted();
+      await expect(client.request("health")).resolves.toMatchObject({ embeddingLoaded: false });
       for (let index = 0; index < 8; index += 1) {
         await petA.create({
           petId: "pet-a",
@@ -150,6 +160,7 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
         { rebuilt: true, appliedCount: 8 },
         { rebuilt: true, appliedCount: 8 }
       ]);
+      await expect(client.request("health")).resolves.toMatchObject({ embeddingLoaded: true });
 
       const [alpha, beta] = await Promise.all([
         backend.retrieve({ petId: "pet-a", query: "alpha jasmine tea", limit: 10, contextBudgetChars: 2_048 }, signal),
@@ -178,6 +189,62 @@ describe.skipIf(!pythonPath || !memuRoot)("real memU 1.5.1 derived index", () =>
     } finally {
       petA.close();
       petB.close();
+      await backend.close(new AbortController().signal).catch(() => undefined);
+    }
+  }, 60_000);
+
+  it("cancels a cold staging rebuild without switching authority and recovers on retry", async () => {
+    const client = new MemorySidecarClient({
+      executablePath: pythonPath!,
+      sidecarRoot,
+      dependencyRoots: [memuRoot!, onnxRoot!],
+      modelRoot: modelRoot!,
+      startupTimeoutMs: 15_000,
+      shutdownTimeoutMs: 5_000
+    });
+    const indexDirectoryForPet = (petId: string) => path.join(temporaryDirectory, petId, "index");
+    const backend = new MemuMemoryBackend({ client, indexDirectoryForPet });
+    const coordinator = new MemoryIndexCoordinator({
+      backend,
+      indexDirectoryForPet,
+      modelFingerprint: backend.modelFingerprint
+    });
+    const ledger = await MemoryLedger.open("pet-a", {
+      memoryDirectoryPath: path.join(temporaryDirectory, "pet-a", "memory")
+    });
+    try {
+      for (let index = 0; index < 24; index += 1) {
+        await ledger.create({
+          petId: "pet-a",
+          chapter: "preferences_habits",
+          memoryType: "behavior",
+          content: `用于取消测试的中文长期偏好 ${index} ${"细节".repeat(32)}`,
+          tags: ["取消测试"]
+        });
+      }
+      await client.ensureStarted();
+      await expect(client.request("health")).resolves.toMatchObject({ embeddingLoaded: false });
+
+      const controller = new AbortController();
+      const pending = coordinator.synchronize(ledger, controller.signal);
+      setTimeout(() => controller.abort("test-cancel"), 10);
+      await expect(pending).rejects.toMatchObject({ code: "canceled" });
+      expect(ledger.getIndexMetadata()).toMatchObject({ dirty: true });
+      const children = await fs.readdir(indexDirectoryForPet("pet-a"));
+      expect(children.every((name) => !name.startsWith("staging-"))).toBe(true);
+      expect(children).not.toContain("current");
+
+      await expect(coordinator.synchronize(ledger, new AbortController().signal)).resolves.toEqual({
+        rebuilt: true,
+        appliedCount: 24
+      });
+      await expect(client.request("health")).resolves.toMatchObject({ embeddingLoaded: true });
+      expect(ledger.getIndexMetadata()).toMatchObject({
+        dirty: false,
+        modelFingerprint: backend.modelFingerprint
+      });
+    } finally {
+      ledger.close();
       await backend.close(new AbortController().signal).catch(() => undefined);
     }
   }, 60_000);

@@ -32,9 +32,16 @@ import type {
 } from "../../../shared/types/pet";
 import type { MemorySettings } from "../../../shared/types/memory";
 import { normalizeMemorySettings } from "../../../shared/validation/memory";
+import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
 import { petResourceProtocol, toPetResourceUrl } from "./petResourceProtocol";
 import { validateLive2DFolder } from "./live2dImportService";
+import { resolveLegacyVoiceModelPaths } from "./legacyVoiceModelPath";
 import { warmUpTextToSpeech } from "../speech/textToSpeech";
+import {
+  sanitizeVoiceDiagnosticText,
+  validateReadableVoiceFile,
+  validateVoiceModelResources
+} from "../speech/voiceResourceValidation";
 import { deletePetSecrets, getSecureString, setSecureString } from "./secureConfigStore";
 import {
   writeBufferFileAtomically,
@@ -71,7 +78,6 @@ const builtInThemeIds = new Set(["soft", "rock", "pixel", "journal", "cyber", "m
 const expressionMappingKeyPattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const allowedAvatarExtensions = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const gptSoVitsBaseUrl = "http://127.0.0.1:9880" as const;
-const gptSoVitsLogLineLimit = 40;
 const defaultVoiceInferenceDevice = "auto" as const;
 const defaultVoiceHalfPrecision = true;
 const minReferenceAudioDurationSeconds = 3;
@@ -110,7 +116,7 @@ function isReferenceAudioDurationAllowed(durationSeconds: number): boolean {
 }
 
 async function readReferenceAudioDurationSeconds(filePath: string): Promise<number> {
-  await fs.access(filePath, fsSync.constants.R_OK);
+  await validateReadableVoiceFile(filePath, "referenceAudio");
 
   const probeScript = [
     "$ErrorActionPreference = 'Stop'",
@@ -248,7 +254,7 @@ function stripVoiceInputCredentials(pet: PetDefinition, hasCredentials?: boolean
 }
 
 export function toPublicPetDefinition(pet: PetDefinition): PetDefinition {
-  return stripVoiceInputCredentials(pet);
+  return stripVoiceInputCredentials(normalizeLegacyPetDefinition(pet));
 }
 
 export class PetConfigCorruptedError extends Error {
@@ -424,9 +430,9 @@ async function waitForGptSoVitsApi(timeoutMs: number): Promise<boolean> {
 async function readRecentGptSoVitsLog(petId: string): Promise<string | undefined> {
   try {
     const log = await fs.readFile(getGptSoVitsLogPath(petId), "utf8");
-    const recentLines = log.trim().split(/\r?\n/).slice(-gptSoVitsLogLineLimit);
+    const diagnostic = sanitizeVoiceDiagnosticText(log);
 
-    return recentLines.join("\n");
+    return diagnostic || undefined;
   } catch {
     return undefined;
   }
@@ -1111,7 +1117,9 @@ async function readPetConfigUnlocked(
       throw new Error("桌宠配置缺少有效的 id/name，或配置 ID 与目录不一致。");
     }
 
-    const migration = await migrateLegacyVoiceInputCredentials(parsed);
+    const migration = await migrateLegacyVoiceInputCredentials(
+      normalizeLegacyPetDefinition(parsed)
+    );
 
     if (migration.blocked) {
       if (options.forMutation) {
@@ -1136,6 +1144,12 @@ async function readPetConfigUnlocked(
     }
 
     let nextPet = migration.pet;
+    const voicePathResolution = await resolveLegacyVoiceModelPaths(nextPet);
+
+    if (voicePathResolution.changed) {
+      nextPet = voicePathResolution.pet;
+      await writePetConfigUnlocked(nextPet.id, nextPet, "replacement");
+    }
 
     // Older releases stored a relative model path. In a packaged app the renderer
     // resolves that against app.asar, so Cubism tries to load the window URL instead
@@ -2145,15 +2159,24 @@ export async function pickLocalPetVoiceModelFile(
 export async function testLocalPetVoiceModelConnection(
   draft: LocalPetVoiceModelDraft
 ): Promise<LocalPetVoiceModelConnectionResult> {
-  if (!draft.sovitsModelPath || !draft.gptModelPath || !draft.referenceAudioPath || !draft.referenceText.trim()) {
+  if (!draft.referenceText.trim()) {
     return {
       ok: false,
-      message: "请先选择 SoVITS 模型、GPT 模型、参考音频，并填写参考文本。"
+      message: "请先填写参考文本。"
     };
   }
 
   try {
-    await validateReferenceAudioDuration(draft.referenceAudioPath);
+    await validateVoiceModelResources(draft);
+    await validateReferenceAudioDuration(draft.referenceAudioPath ?? "");
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "声音模型资源校验失败，请重新选择。"
+    };
+  }
+
+  try {
     await launchGptSoVitsApiIfNeeded(draft);
     const connected = await waitForGptSoVitsApi(120_000);
 
@@ -2204,13 +2227,21 @@ export async function saveLocalPetVoiceModel(
 
   assertSafePetDirectory(petId);
 
-  if (draft.referenceAudioPath) {
+  if (draft.enabled || draft.connected) {
+    if (!draft.referenceText.trim()) {
+      return {
+        ok: false,
+        message: "请先填写参考文本。"
+      };
+    }
+
     try {
-      await validateReferenceAudioDuration(draft.referenceAudioPath);
+      await validateVoiceModelResources(draft);
+      await validateReferenceAudioDuration(draft.referenceAudioPath ?? "");
     } catch (error) {
       return {
         ok: false,
-        message: error instanceof Error ? error.message : "参考音频校验失败。"
+        message: error instanceof Error ? error.message : "声音模型资源校验失败，请重新选择。"
       };
     }
   }

@@ -2,6 +2,7 @@ import { BrowserWindow, Menu } from "electron";
 import path from "node:path";
 import { getAppIconPath } from "./appIcon";
 import { hardenWindowNavigation } from "./windowSecurity";
+import { startupProfiler } from "./startupProfiler";
 
 let startupSurfaceWindow: BrowserWindow | undefined;
 let hasRevealedStartupSurface = false;
@@ -26,6 +27,7 @@ export function revealMainWindowStartupSurface(_reason?: string): void {
     hasSentStartupShownEvent = true;
     targetWindow.webContents.send("app-window:shown");
   }
+  startupProfiler.markOnce("main-window-revealed", "主窗口首帧已显示");
 }
 
 export function createMainWindow(): BrowserWindow {
@@ -54,6 +56,15 @@ export function createMainWindow(): BrowserWindow {
     }
   });
   hardenWindowNavigation(mainWindow);
+  mainWindow.webContents.once("did-start-loading", () => {
+    startupProfiler.markOnce("renderer-loading-started", "渲染页面开始加载");
+  });
+  mainWindow.webContents.once("dom-ready", () => {
+    startupProfiler.markOnce("renderer-dom-ready", "渲染页面 DOM ready");
+  });
+  mainWindow.webContents.once("did-finish-load", () => {
+    startupProfiler.markOnce("renderer-load-finished", "渲染页面 did-finish-load");
+  });
   startupSurfaceWindow = mainWindow;
   hasRevealedStartupSurface = false;
   hasSentStartupShownEvent = false;
@@ -86,6 +97,7 @@ export function createMainWindow(): BrowserWindow {
   };
 
   fallbackShowTimer = setTimeout(() => {
+    startupProfiler.markOnce("main-window-show-fallback", "主窗口触发 3 秒兜底显示");
     forceShowMainWindow();
     revealMainWindowStartupSurface("show fallback");
   }, 3000);

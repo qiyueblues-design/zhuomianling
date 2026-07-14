@@ -288,6 +288,69 @@
   color: #b42318;
 }
 
+.stageNoticeBackdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(25, 32, 45, 0.22);
+  backdrop-filter: blur(5px);
+}
+
+.stageNoticeDialog {
+  display: grid;
+  width: min(430px, 100%);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px 14px;
+  border: 1px solid rgba(38, 132, 255, 0.18);
+  border-radius: 18px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 70px rgba(20, 32, 54, 0.2);
+}
+
+.stageNoticeIcon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 13px;
+  background: #eaf3ff;
+  color: #1766c2;
+}
+
+.stageNoticeCopy {
+  display: grid;
+  gap: 6px;
+}
+
+.stageNoticeCopy h3,
+.stageNoticeCopy p {
+  margin: 0;
+}
+
+.stageNoticeCopy h3 {
+  color: #17202a;
+  font-size: 16px;
+}
+
+.stageNoticeCopy p {
+  color: #52606d;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.65;
+}
+
+.stageNoticeActions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
 .stageThemeSummary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

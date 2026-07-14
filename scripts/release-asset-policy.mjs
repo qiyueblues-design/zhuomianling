@@ -8,6 +8,11 @@ const forbiddenSuffixes = [
   ".exp.json",
   ".pth",
   ".ckpt",
+  ".onnx",
+  ".safetensors",
+  ".whl",
+  ".sqlite",
+  ".sqlite3",
   ".wav",
   ".mp3",
   ".flac",
@@ -28,6 +33,8 @@ const forbiddenFileNames = new Set([
   ".desktop-pet-import-transaction.json"
 ]);
 const forbiddenPathSegments = [
+  "/.cache/",
+  "/memory-sidecar/",
   "/gpt-sovits/",
   "/voice-model/",
   "/reference-audio/",

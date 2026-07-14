@@ -12,7 +12,7 @@
 
 > 桌面灵不内置受版权限制的角色模型、声音模型、参考音频、AI Key 或云服务密钥。开源版提供的是桌宠框架和配置工具，真实角色资源由用户自行导入并保存在本机。
 
-**功能**：透明桌宠窗口 · Cubism 2/3/4/5 Live2D 文件夹导入 · 模型预览 · 动作/表情扫描 · 表现映射 · 事件台词 · AI 聊天 · 字幕气泡 · 语音输入 · GPT-SoVITS 语音回复 · 多桌宠本地配置
+**功能**：透明桌宠窗口 · Cubism 2/3/4/5 Live2D 文件夹导入 · 模型预览 · 动作/表情扫描 · 表现映射 · 事件台词 · AI 聊天 · 本地记忆书 · 中文语义召回 · 字幕气泡 · 语音输入 · GPT-SoVITS 语音回复 · 多桌宠本地配置
 
 **当前主要平台**：Windows
 
@@ -109,7 +109,19 @@ AI 配置只保存到本机。Base URL、模型名等非敏感元数据保存在
 > *(角色人设)*
 > ![角色人设](./docs/images/06-editor-persona.png)
 
-### 5. 表现映射和事件反馈
+### 5. 本地记忆书
+
+每只桌宠拥有完全隔离的本地记忆账本。首次进入记忆书时，软件会询问是否启用对话记忆；确认后默认开启召回和自动整理、关闭原始来源保留。暂不启用不会永久跳过询问。
+
+- 记忆正文保存在 `%APPDATA%/zhuomianling/pets/<pet-id>/memory/ledger.sqlite3`
+- 中文召回使用安装包内自带的 BGE Small Zh v1.5 INT8 模型、关键词和结构化精确匹配，不依赖云端 embedding 或翻译请求
+- 本地模型只在首次实际召回、索引写入或主动重建时延迟加载，不阻塞主窗口启动
+- 自动整理只有在用户明确启用后才会把当前用户消息和最终可见回复发送给已配置的整理 AI
+- 记忆书支持四章节、搜索、编辑、忘记、撤销、导出、索引重建和清空
+
+SQLite 账本是权威数据；embedding/FTS 索引可以删除并从账本重建。关闭记忆功能时不会启动 Python sidecar 或创建新的记忆目录。
+
+### 6. 表现映射和事件反馈
 
 导入 Live2D 时会自动识别模型中的动作和表情文件。进入表现映射或事件配置后，可直接在桌面桌宠中预览它们，再为它们设置：
 
@@ -128,7 +140,7 @@ AI 配置只保存到本机。Base URL、模型名等非敏感元数据保存在
 > *(事件配置)*
 > ![事件配置](./docs/images/08-editor-event-config.png)
 
-### 6. 透明桌宠窗口
+### 7. 透明桌宠窗口
 
 启用桌宠后，会打开透明无边框桌宠窗口。桌宠窗口支持：
 
@@ -141,7 +153,7 @@ AI 配置只保存到本机。Base URL、模型名等非敏感元数据保存在
 
 点击穿透开启后，桌宠会尽量不阻挡桌面操作；需要恢复交互时，可以从快捷菜单、选择器或托盘关闭穿透。
 
-### 7. 可选语音能力
+### 8. 可选语音能力
 
 语音能力不是必需项。未配置语音时，桌宠仍可正常进行文字聊天和字幕显示。
 
@@ -180,37 +192,44 @@ AI 配置只保存到本机。Base URL、模型名等非敏感元数据保存在
 安装依赖：
 
 ```powershell
-npm install
+npm.cmd install
 ```
 
 开发模式运行：
 
 ```powershell
-npm run dev
+npm.cmd run dev
 ```
 
 类型检查和构建：
 
 ```powershell
-npm run typecheck
-npm run build
+npm.cmd run typecheck
+npm.cmd run build
 ```
 
-`npm run build` 会在构建末尾执行发布资源审计。开发机上的
+`npm.cmd run build` 会在构建末尾执行发布资源审计。开发机上的
 `public/live2d/` 模型不会复制到 `dist/`；如果构建产物中出现 Live2D
 模型、声音模型、参考音频或本地私密配置，构建会直接失败。
 
 ### 构建 Windows 安装包
 
 ```powershell
-npm run dist:win
+npm.cmd run prepare:memory-runtime
+npm.cmd run dist:win
 ```
 
-打包命令只允许把 `public/icons/` 与 `public/vendor/` 中的公开运行时静态
-资源带入发布包，并会复用同一套发布资源审计。不要手工把
+第一条命令从固定的 BAAI 官方 MIT 权重自行导出 INT8 ONNX，并组装经过
+逐文件 SHA-256 审计的 Windows 记忆运行时。生成目录位于被忽略的
+`.cache/memory-sidecar-release/`，不能提交到 Git。打包命令会把这套受控
+Python 3.13 / memU / ONNX / BGE 运行时复制到安装目录的
+`resources/memory-sidecar/`。
+
+其它静态资源仍只允许来自公开白名单。不要手工把
 `public/live2d/` 或 `userData/pets/` 复制到 `dist/` / `release/`。
 安装包生成后还会自动运行 `verify:packed-assets`，直接检查实际
-`app.asar` 中是否混入禁止资源或生产 `node_modules`。
+`app.asar`，并再次逐文件校验安装包外置记忆运行时；缺少模型、许可证或
+混入用户数据都会阻断发布。
 
 构建产物会输出到：
 
@@ -228,13 +247,13 @@ release/
 如果想测试接近打包后的运行效果，但不生成安装包：
 
 ```powershell
-npm run preview:prod
+npm.cmd run preview:prod
 ```
 
 如果只是重新打开上一次构建结果：
 
 ```powershell
-npm run start:prod
+npm.cmd run start:prod
 ```
 
 ---
@@ -265,6 +284,8 @@ Windows 上通常位于：
 - `secure-secrets.json` 受当前 Windows 用户的系统加密能力保护；把本地数据
   复制到另一台电脑或另一个系统账户后，通常需要重新填写云服务凭据
 - 声音模型路径等非密钥本机配置仍只应保存在本机
+- 每只桌宠的记忆账本、pending、派生索引和导出内容只保存在该桌宠本地目录，不属于安装包资源
+- 中文 embedding 在本机完成；只有用户明确启用“自动整理”时，当前用户消息与最终可见回复才会发送给用户配置的整理 AI
 - 不要把 `.env`、`*.local.json`、真实 Key 或本地绝对路径提交到仓库
 - 不要把未授权 Live2D 模型、声音模型、参考音频、`.pth`、`.ckpt` 提交到仓库
 - 更换电脑或重装系统前，请自行备份需要保留的本地桌宠数据
@@ -279,12 +300,15 @@ Windows 上通常位于：
 - GPT-SoVITS 声音模型、参考音频、`.pth`、`.ckpt` 或生成音频
 - 云端 AI 服务或托管后端
 
+正式 Windows 包会携带通用的本地中文记忆运行时和 BGE INT8 模型；它不包含任何用户记忆、预置角色记忆或用户导入资源。
+
 ---
 
 ## 文档
 
 - [用户使用指南](docs/user-guide.md)
 - [资源与隐私边界](docs/resource-policy.md)
+- [Windows 打包与 GitHub 发布要求](桌面灵打包与GitHub发布要求.md)
 
 ---
 

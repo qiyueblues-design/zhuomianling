@@ -1,14 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FolderOpen, MousePointer2, Plus, Sparkles, Trash2 } from "lucide-react";
 import type { LocalPetConfigCorruption, PetDefinition } from "../../shared/types/pet";
 import type { PetWindowState } from "../../shared/types/window";
-import { PetEditor } from "../components/PetEditor/PetEditor";
-import { MemoryBook } from "../components/MemoryBook/MemoryBook";
 import type { MemoryBookRouteState } from "../components/MemoryBook/memoryBookState";
+import type { ActiveEditorPanel } from "../components/PetEditor/editorNavigation";
 import { PetSelector } from "../components/PetSelector/PetSelector";
-import { PetStage } from "../components/PetStage/PetStage";
 import { StartupSplash } from "../components/StartupSplash/StartupSplash";
 import { hasUsableLive2DModel, loadAvailablePets } from "../pets/petSources";
+import { DeferredViewBoundary } from "./DeferredViewBoundary";
+
+const PetEditor = lazy(async () => {
+  const module = await import("../components/PetEditor/PetEditor");
+  return { default: module.PetEditor };
+});
+const MemoryBook = lazy(async () => {
+  const module = await import("../components/MemoryBook/MemoryBook");
+  return { default: module.MemoryBook };
+});
+const PetStage = lazy(async () => {
+  const module = await import("../components/PetStage/PetStage");
+  return { default: module.PetStage };
+});
 
 type AppView = "selector" | "editor" | "memoryBook";
 
@@ -19,6 +31,21 @@ const HOME_ICON_SRC = "./icons/home-icon.jpg";
 interface EditorPageOptions {
   mode?: "create" | "edit";
   petId?: string;
+  initialPanel?: ActiveEditorPanel;
+}
+
+function DeferredViewFallback({ label }: { label: string }): JSX.Element {
+  return (
+    <section className="stagePane selectorGuideStage deferredViewFallback" role="status" aria-live="polite">
+      <div className="selectorGuideVisual" aria-hidden="true">
+        <span className="selectorGuideScreen"><Sparkles size={24} /></span>
+      </div>
+      <div className="selectorGuideCopy">
+        <h2>{label}</h2>
+        <p>正在按需载入当前页面…</p>
+      </div>
+    </section>
+  );
 }
 
 function DeletePetDialog({
@@ -231,6 +258,10 @@ export function App(): JSX.Element {
   const selectorScrollPositionRef = useRef(0);
 
   useEffect(() => {
+    window.desktopPet?.appWindow.reportStartupTiming("react-mounted");
+  }, []);
+
+  useEffect(() => {
     currentViewRef.current = currentView;
   }, [currentView]);
 
@@ -264,6 +295,7 @@ export function App(): JSX.Element {
         console.error("Failed to load desktop pets on startup.", error);
       } finally {
         if (isMounted) {
+          window.desktopPet?.appWindow.reportStartupTiming("initial-pets-loaded");
           setHasInitialPetsLoaded(true);
         }
       }
@@ -297,6 +329,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     const markWindowShown = (): void => {
+      window.desktopPet?.appWindow.reportStartupTiming("main-window-shown");
       setHasMainWindowBeenShown(true);
     };
 
@@ -330,6 +363,7 @@ export function App(): JSX.Element {
     }
 
     const setStartupSurfaceReadyState = (): void => {
+      window.desktopPet?.appWindow.reportStartupTiming("startup-surface-ready");
       setHasStartupSurfaceReady(true);
     };
 
@@ -358,6 +392,7 @@ export function App(): JSX.Element {
     }
 
     const splashTimer = window.setTimeout(() => {
+      window.desktopPet?.appWindow.reportStartupTiming("minimum-splash-elapsed");
       setHasMinimumStartupSplashElapsed(true);
     }, MIN_STARTUP_SPLASH_MS);
 
@@ -378,6 +413,7 @@ export function App(): JSX.Element {
       return;
     }
 
+    window.desktopPet?.appWindow.reportStartupTiming("splash-exit-started");
     setIsStartupSplashLeaving(true);
   }, [
     hasMinimumStartupSplashElapsed,
@@ -394,6 +430,7 @@ export function App(): JSX.Element {
     }
 
     const splashExitTimer = window.setTimeout(() => {
+      window.desktopPet?.appWindow.reportStartupTiming("splash-hidden");
       setIsStartupSplashVisible(false);
     }, STARTUP_SPLASH_EXIT_MS);
 
@@ -648,12 +685,21 @@ export function App(): JSX.Element {
   if (currentView === "editor") {
     return (
       <main className="appShell editorViewShell">
-        <PetEditor
-          pets={editorPets}
-          selectedPetId={editorSelectedPetId}
-          onSavedPet={handleEditorSavedPet}
+        <DeferredViewBoundary
+          resetKey={`editor:${editorSelectedPetId}`}
+          title="桌宠编辑器加载失败"
           onBack={closeEditorPage}
-        />
+        >
+          <Suspense fallback={<DeferredViewFallback label="正在打开编辑器" />}>
+            <PetEditor
+              pets={editorPets}
+              selectedPetId={editorSelectedPetId}
+              initialPanel={editorOptions.initialPanel}
+              onSavedPet={handleEditorSavedPet}
+              onBack={closeEditorPage}
+            />
+          </Suspense>
+        </DeferredViewBoundary>
         {toastText ? <div className="launchToast">{toastText}</div> : null}
         {configCorruption ? (
           <ConfigRecoveryDialog
@@ -671,14 +717,22 @@ export function App(): JSX.Element {
   if (currentView === "memoryBook" && selectedPet) {
     return (
       <main className="appShell memoryBookViewShell">
-        <MemoryBook
-          pet={selectedPet}
-          initialState={memoryBookStateRef.current[selectedPet.id]}
-          onStateChange={(state) => {
-            memoryBookStateRef.current[selectedPet.id] = state;
-          }}
+        <DeferredViewBoundary
+          resetKey={`memory:${selectedPet.id}`}
+          title="记忆书加载失败"
           onBack={closeMemoryBook}
-        />
+        >
+          <Suspense fallback={<DeferredViewFallback label="正在翻开记忆书" />}>
+            <MemoryBook
+              pet={selectedPet}
+              initialState={memoryBookStateRef.current[selectedPet.id]}
+              onStateChange={(state) => {
+                memoryBookStateRef.current[selectedPet.id] = state;
+              }}
+              onBack={closeMemoryBook}
+            />
+          </Suspense>
+        </DeferredViewBoundary>
         {isStartupSplashVisible ? <StartupSplash leaving={isStartupSplashLeaving} /> : null}
       </main>
     );
@@ -713,20 +767,32 @@ export function App(): JSX.Element {
 
         <div className="rightColumn">
           {selectedPet ? (
-            <PetStage
-              pet={selectedPet}
-              isActive={selectedPet.id === activePetId}
-              petWindowState={petWindowState}
-              onActivate={() => activatePet(selectedPet.id)}
-              onDeactivate={async () => {
-                await deactivatePet();
-              }}
-              onEditPet={() => openEditorPage({ mode: "edit", petId: selectedPet.id })}
-              onOpenMemoryBook={() => openMemoryBook(selectedPet.id)}
-              onDeletePet={() => deletePet(selectedPet)}
-              onCloseDetails={() => setSelectedPetId(undefined)}
-              onVoiceConnected={refreshPets}
-            />
+            <DeferredViewBoundary
+              resetKey={`details:${selectedPet.id}`}
+              title="桌宠详情加载失败"
+              onBack={() => setSelectedPetId(undefined)}
+            >
+              <Suspense fallback={<DeferredViewFallback label="正在载入桌宠详情" />}>
+                <PetStage
+                  pet={selectedPet}
+                  isActive={selectedPet.id === activePetId}
+                  petWindowState={petWindowState}
+                  onActivate={() => activatePet(selectedPet.id)}
+                  onDeactivate={async () => {
+                    await deactivatePet();
+                  }}
+                  onEditPet={(initialPanel) => openEditorPage({
+                    mode: "edit",
+                    petId: selectedPet.id,
+                    initialPanel
+                  })}
+                  onOpenMemoryBook={() => openMemoryBook(selectedPet.id)}
+                  onDeletePet={() => deletePet(selectedPet)}
+                  onCloseDetails={() => setSelectedPetId(undefined)}
+                  onVoiceConnected={refreshPets}
+                />
+              </Suspense>
+            </DeferredViewBoundary>
           ) : (
             <SelectorGuideStage
               hasPets={Boolean(availablePets.length)}

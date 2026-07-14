@@ -49,10 +49,13 @@ function createAbortablePendingFetch(): ReturnType<typeof vi.fn> {
 }
 
 let temporaryDirectory = "";
+let referenceAudioPath = "";
 
 beforeEach(async () => {
   temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "zhuomianling-tts-"));
   electronMock.userDataPath = temporaryDirectory;
+  referenceAudioPath = path.join(temporaryDirectory, "reference.wav");
+  await fs.writeFile(referenceAudioPath, "fixture-audio", "utf8");
   await Promise.all(
     ["pet-a", "pet-b"].map(async (petId) => {
       const petDirectory = path.join(temporaryDirectory, "pets", petId);
@@ -63,7 +66,7 @@ beforeEach(async () => {
           voiceModelSettings: {
             enabled: true,
             connected: true,
-            referenceAudioPath: "C:/voice/reference.wav",
+            referenceAudioPath,
             referenceText: "参考文本",
             referenceLanguage: "zh",
             language: "zh"
@@ -82,6 +85,97 @@ afterEach(async () => {
 });
 
 describe("text-to-speech request lifecycle", () => {
+  it("旧配置缺少参考文本时返回可操作提示而不是抛出 TypeError", async () => {
+    const petDirectory = path.join(temporaryDirectory, "pets", "pet-a");
+    await fs.writeFile(
+      path.join(petDirectory, "pet.local.json"),
+      JSON.stringify({
+        voiceModelSettings: {
+          enabled: true,
+          connected: true,
+          referenceAudioPath,
+          language: "zh"
+        }
+      }),
+      "utf8"
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { speakText } = await import("./textToSpeech");
+
+    await expect(
+      speakText(asWebContents(new FakeWebContents()), {
+        petId: "pet-a",
+        requestId: "legacy-missing-text",
+        text: "你好"
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "INVALID_CONFIG",
+      message: expect.stringContaining("参考文本")
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing reference audio before calling GPT-SoVITS", async () => {
+    const petDirectory = path.join(temporaryDirectory, "pets", "pet-a");
+    await fs.writeFile(
+      path.join(petDirectory, "pet.local.json"),
+      JSON.stringify({
+        voiceModelSettings: {
+          enabled: true,
+          connected: true,
+          referenceAudioPath: path.join(temporaryDirectory, "moved-reference.wav"),
+          referenceText: "参考文本",
+          referenceLanguage: "zh",
+          language: "zh"
+        }
+      }),
+      "utf8"
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { speakText } = await import("./textToSpeech");
+
+    await expect(
+      speakText(asWebContents(new FakeWebContents()), {
+        petId: "pet-a",
+        requestId: "missing-reference",
+        text: "你好"
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "INVALID_CONFIG",
+      message: expect.stringContaining("找不到参考音频")
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("maps GPT-SoVITS ENOENT responses to a bounded Chinese action message", async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        detail: `ENOENT: no such file or directory, access 'old-reference.wav'\r${"0/1500 [00:00<?, ?it/s] 推理中".repeat(800)}`
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+    const { speakText } = await import("./textToSpeech");
+
+    const result = await speakText(asWebContents(new FakeWebContents()), {
+      petId: "pet-a",
+      requestId: "service-missing-reference",
+      text: "你好"
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: "GPT-SoVITS 找不到参考音频或模型文件，请回到声音模型页重新选择文件并重新连接。"
+    });
+    expect(result.message.length).toBeLessThan(120);
+    expect(result.message).not.toContain("ENOENT");
+    expect(result.message).not.toContain("1500");
+  });
+
   it("stop aborts every active synthesis request for the selected pet", async () => {
     const fetchMock = createAbortablePendingFetch();
     vi.stubGlobal("fetch", fetchMock);

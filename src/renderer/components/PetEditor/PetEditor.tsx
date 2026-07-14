@@ -63,6 +63,7 @@ import { VoiceInputPanel } from "./VoiceInputPanel";
 interface PetEditorProps {
   pets: PetDefinition[];
   selectedPetId: string;
+  initialPanel?: ActiveEditorPanel;
   onSavedPet?: (pet: PetDefinition) => void;
   onBack?: () => void;
 }
@@ -79,10 +80,11 @@ const voiceLanguageOptions = [
 export function PetEditor({
   pets,
   selectedPetId,
+  initialPanel = "basic",
   onSavedPet,
   onBack
 }: PetEditorProps): JSX.Element | null {
-  const [activePanel, setActivePanel] = useState<ActiveEditorPanel>("basic");
+  const [activePanel, setActivePanel] = useState<ActiveEditorPanel>(initialPanel);
   const [aiExpanded, setAiExpanded] = useState(true);
   const [dialogueExpanded, setDialogueExpanded] = useState(true);
   const [interactionExpanded, setInteractionExpanded] = useState(true);

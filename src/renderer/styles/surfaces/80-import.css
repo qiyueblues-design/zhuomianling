@@ -215,6 +215,23 @@
   text-align: center;
 }
 
+.deferredViewFallback {
+  width: 100%;
+  flex: 1;
+}
+
+.deferredViewFallback .selectorGuideVisual {
+  width: min(220px, 70%);
+}
+
+.deferredViewError .selectorGuideScreen {
+  border-color: rgba(190, 72, 88, 0.2);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 250, 0.96), rgba(255, 239, 242, 0.78)),
+    rgba(255, 255, 255, 0.72);
+  color: #b5475a;
+}
+
 .selectorGuideVisual {
   position: relative;
   display: grid;

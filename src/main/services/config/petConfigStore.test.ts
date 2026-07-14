@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LocalPetVoiceModelDraft, PetDefinition } from "../../../shared/types/pet";
 import { normalizeMemorySettings } from "../../../shared/validation/memory";
 
 type ProtocolHandler = (request: { url: string }) => Promise<Response>;
@@ -437,6 +438,96 @@ describe("legacy Live2D model path migration", () => {
   });
 });
 
+describe("旧版桌宠配置结构兼容", () => {
+  it("读取时补齐新增字段但不擅自改写原配置文件", async () => {
+    const petId = "legacy-shape";
+    const configPath = getPetConfigPath(petId);
+    const oldConfig = {
+      id: petId,
+      name: "Legacy Shape",
+      details: {
+        scenarios: ["学习"]
+      },
+      voiceModelSettings: {
+        enabled: true,
+        connected: false,
+        referenceAudioPath: "reference.wav"
+      }
+    };
+    await fs.mkdir(getPetDirectory(petId), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(oldConfig, null, 2), "utf8");
+    const originalContent = await fs.readFile(configPath, "utf8");
+
+    const { getLocalPetDefinition } = await import("./petConfigStore");
+    const pet = await getLocalPetDefinition(petId);
+
+    expect(pet).toMatchObject({
+      id: petId,
+      modelPath: "",
+      personaPrompt: "",
+      details: {
+        scenes: ["学习"],
+        features: []
+      },
+      voiceModelSettings: {
+        referenceAudioPath: "reference.wav",
+        referenceText: "",
+        language: "zh"
+      }
+    });
+    await expect(fs.readFile(configPath, "utf8")).resolves.toBe(originalContent);
+  });
+
+  it("只迁移能够相对根目录精确解析的旧版声音模型路径", async () => {
+    const petId = "legacy-voice-path";
+    const configPath = getPetConfigPath(petId);
+    const voiceRoot = path.join(temporaryDirectory, "voice-runtime");
+    const modelDirectory = path.join(voiceRoot, "GPT_SoVITS", "pretrained_models");
+    const sovitsPath = path.join(modelDirectory, "legacy.pth");
+    const gptPath = path.join(modelDirectory, "legacy.ckpt");
+    await Promise.all([
+      fs.mkdir(getPetDirectory(petId), { recursive: true }),
+      fs.mkdir(modelDirectory, { recursive: true })
+    ]);
+    await Promise.all([
+      fs.writeFile(sovitsPath, "fixture"),
+      fs.writeFile(gptPath, "fixture")
+    ]);
+    await fs.writeFile(configPath, JSON.stringify({
+      id: petId,
+      name: "Legacy Voice Path",
+      gptSoVitsRootPath: voiceRoot,
+      voiceModelSettings: {
+        enabled: false,
+        connected: false,
+        gptSoVitsRootPath: voiceRoot,
+        sovitsModelPath: "GPT_SoVITS/pretrained_models/legacy.pth",
+        gptModelPath: "GPT_SoVITS/pretrained_models/legacy.ckpt",
+        referenceText: "",
+        language: "zh"
+      }
+    }, null, 2), "utf8");
+
+    const { getLocalPetDefinition } = await import("./petConfigStore");
+    const pet = await getLocalPetDefinition(petId);
+    const persisted = JSON.parse(await fs.readFile(configPath, "utf8")) as PetDefinition;
+    const [realSovitsPath, realGptPath] = await Promise.all([
+      fs.realpath(sovitsPath),
+      fs.realpath(gptPath)
+    ]);
+
+    await expect(fs.realpath(pet?.voiceModelSettings?.sovitsModelPath ?? ""))
+      .resolves.toBe(realSovitsPath);
+    await expect(fs.realpath(pet?.voiceModelSettings?.gptModelPath ?? ""))
+      .resolves.toBe(realGptPath);
+    await expect(fs.realpath(persisted.voiceModelSettings?.sovitsModelPath ?? ""))
+      .resolves.toBe(realSovitsPath);
+    await expect(fs.realpath(persisted.voiceModelSettings?.gptModelPath ?? ""))
+      .resolves.toBe(realGptPath);
+    await expect(fs.access(`${configPath}.bak`)).resolves.toBeUndefined();
+  });
+});
+
 describe("avatar draft cleanup", () => {
   it("removes the temporary avatar draft after the new pet has been saved", async () => {
     const draftPetId = "draft-avatar1";
@@ -484,6 +575,51 @@ describe("avatar draft cleanup", () => {
     await expect(fs.access(getPetDirectory(removableDraftId))).rejects.toThrow();
     await expect(fs.access(getPetDirectory(preservedDraftId))).resolves.toBeUndefined();
     await expect(fs.access(getPetConfigPath("draft-config1"))).resolves.toBeUndefined();
+  });
+});
+
+describe("GPT-SoVITS resource validation", () => {
+  it("does not append historical inference logs to a missing-resource error", async () => {
+    const petId = "voice-resource-test";
+    const voiceRootPath = path.join(temporaryDirectory, "gpt-sovits");
+    const sovitsModelPath = path.join(temporaryDirectory, "voice.pth");
+    const gptModelPath = path.join(temporaryDirectory, "voice.ckpt");
+    const missingReferencePath = path.join(temporaryDirectory, "moved-reference.wav");
+    const logPath = path.resolve(process.cwd(), "logs", `gpt-sovits-${petId}.log`);
+    await fs.mkdir(voiceRootPath, { recursive: true });
+    await fs.writeFile(sovitsModelPath, "fixture", "utf8");
+    await fs.writeFile(gptModelPath, "fixture", "utf8");
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
+    await fs.writeFile(logPath, "HISTORICAL_INFERENCE_PROGRESS 1499/1500 99%", "utf8");
+
+    const draft: LocalPetVoiceModelDraft = {
+      petId,
+      enabled: true,
+      connected: false,
+      gptSoVitsRootPath: voiceRootPath,
+      sovitsModelPath,
+      gptModelPath,
+      referenceAudioPath: missingReferencePath,
+      referenceText: "参考文本",
+      referenceLanguage: "zh",
+      language: "zh",
+      playMode: "sentence",
+      inferenceDevice: "cpu",
+      halfPrecision: false,
+      syncTextWithVoice: true
+    };
+
+    const { testLocalPetVoiceModelConnection } = await import("./petConfigStore");
+    const result = await testLocalPetVoiceModelConnection(draft).finally(() =>
+      fs.rm(logPath, { force: true })
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("找不到参考音频")
+    });
+    expect(result.message).not.toContain("HISTORICAL_INFERENCE_PROGRESS");
+    expect(result.message).not.toContain("最近日志");
   });
 });
 

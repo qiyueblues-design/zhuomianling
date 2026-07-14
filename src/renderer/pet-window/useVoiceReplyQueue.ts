@@ -192,6 +192,7 @@ export function useVoiceReplyQueue(
   const syncRevealRef = useRef<SyncVoiceRevealState | undefined>();
   const requestIdRef = useRef(0);
   const textToSpeechRequestSequenceRef = useRef(0);
+  const voiceConfigurationErrorRequestRef = useRef<number | undefined>();
   const subtitleHoldRef = useRef<{ requestId: number; active: boolean } | undefined>();
   const expressionHoldRef = useRef<{ requestId: number; active: boolean } | undefined>();
   const pendingExpressionRef = useRef<PetExpressionKey | undefined>();
@@ -247,6 +248,10 @@ export function useVoiceReplyQueue(
     segment: string,
     requestId: number
   ): Promise<VoiceReplyAudio | undefined> => {
+    if (voiceConfigurationErrorRequestRef.current === requestId) {
+      return undefined;
+    }
+
     const textToSpeechRequestId =
       `voice-${requestId}-${++textToSpeechRequestSequenceRef.current}`;
     let failureMessage: string | undefined;
@@ -292,6 +297,16 @@ export function useVoiceReplyQueue(
       }
 
       if (response?.code === "CANCELED") {
+        return undefined;
+      }
+
+      if (response?.code === "INVALID_CONFIG") {
+        const shouldShowMessage = voiceConfigurationErrorRequestRef.current !== requestId;
+        voiceConfigurationErrorRequestRef.current = requestId;
+        failureMessage = response.message?.trim() || "声音模型资源不可用，请重新配置并连接。";
+        if (shouldShowMessage && requestId === requestIdRef.current) {
+          optionsRef.current.showVoiceMessage(`GPT-SoVITS：${failureMessage}`, "error");
+        }
         return undefined;
       }
 
@@ -601,6 +616,7 @@ export function useVoiceReplyQueue(
       }
     }
     requestIdRef.current += 1;
+    voiceConfigurationErrorRequestRef.current = undefined;
     syncRevealRef.current = undefined;
     subtitleHoldRef.current = undefined;
     expressionHoldRef.current = undefined;

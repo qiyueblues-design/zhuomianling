@@ -96,7 +96,11 @@ export class AiMemoryRecallService {
       }
 
       stage = "context";
-      const context = buildUntrustedMemoryContext(response.value.items, settings);
+      const context = buildUntrustedMemoryContext(
+        response.value.items,
+        settings,
+        response.value.answerPolicy
+      );
       diagnose("ok", context.includedCount);
       return { context: context.context, recalledCount: context.includedCount };
     } catch {
@@ -117,7 +121,8 @@ export interface MemoryRecallRuntimeRoots {
 interface MemoryRuntimePaths {
   executablePath: string;
   sidecarRoot: string;
-  dependencyRoot: string;
+  dependencyRoots: string[];
+  modelRoot: string;
 }
 
 export interface MemoryRuntimeComponents {
@@ -152,19 +157,33 @@ async function resolveRuntimePaths(): Promise<MemoryRuntimePaths> {
     {
       executablePath: path.join(runtimeRoots.resourcesPath, "memory-sidecar", "runtime", "python.exe"),
       sidecarRoot: path.join(runtimeRoots.resourcesPath, "memory-sidecar", "sidecar"),
-      dependencyRoot: path.join(runtimeRoots.resourcesPath, "memory-sidecar", "site-packages")
+      dependencyRoots: [path.join(runtimeRoots.resourcesPath, "memory-sidecar", "site-packages")],
+      modelRoot: path.join(runtimeRoots.resourcesPath, "memory-sidecar", "model")
     },
     {
       executablePath: path.join(runtimeRoots.appPath, ".cache", "memory-sidecar-python-3.13", "runtime", "python.exe"),
       sidecarRoot: path.join(runtimeRoots.appPath, "sidecar", "memory"),
-      dependencyRoot: path.join(runtimeRoots.appPath, ".cache", "memory-sidecar-python-3.13", "memu-1.5.1-site-packages")
+      dependencyRoots: [
+        path.join(runtimeRoots.appPath, ".cache", "memory-sidecar-python-3.13", "memu-1.5.1-site-packages"),
+        path.join(runtimeRoots.appPath, ".cache", "memory-sidecar-python-3.13", "bge-onnx-site-packages")
+      ],
+      modelRoot: path.join(
+        runtimeRoots.appPath,
+        ".cache",
+        "memory-sidecar-python-3.13",
+        "production-bge-int8"
+      )
     }
   ];
   for (const candidate of candidates) {
+    const dependencySafety = await Promise.all(
+      candidate.dependencyRoots.map((entry) => isSafeRuntimePath(entry, "directory"))
+    );
     if (
       await isSafeRuntimePath(candidate.executablePath, "file") &&
       await isSafeRuntimePath(candidate.sidecarRoot, "directory") &&
-      await isSafeRuntimePath(candidate.dependencyRoot, "directory")
+      dependencySafety.every(Boolean) &&
+      await isSafeRuntimePath(candidate.modelRoot, "directory")
     ) {
       return candidate;
     }
@@ -182,7 +201,8 @@ async function createRuntimeComponents(): Promise<MemoryRuntimeComponents> {
   const client = new MemorySidecarClient({
     executablePath: runtime.executablePath,
     sidecarRoot: runtime.sidecarRoot,
-    dependencyRoots: [runtime.dependencyRoot],
+    dependencyRoots: runtime.dependencyRoots,
+    modelRoot: runtime.modelRoot,
     startupTimeoutMs: 15_000,
     shutdownTimeoutMs: 5_000
   });

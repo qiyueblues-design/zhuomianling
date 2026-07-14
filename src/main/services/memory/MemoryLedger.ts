@@ -96,7 +96,15 @@ interface OutboxRow {
 
 function sqliteError(error: unknown, fallback: MemoryLedgerErrorCode): MemoryLedgerError {
   if (error instanceof MemoryLedgerError) return error;
-  return new MemoryLedgerError(fallback, "The memory ledger could not be read safely.", error);
+  const message = error instanceof Error ? error.message : "";
+  const storageUnavailable = /(?:database or disk is full|readonly|read-only|unable to open|disk i\/o|database is locked|database is busy|access|permission)/i.test(message);
+  return new MemoryLedgerError(
+    storageUnavailable ? "MEMORY_STORAGE_UNAVAILABLE" : fallback,
+    storageUnavailable
+      ? "The memory ledger storage is temporarily unavailable."
+      : "The memory ledger could not be read safely.",
+    error
+  );
 }
 
 function parseTags(value: string): string[] {
@@ -224,6 +232,7 @@ export class MemoryLedger {
         if (error.code !== "EPERM") throw error;
       });
       database.exec("PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL;");
+      database.exec("PRAGMA secure_delete = ON;");
       const quickCheck = database.prepare("PRAGMA quick_check").get() as { quick_check: string };
       if (quickCheck.quick_check !== "ok") {
         throw new MemoryLedgerError("LEDGER_CORRUPTED", "The memory ledger failed its integrity check.");
@@ -414,7 +423,8 @@ export class MemoryLedger {
       try {
         this.database.exec("ROLLBACK");
       } catch {}
-      throw error;
+      if (error instanceof MemoryValidationError) throw error;
+      throw sqliteError(error, "MEMORY_STORAGE_UNAVAILABLE");
     }
   }
 
@@ -711,6 +721,82 @@ export class MemoryLedger {
     });
   }
 
+  async purgeDeleted(
+    petId: string,
+    deletedBefore: string
+  ): Promise<{ purgedCount: number; sourceTurnsPurged: number }> {
+    if (assertValidPetId(petId) !== this.petId) throw new MemoryValidationError("Memory pet ID mismatch.");
+    if (!Number.isFinite(Date.parse(deletedBefore))) {
+      throw new MemoryValidationError("Invalid forgotten-memory cleanup cutoff.");
+    }
+    return withPetConfigWriteLock(this.petId, async () => {
+      this.assertOpen();
+      const candidates = this.database
+        .prepare("SELECT id FROM memories WHERE pet_id = ? AND deleted_at IS NOT NULL AND deleted_at <= ? ORDER BY id")
+        .all(this.petId, deletedBefore) as unknown as Array<{ id: string }>;
+      if (!candidates.length) return { purgedCount: 0, sourceTurnsPurged: 0 };
+      const candidateIds = new Set(candidates.map(({ id }) => id));
+      const activeIds = new Set(
+        (this.database
+          .prepare("SELECT id FROM memories WHERE pet_id = ? AND deleted_at IS NULL")
+          .all(this.petId) as unknown as Array<{ id: string }>).map(({ id }) => id)
+      );
+      const sourceRequestIds: string[] = [];
+      const idempotencyRows = this.database
+        .prepare("SELECT request_id, memory_ids_json FROM idempotency WHERE pet_id = ?")
+        .all(this.petId) as unknown as Array<{ request_id: string; memory_ids_json: string }>;
+      for (const row of idempotencyRows) {
+        let memoryIds: string[];
+        try {
+          memoryIds = JSON.parse(row.memory_ids_json) as string[];
+          if (!Array.isArray(memoryIds) || memoryIds.some((id) => typeof id !== "string")) throw new Error();
+        } catch (error) {
+          throw new MemoryLedgerError("LEDGER_CORRUPTED", "Idempotency data is corrupted.", error);
+        }
+        if (memoryIds.length > 0 && memoryIds.every((id) => candidateIds.has(id) || !activeIds.has(id))) {
+          sourceRequestIds.push(row.request_id);
+        }
+      }
+
+      await this.backupBeforeMutation();
+      let authorityPurged = false;
+      try {
+        const result = this.transaction(() => {
+          let sourceTurnsPurged = 0;
+          for (const requestId of sourceRequestIds) {
+            sourceTurnsPurged += Number(
+              this.database
+                .prepare("DELETE FROM source_turns WHERE request_id = ? AND pet_id = ?")
+                .run(requestId, this.petId).changes
+            );
+          }
+          const placeholders = candidates.map(() => "?").join(",");
+          this.database
+            .prepare(`DELETE FROM index_outbox WHERE processed_at IS NOT NULL AND (operation = 'clear' OR memory_id IN (${placeholders}))`)
+            .run(...candidates.map(({ id }) => id));
+          const purgedCount = Number(
+            this.database
+              .prepare(`DELETE FROM memories WHERE pet_id = ? AND id IN (${placeholders})`)
+              .run(this.petId, ...candidates.map(({ id }) => id)).changes
+          );
+          return { purgedCount, sourceTurnsPurged };
+        });
+        authorityPurged = true;
+        this.database.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+        this.database.exec("VACUUM");
+        await this.createBackup();
+        return result;
+      } catch (error) {
+        // Once authority content has been physically removed, retaining a stale
+        // pre-cleanup backup would violate the user's forget/clear request.
+        if (authorityPurged) {
+          await fs.rm(this.paths.ledgerBackup, { force: true }).catch(() => undefined);
+        }
+        throw sqliteError(error, "MEMORY_STORAGE_UNAVAILABLE");
+      }
+    });
+  }
+
   list(request: Omit<MemorySearchRequest, "query"> & { query?: string }): MemoryPage<MemoryRecord> {
     return this.search({ ...request, query: request.query ?? "" });
   }
@@ -821,11 +907,18 @@ export class MemoryLedger {
     this.assertOpen();
     const rows = this.database.prepare("SELECT key, value FROM index_metadata").all() as unknown as Array<{ key: string; value: string }>;
     const values = new Map(rows.map((row) => [row.key, row.value]));
-    return {
-      dirty: values.get("dirty") === "1",
-      lastAppliedSequence: Number.parseInt(values.get("last_applied_sequence") ?? "0", 10),
-      modelFingerprint: values.get("model_fingerprint")
-    };
+    const dirty = values.get("dirty") ?? "0";
+    const lastAppliedSequence = Number.parseInt(values.get("last_applied_sequence") ?? "0", 10);
+    const modelFingerprint = values.get("model_fingerprint");
+    if (
+      !["0", "1"].includes(dirty) ||
+      !Number.isSafeInteger(lastAppliedSequence) ||
+      lastAppliedSequence < 0 ||
+      (modelFingerprint !== undefined && (!modelFingerprint || modelFingerprint.length > 256))
+    ) {
+      throw new MemoryLedgerError("LEDGER_CORRUPTED", "Memory index metadata is corrupted.");
+    }
+    return { dirty: dirty === "1", lastAppliedSequence, modelFingerprint };
   }
 
   getPendingOutboxCount(): number {

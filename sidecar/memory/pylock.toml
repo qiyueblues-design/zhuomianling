@@ -1,7 +1,11 @@
 lock-version = "1.0"
-created-by = "desktop-pet-memory-sidecar M4 lock"
+created-by = "desktop-pet-memory-sidecar M9.5 lock"
 requires-python = ">=3.13,<3.14"
 environments = ["python_version >= '3.13' and python_version < '3.14'"]
 packages = [
+  { name = "flatbuffers", version = "25.12.19", wheel = "flatbuffers-25.12.19-py2.py3-none-any.whl", sha256 = "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4" },
   { name = "memu-py", version = "1.5.1", wheel = "memu_py-1.5.1-cp313-abi3-win_amd64.whl", sha256 = "980613a3758c453436ac71a6f5ed607236355aa2d04eb8a9bb878cf176a98c17" },
+  { name = "numpy", version = "2.5.1", wheel = "numpy-2.5.1-cp313-cp313-win_amd64.whl", sha256 = "6c3fe51bc6a16453d452997053454f309e8e0ed7b42d6b361ce4ac8c32913d74" },
+  { name = "onnxruntime", version = "1.27.0", wheel = "onnxruntime-1.27.0-cp313-cp313-win_amd64.whl", sha256 = "760021bca514d64a811837820d351a08a41741f16f8b4c26450da708fecf14e6" },
+  { name = "tokenizers", version = "0.23.1", wheel = "tokenizers-0.23.1-cp310-abi3-win_amd64.whl", sha256 = "e7bfaf995c1bdbbd21d13539decb6650967013759318627d85daeb7881af16b7" },
 ]

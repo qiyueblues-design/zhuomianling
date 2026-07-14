@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Live2DFolderScanResult, Live2DFolderSelectResult, Live2DGeneratedEntryResult, Live2DImportedSource, Live2DImportedSourceScanResult, Live2DModelFormat, Live2DModelImportRequest, Live2DModelImportResult, Live2DPreviewModelResult, Live2DResourceCheck } from "../../../shared/types/live2dImport";
 import type { PetDefinition, PetExpressionSourceItem, PetFeature } from "../../../shared/types/pet";
+import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
 import { assertValidPetId } from "../../../shared/validation/petId";
 import { writeTextFileAtomically } from "./durableJsonFile";
 import {
@@ -460,7 +461,7 @@ async function findFallbackRelativeFiles(
 async function readPetConfig(petId: string): Promise<PetDefinition | undefined> {
   try {
     const content = await fs.readFile(getPetConfigPath(petId), "utf8");
-    const parsed = JSON.parse(content) as PetDefinition;
+    const parsed = normalizeLegacyPetDefinition(JSON.parse(content) as PetDefinition);
 
     return parsed.id === petId && parsed.name ? parsed : undefined;
   } catch {

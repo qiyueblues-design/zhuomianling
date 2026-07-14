@@ -7,12 +7,15 @@
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "npm run dev:electron && concurrently -k --success first \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev:timed": "call start-timed.cmd --no-pause",
     "dev:electron": "tsc -p tsconfig.electron.json",
+    "prepare:memory-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-memory-runtime.ps1",
+    "verify:memory-runtime": "node scripts/verify-memory-runtime.mjs",
     "build": "npm run typecheck && vite build && node scripts/clean-electron-output.mjs && tsc -p tsconfig.electron.json && npm run verify:release-assets",
     "start:prod": "cross-env NODE_ENV=production VITE_DEV_SERVER_URL= electron .",
     "preview:prod": "npm run build && npm run start:prod",
-    "pack": "npm run build && electron-builder --dir && npm run verify:packed-assets",
-    "dist:win": "npm run build && electron-builder --win && npm run verify:packed-assets",
+    "pack": "npm run build && npm run verify:memory-runtime && electron-builder --dir && npm run verify:packed-assets",
+    "dist:win": "npm run build && npm run verify:memory-runtime && electron-builder --win && npm run verify:packed-assets",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "verify:packed-assets": "node scripts/verify-packed-assets.mjs",
@@ -52,6 +55,15 @@
       "README.md",
       "LICENSE",
       "NOTICE"
+    ],
+    "extraResources": [
+      {
+        "from": ".cache/memory-sidecar-release",
+        "to": "memory-sidecar",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "extraMetadata": {
       "main": "dist/main/index.js"

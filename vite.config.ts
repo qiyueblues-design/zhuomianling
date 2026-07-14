@@ -33,6 +33,9 @@ function copyReleasePublicAssets(): Plugin {
 export default defineConfig({
   plugins: [react(), copyReleasePublicAssets()],
   base: "./",
+  optimizeDeps: {
+    include: ["react", "react-dom/client", "lucide-react"]
+  },
   build: {
     copyPublicDir: false,
     outDir: "dist/renderer",
@@ -46,6 +49,23 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: true
+    strictPort: true,
+    watch: {
+      // M9.5 development resources are runtime inputs, not renderer source.
+      // Watching their large Python/ONNX/BGE tree starves Vite's first module
+      // transforms on Windows.
+      ignored: ["**/.cache/**"]
+    },
+    warmup: {
+      clientFiles: [
+        "./src/renderer/main.tsx",
+        "./src/renderer/app/App.tsx",
+        "./src/renderer/styles.css",
+        "./src/renderer/styles/**/*.css",
+        "./src/renderer/components/PetSelector/PetSelector.tsx",
+        "./src/renderer/components/StartupSplash/StartupSplash.tsx",
+        "./src/renderer/pets/petSources.ts"
+      ]
+    }
   }
 });

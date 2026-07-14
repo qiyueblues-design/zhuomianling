@@ -4,7 +4,7 @@ import type {
   LocalPetListResult,
   PetDefinition
 } from "../../shared/types/pet";
-import { loadAvailablePets } from "./petSources";
+import { hasUsableLive2DModel, loadAvailablePets } from "./petSources";
 
 function createPet(
   id: string,
@@ -92,5 +92,18 @@ describe("loadAvailablePets", () => {
       pets: [],
       corruption: undefined
     });
+  });
+});
+
+describe("hasUsableLive2DModel", () => {
+  it("兼容旧配置中缺失的模型路径和功能列表", () => {
+    const legacyPet = {
+      ...createPet("legacy"),
+      modelPath: undefined,
+      details: undefined
+    } as unknown as PetDefinition;
+
+    expect(() => hasUsableLive2DModel(legacyPet)).not.toThrow();
+    expect(hasUsableLive2DModel(legacyPet)).toBe(false);
   });
 });

@@ -43,6 +43,7 @@ import type {
   MemorySettingsSaveRequest,
   MemoryUpdateRequest
 } from "../shared/types/memory";
+import type { StartupRendererStage } from "../shared/types/startup";
 import { cancelAiChatStreams, startAiChatStream } from "./services/ai/aiChat";
 import {
   getAiConnectionSummary,
@@ -116,6 +117,7 @@ import {
 import { revealMainWindowStartupSurface } from "./window";
 import { validateIpcArguments } from "./ipcValidation";
 import { assertIpcPetIdBound, assertIpcSenderAllowed, type IpcAccess } from "./ipcAccess";
+import { startupProfiler } from "./startupProfiler";
 
 export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow | null): void {
   const assertSenderAllowed = (
@@ -206,11 +208,26 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
   on("app-window:startup-surface-ready", "main", (event, reason?: string) => {
     const safeReason = typeof reason === "string" ? reason.slice(0, 120) : "renderer";
 
+    startupProfiler.markOnce("startup-surface-ready-ipc", "主进程收到启动首帧 ready");
     revealMainWindowStartupSurface(safeReason);
   });
 
+  on("app-window:startup-timing", "main", (_event, stage: StartupRendererStage) => {
+    startupProfiler.reportRendererStage(stage);
+    if (
+      stage === "splash-hidden" &&
+      process.env.ZHUOMIANLING_STARTUP_EXIT_AFTER_SPLASH === "1"
+    ) {
+      setImmediate(() => app.quit());
+    }
+  });
+
   handle("pet-config:list-local", "main", async () => {
-    const result = await scanLocalPetsForRecovery();
+    const result = await startupProfiler.measureOnce(
+      "initial-pet-config-scan",
+      "主进程扫描本地桌宠配置",
+      () => scanLocalPetsForRecovery()
+    );
     const corruption = result.corruptions[0];
 
     return {

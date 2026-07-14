@@ -25,8 +25,9 @@ import { MemoryBackendError, type MemoryBackend } from "./MemoryBackend";
 import { MemorySidecarClient, MemorySidecarClientError } from "./MemorySidecarClient";
 
 const expectedMemuVersion = "1.5.1";
-const defaultModelFingerprint = "memu-py-1.5.1:desktop-hash-embedding-v1";
+const defaultModelFingerprint = "bge-small-zh-v1.5-int8:v2:848c2ccd9277d9b3:48cea5d44424912a:512:f32le:cls:l2";
 const rebuildBatchSize = 20;
+const memoryChapters = ["about_you", "preferences_habits", "important_events", "relationships_goals"] as const;
 
 type IndexDirectoryResolver = (petId: string) => string | Promise<string>;
 
@@ -48,6 +49,11 @@ interface RebuildFinishDto {
   indexedCount: number;
   contentFingerprint: string;
   modelFingerprint: string;
+  indexSchemaVersion: number;
+  embeddingBlobBytes: number;
+  keywordCount: number;
+  chapterCounts: Record<(typeof memoryChapters)[number], number>;
+  integrity: "ok";
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -72,6 +78,7 @@ function assertApplied(value: unknown): void {
 }
 
 function assertRebuildFinish(value: unknown, fingerprint: string): RebuildFinishDto {
+  const chapterCounts = isObject(value) && isObject(value.chapterCounts) ? value.chapterCounts : undefined;
   if (
     !isObject(value) ||
     !Number.isInteger(value.indexedCount) ||
@@ -79,7 +86,17 @@ function assertRebuildFinish(value: unknown, fingerprint: string): RebuildFinish
     typeof value.contentFingerprint !== "string" ||
     !/^[a-f0-9]{64}$/.test(value.contentFingerprint) ||
     value.modelFingerprint !== fingerprint ||
-    Object.keys(value).some((key) => !["indexedCount", "contentFingerprint", "modelFingerprint"].includes(key))
+    value.indexSchemaVersion !== 2 ||
+    value.embeddingBlobBytes !== 2_048 ||
+    value.keywordCount !== value.indexedCount ||
+    value.integrity !== "ok" ||
+    !chapterCounts ||
+    Object.keys(chapterCounts).length !== memoryChapters.length ||
+    memoryChapters.some((chapter) => !Number.isInteger(chapterCounts[chapter]) || (chapterCounts[chapter] as number) < 0) ||
+    Object.keys(value).some((key) => ![
+      "indexedCount", "contentFingerprint", "modelFingerprint", "indexSchemaVersion",
+      "embeddingBlobBytes", "keywordCount", "chapterCounts", "integrity"
+    ].includes(key))
   ) {
     throw new MemoryBackendError("index-dirty", "The rebuilt memU index failed validation.");
   }
@@ -110,6 +127,21 @@ function authorityContentFingerprint(records: Array<Record<string, unknown>>): s
     .map((record) => JSON.stringify(sortJsonValue(record)))
     .join("\n");
   return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+function authorityChapterCounts(records: Array<Record<string, unknown>>): Record<(typeof memoryChapters)[number], number> {
+  const result = Object.fromEntries(memoryChapters.map((chapter) => [chapter, 0])) as Record<
+    (typeof memoryChapters)[number],
+    number
+  >;
+  for (const record of records) {
+    const chapter = record.chapter;
+    if (typeof chapter !== "string" || !memoryChapters.includes(chapter as (typeof memoryChapters)[number])) {
+      throw new MemoryBackendError("index-dirty", "The authority snapshot contains an invalid chapter.", false);
+    }
+    result[chapter as (typeof memoryChapters)[number]] += 1;
+  }
+  return result;
 }
 
 export class MemuMemoryBackend implements MemoryBackend {
@@ -305,6 +337,7 @@ export class MemuMemoryBackend implements MemoryBackend {
         toSidecarMemory(record as unknown as Record<string, unknown>)
       );
       const expectedContentFingerprint = authorityContentFingerprint(serializedSnapshot);
+      const expectedChapterCounts = authorityChapterCounts(serializedSnapshot);
       const call = <T>(method: string, params: Record<string, unknown>, deadlineMs = 10_000) =>
         this.options.client.request<T>(method, { indexPath, ...params }, { petId: request.petId, deadlineMs, signal });
       const began = await call<unknown>("rebuildBegin", {});
@@ -320,7 +353,11 @@ export class MemuMemoryBackend implements MemoryBackend {
         }
       }
       const finished = assertRebuildFinish(
-        await call("rebuildFinish", { expectedCount: request.records.length, expectedContentFingerprint }, 60_000),
+        await call(
+          "rebuildFinish",
+          { expectedCount: request.records.length, expectedContentFingerprint, expectedChapterCounts },
+          60_000
+        ),
         this.modelFingerprint
       );
       if (finished.indexedCount !== request.records.length || finished.contentFingerprint !== expectedContentFingerprint) {

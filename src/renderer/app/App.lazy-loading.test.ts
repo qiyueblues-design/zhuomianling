@@ -1,0 +1,52 @@
+import fs from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+
+describe("App initial module boundary", () => {
+  it("keeps Live2D-bearing and non-selector views out of the initial static graph", async () => {
+    const source = await fs.readFile(new URL("./App.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('import { PetSelector } from "../components/PetSelector/PetSelector"');
+    expect(source).not.toMatch(/^import\s+\{\s*PetEditor\s*\}\s+from/m);
+    expect(source).not.toMatch(/^import\s+\{\s*PetStage\s*\}\s+from/m);
+    expect(source).not.toMatch(/^import\s+\{\s*MemoryBook\s*\}\s+from/m);
+    expect(source).toContain('import("../components/PetEditor/PetEditor")');
+    expect(source).toContain('import("../components/PetStage/PetStage")');
+    expect(source).toContain('import("../components/MemoryBook/MemoryBook")');
+    expect(source).toContain("<DeferredViewBoundary");
+    expect(source).toContain('title="桌宠详情加载失败"');
+    expect(source).toContain('title="桌宠编辑器加载失败"');
+    expect(source).toContain('title="记忆书加载失败"');
+  });
+
+  it("does not execute Cubism Core before the main page reaches DOM ready", async () => {
+    const html = await fs.readFile(new URL("../../../index.html", import.meta.url), "utf8");
+
+    expect(html).not.toContain("live2dcubismcore.min.js");
+    expect(html).toContain('src="/src/renderer/main.tsx"');
+  });
+
+  it("keeps renderer bootstrap dependencies independently measurable", async () => {
+    const source = await fs.readFile(new URL("../main.tsx", import.meta.url), "utf8");
+
+    expect(source).not.toMatch(/^import\s+React/m);
+    expect(source).not.toMatch(/^import\s+ReactDOM/m);
+    expect(source).not.toMatch(/^import\s+\{\s*App\s*\}/m);
+    expect(source).not.toMatch(/^import\s+["']\.\/styles\.css["']/m);
+    expect(source).toContain('import("react")');
+    expect(source).toContain('import("react-dom/client")');
+    expect(source).toContain('import("./styles.css")');
+    expect(source).toContain('import("./app/App")');
+  });
+
+  it("prewarms the main-window development graph before Electron requests it", async () => {
+    const config = await fs.readFile(new URL("../../../vite.config.ts", import.meta.url), "utf8");
+
+    expect(config).toContain("warmup:");
+    expect(config).toContain('ignored: ["**/.cache/**"]');
+    expect(config).toContain('"./src/renderer/app/App.tsx"');
+    expect(config).toContain('"./src/renderer/styles.css"');
+    expect(config).toContain('"./src/renderer/styles/**/*.css"');
+    expect(config).toContain('"./src/renderer/components/PetSelector/PetSelector.tsx"');
+    expect(config).toContain('include: ["react", "react-dom/client", "lucide-react"]');
+  });
+});

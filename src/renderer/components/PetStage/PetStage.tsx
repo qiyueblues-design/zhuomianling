@@ -1,10 +1,12 @@
 import { BookHeart, CheckCircle2, Palette, Pause, Pencil, Play, Sparkles, Subtitles, Trash2, Volume2, X, XCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { BuiltInPetUiTheme, LocalPetSaveResult, LocalPetVoiceModelDraft, PetCustomTheme, PetDefinition } from "../../../shared/types/pet";
 import type { PetWindowState } from "../../../shared/types/window";
+import type { ActiveEditorPanel } from "../PetEditor/editorNavigation";
 import { Live2DCanvas } from "../../live2d/Live2DCanvas";
 import { hasUsableLive2DModel } from "../../pets/petSources";
+import { buildVoiceDraft, getVoiceReadiness } from "./petStageState";
 
 interface PetStageProps {
   pet: PetDefinition;
@@ -12,7 +14,7 @@ interface PetStageProps {
   petWindowState: PetWindowState;
   onActivate: () => void | Promise<void>;
   onDeactivate: () => void | Promise<void>;
-  onEditPet: () => void;
+  onEditPet: (initialPanel?: ActiveEditorPanel) => void;
   onOpenMemoryBook: () => void;
   onDeletePet: () => void | Promise<void>;
   onCloseDetails: () => void;
@@ -33,7 +35,7 @@ const uiThemeLabels: Record<BuiltInPetUiTheme, string> = {
 };
 
 function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties | undefined {
-  if (!theme) {
+  if (!theme?.tokens) {
     return undefined;
   }
 
@@ -65,6 +67,11 @@ export function PetStage({
 }: PetStageProps): JSX.Element {
   const [voiceConnecting, setVoiceConnecting] = useState(false);
   const [voiceResult, setVoiceResult] = useState<LocalPetSaveResult | undefined>();
+  const [voiceNotice, setVoiceNotice] = useState<{
+    title: string;
+    message: string;
+    showSettingsAction: boolean;
+  } | undefined>();
   const voiceModelSettings = pet.voiceModelSettings;
   const uiTheme = pet.uiSettings?.theme ?? "soft";
   const uiThemeLabel = uiTheme === "custom"
@@ -72,64 +79,33 @@ export function PetStage({
     : uiThemeLabels[uiTheme];
   const customThemeStyle = getCustomThemeStyle(pet.uiSettings?.customTheme);
   const hasModel = hasUsableLive2DModel(pet);
-  const voiceReadiness = useMemo(() => {
-    const hasRootPath = Boolean(voiceModelSettings?.gptSoVitsRootPath?.trim());
-    const hasModels = Boolean(voiceModelSettings?.sovitsModelPath && voiceModelSettings.gptModelPath);
-    const hasReference = Boolean(
-      voiceModelSettings?.referenceAudioPath && voiceModelSettings.referenceText.trim()
-    );
-
-    if (!hasRootPath) {
-      return { ready: false, text: "未配置本地路径" };
-    }
-
-    if (!hasModels) {
-      return { ready: false, text: "未选择模型文件" };
-    }
-
-    if (!hasReference) {
-      return { ready: false, text: "未配置参考音频" };
-    }
-
-    return { ready: true, text: voiceModelSettings?.connected ? "已连接" : "可连接" };
-  }, [voiceModelSettings]);
-
-  const buildVoiceDraft = (enabled: boolean, connected: boolean): LocalPetVoiceModelDraft | undefined => {
-    if (
-      !voiceModelSettings?.gptSoVitsRootPath ||
-      !voiceModelSettings.sovitsModelPath ||
-      !voiceModelSettings.gptModelPath ||
-      !voiceModelSettings.referenceAudioPath ||
-      !voiceModelSettings.referenceText.trim()
-    ) {
-      return undefined;
-    }
-
-    return {
-      petId: pet.id,
-      enabled,
-      connected,
-      gptSoVitsRootPath: voiceModelSettings.gptSoVitsRootPath,
-      sovitsModelPath: voiceModelSettings.sovitsModelPath,
-      gptModelPath: voiceModelSettings.gptModelPath,
-      referenceAudioPath: voiceModelSettings.referenceAudioPath,
-      referenceText: voiceModelSettings.referenceText,
-      referenceLanguage: voiceModelSettings.referenceLanguage ?? voiceModelSettings.language,
-      language: voiceModelSettings.language,
-      playMode: "sentence",
-      inferenceDevice: voiceModelSettings.inferenceDevice ?? "auto",
-      halfPrecision: voiceModelSettings.halfPrecision ?? true,
-      syncTextWithVoice: voiceModelSettings.syncTextWithVoice ?? true
-    };
-  };
+  const detailRole = pet.details?.role?.trim() || "尚未填写角色定位";
+  const detailPersonality = pet.details?.personality?.trim() || "尚未填写性格说明";
+  const detailScenes = Array.isArray(pet.details?.scenes) ? pet.details.scenes : [];
+  const voiceReadiness = getVoiceReadiness(voiceModelSettings);
 
   const toggleVoiceModel = async (): Promise<void> => {
-    const draft = buildVoiceDraft(true, false);
+    if (voiceReadiness.issue) {
+      setVoiceNotice({
+        title: "声音模型配置不完整",
+        message: `${voiceReadiness.issue.summary}。${voiceReadiness.issue.guidance}`,
+        showSettingsAction: true
+      });
+      return;
+    }
+
+    const draft: LocalPetVoiceModelDraft | undefined = buildVoiceDraft(
+      pet.id,
+      voiceModelSettings,
+      true,
+      false
+    );
 
     if (!draft) {
-      setVoiceResult({
-        ok: false,
-        message: "请先在编辑器中配置 GPT-SoVITS 路径、模型文件、参考音频和参考文本。"
+      setVoiceNotice({
+        title: "声音模型配置不完整",
+        message: "请前往“编辑 → 对话 → 声音模型”检查运行环境、模型文件、参考音频和参考文本。",
+        showSettingsAction: true
       });
       return;
     }
@@ -147,6 +123,14 @@ export function PetStage({
 
         setVoiceResult(saveResult);
 
+        if (saveResult && !saveResult.ok) {
+          setVoiceNotice({
+            title: "声音模型设置未保存",
+            message: saveResult.message,
+            showSettingsAction: true
+          });
+        }
+
         if (saveResult?.ok) {
           await onVoiceConnected?.();
         }
@@ -156,9 +140,10 @@ export function PetStage({
       const connectionResult = await window.desktopPet?.petConfig.testVoiceModelConnection(draft);
 
       if (!connectionResult?.ok) {
-        setVoiceResult({
-          ok: false,
-          message: connectionResult?.message ?? "声音模型连接失败。"
+        setVoiceNotice({
+          title: "声音模型连接失败",
+          message: connectionResult?.message ?? "本地声音服务没有成功连接，请检查声音模型设置。",
+          showSettingsAction: true
         });
         return;
       }
@@ -171,9 +156,23 @@ export function PetStage({
 
       setVoiceResult(saveResult);
 
+      if (saveResult && !saveResult.ok) {
+        setVoiceNotice({
+          title: "声音模型设置未保存",
+          message: saveResult.message,
+          showSettingsAction: true
+        });
+      }
+
       if (saveResult?.ok) {
         await onVoiceConnected?.();
       }
+    } catch {
+      setVoiceNotice({
+        title: "声音模型暂时不可用",
+        message: "声音功能运行时发生异常。请前往“编辑 → 对话 → 声音模型”检查配置后重试。",
+        showSettingsAction: true
+      });
     } finally {
       setVoiceConnecting(false);
     }
@@ -242,7 +241,7 @@ export function PetStage({
           {isActive ? <Pause size={18} /> : hasModel ? <Play size={18} /> : <Pencil size={18} />}
           {isActive ? "关闭桌宠" : hasModel ? "启用桌宠" : "导入模型"}
         </button>
-        <button className="secondaryAction" type="button" onClick={onEditPet}>
+        <button className="secondaryAction" type="button" onClick={() => onEditPet()}>
           <Pencil size={17} />
           编辑
         </button>
@@ -259,7 +258,7 @@ export function PetStage({
                 : "secondaryAction voiceStageAction"
           }
           type="button"
-          disabled={!voiceReadiness.ready || voiceConnecting}
+          disabled={voiceConnecting}
           onClick={() => void toggleVoiceModel()}
         >
           <Volume2 size={17} />
@@ -303,11 +302,11 @@ export function PetStage({
           <h3>桌宠详情</h3>
         </div>
 
-        <p className="infoLead">{pet.details.role}</p>
-        <p className="infoText">{pet.details.personality}</p>
+        <p className="infoLead">{detailRole}</p>
+        <p className="infoText">{detailPersonality}</p>
 
         <div className="sceneList" aria-label="适合场景">
-          {pet.details.scenes.map((scene) => (
+          {detailScenes.map((scene) => (
             <span className="scenePill" key={scene}>
               {scene}
             </span>
@@ -315,6 +314,30 @@ export function PetStage({
         </div>
 
       </div>
+
+      {voiceNotice ? (
+        <div className="stageNoticeBackdrop" role="presentation">
+          <div className="stageNoticeDialog" role="dialog" aria-modal="true" aria-label={voiceNotice.title}>
+            <span className="stageNoticeIcon" aria-hidden="true">
+              <Volume2 size={21} />
+            </span>
+            <div className="stageNoticeCopy">
+              <h3>{voiceNotice.title}</h3>
+              <p>{voiceNotice.message}</p>
+            </div>
+            <div className="stageNoticeActions">
+              <button className="secondaryAction" type="button" onClick={() => setVoiceNotice(undefined)}>
+                知道了
+              </button>
+              {voiceNotice.showSettingsAction ? (
+                <button className="primaryAction" type="button" onClick={() => onEditPet("voiceReply")}>
+                  去声音模型设置
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

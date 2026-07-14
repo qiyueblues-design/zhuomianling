@@ -1,0 +1,75 @@
+import { describe, expect, it } from "vitest";
+import type { PetDefinition } from "../types/pet";
+import { normalizeLegacyPetDefinition } from "./petDefinition";
+
+function legacyPet(overrides: Record<string, unknown> = {}): PetDefinition {
+  return {
+    id: "legacy-pet",
+    name: "旧桌宠",
+    ...overrides
+  } as unknown as PetDefinition;
+}
+
+describe("旧版桌宠配置兼容", () => {
+  it("为旧配置缺失的运行时字段提供内存默认值", () => {
+    const original = legacyPet({
+      details: { scenarios: ["学习"] },
+      voiceModelSettings: {
+        enabled: true,
+        connected: false,
+        referenceAudioPath: "reference.wav"
+      }
+    });
+
+    const normalized = normalizeLegacyPetDefinition(original);
+
+    expect(normalized).toMatchObject({
+      modelPath: "",
+      personaPrompt: "",
+      capabilities: {
+        chat: false,
+        voiceInput: false,
+        voiceOutput: false,
+        subtitles: true
+      },
+      details: {
+        role: "",
+        personality: "",
+        scenes: ["学习"],
+        features: []
+      },
+      voiceModelSettings: {
+        referenceAudioPath: "reference.wav",
+        referenceText: "",
+        language: "zh",
+        referenceLanguage: "zh",
+        playMode: "sentence"
+      },
+      uiSettings: {
+        theme: "soft",
+        cursorFollowEnabled: true
+      }
+    });
+    expect((original.voiceModelSettings as unknown as { referenceText?: string }).referenceText)
+      .toBeUndefined();
+  });
+
+  it("保留旧配置中已经存在的有效用户设置", () => {
+    const normalized = normalizeLegacyPetDefinition(legacyPet({
+      modelPath: "pet-resource://local/legacy-pet/live2d/model.model3.json",
+      capabilities: { chat: true, voiceOutput: true, subtitles: false },
+      details: { role: "助手", personality: "安静", scenes: [], features: [] },
+      uiSettings: { theme: "journal", cursorFollowEnabled: false }
+    }));
+
+    expect(normalized.modelPath).toContain("model.model3.json");
+    expect(normalized.capabilities).toMatchObject({ chat: true, voiceOutput: true, subtitles: false });
+    expect(normalized.details).toMatchObject({ role: "助手", personality: "安静" });
+    expect(normalized.uiSettings).toMatchObject({ theme: "journal", cursorFollowEnabled: false });
+  });
+
+  it("把已有但类型错误的关键结构交给损坏配置流程处理", () => {
+    expect(() => normalizeLegacyPetDefinition(legacyPet({ details: "invalid" })))
+      .toThrow("details");
+  });
+});

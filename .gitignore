@@ -69,6 +69,8 @@ public/live2d/*
 
 # Local user data
 AGENTS.md
+# Local-only packaging and GitHub release reference; keep outside commits and packages.
+/桌面灵打包与GitHub发布要求.md
 # Local-only AI development memory plan; never publish with the repository.
 /MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md
 config/*.local.json

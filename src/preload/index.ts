@@ -65,6 +65,9 @@ import type {
   MemorySummary,
   MemoryUpdateRequest
 } from "../shared/types/memory";
+import type { StartupRendererStage } from "../shared/types/startup";
+
+const startupTimingEnabled = process.env.ZHUOMIANLING_STARTUP_TIMING === "1";
 
 const desktopPetApi = {
   getAppVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>,
@@ -74,6 +77,11 @@ const desktopPetApi = {
     isShown: () => ipcRenderer.invoke("app-window:is-shown") as Promise<boolean>,
     revealStartupSurface: (reason?: string) =>
       ipcRenderer.send("app-window:startup-surface-ready", reason),
+    reportStartupTiming: (stage: StartupRendererStage) => {
+      if (startupTimingEnabled) {
+        ipcRenderer.send("app-window:startup-timing", stage);
+      }
+    },
     onShown: (callback: () => void) => {
       const listener = (): void => {
         callback();

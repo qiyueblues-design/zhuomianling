@@ -182,6 +182,8 @@ export interface MemoryRecallItem {
   score: number;
 }
 
+export type MemoryRecallAnswerPolicy = "reference" | "verified" | "unknown";
+
 export interface MemoryRetrieveRequest {
   petId: string;
   query: string;
@@ -191,6 +193,7 @@ export interface MemoryRetrieveRequest {
 
 export interface MemoryRetrieveResponse {
   items: MemoryRecallItem[];
+  answerPolicy: MemoryRecallAnswerPolicy;
 }
 
 export interface MemoryConversationTurn {

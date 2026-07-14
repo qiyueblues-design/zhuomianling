@@ -14,6 +14,8 @@ function createClient(onDiagnostic?: (event: { kind: "stderr" | "protocol" | "ex
     testCommandArguments: [fixturePath],
     startupTimeoutMs: 2_000,
     shutdownTimeoutMs: 1_000,
+    restartBaseDelayMs: 10,
+    restartMaxDelayMs: 40,
     onDiagnostic
   });
   clients.push(client);
@@ -113,6 +115,8 @@ describe("MemorySidecarClient lifecycle", () => {
     await expect(client.request("crash", {}, { deadlineMs: 1_000 })).rejects.toMatchObject({
       code: "unavailable"
     });
+    await expect(client.request("health")).rejects.toMatchObject({ code: "unavailable" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 15));
     const secondHealth = await client.request<{ pid: number }>("health");
 
     expect(secondHealth.pid).not.toBe(firstHealth.pid);
@@ -127,11 +131,44 @@ describe("MemorySidecarClient lifecycle", () => {
       await expect(client.request(method, {}, { deadlineMs: 1_000 })).rejects.toMatchObject({
         code: "invalid-response"
       });
+      await expect(client.request("health")).rejects.toMatchObject({ code: "unavailable" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
       await expect(client.request("health")).resolves.toMatchObject({ status: "ready" });
       expect(diagnostics).toContainEqual({ kind: "protocol" });
       expect(client.getMetrics().startCount).toBe(2);
     }
   );
+
+  it("backs off repeated crashes and opens a bounded restart circuit", async () => {
+    const client = new MemorySidecarClient({
+      executablePath: process.execPath,
+      sidecarRoot,
+      testCommandArguments: [fixturePath],
+      startupTimeoutMs: 2_000,
+      shutdownTimeoutMs: 1_000,
+      restartBaseDelayMs: 10,
+      restartMaxDelayMs: 20,
+      circuitFailureThreshold: 3,
+      circuitCooldownMs: 80
+    });
+    clients.push(client);
+
+    for (let failure = 1; failure <= 3; failure += 1) {
+      await expect(client.request("crash", {}, { deadlineMs: 1_000 })).rejects.toMatchObject({
+        code: "unavailable"
+      });
+      expect(client.getMetrics().consecutiveFailures).toBe(failure);
+      if (failure < 3) {
+        await new Promise<void>((resolve) => setTimeout(resolve, failure === 1 ? 15 : 25));
+      }
+    }
+
+    expect(client.getMetrics()).toMatchObject({ circuitOpen: true, consecutiveFailures: 3 });
+    await expect(client.request("health")).rejects.toMatchObject({ code: "unavailable" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 90));
+    await expect(client.request("health")).resolves.toMatchObject({ status: "ready" });
+    expect(client.getMetrics()).toMatchObject({ circuitOpen: false, consecutiveFailures: 0 });
+  });
 
   it("performs repeatable graceful shutdown without orphan processes", async () => {
     const client = createClient();

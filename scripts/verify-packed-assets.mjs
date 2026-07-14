@@ -1,4 +1,5 @@
 import { listPackage } from "@electron/asar";
+import { spawnSync } from "node:child_process";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,3 +42,20 @@ if (forbiddenEntries.length || productionModuleEntries.length) {
 console.log(
   `Packed asset audit passed (${entries.length} entries, ${asarStat.size} bytes, no production node_modules).`
 );
+
+const memoryRuntimeRoot = path.join(
+  projectRoot,
+  "release",
+  "win-unpacked",
+  "resources",
+  "memory-sidecar"
+);
+const runtimeAudit = spawnSync(
+  process.execPath,
+  [path.join(scriptDirectory, "verify-memory-runtime.mjs"), "--root", memoryRuntimeRoot],
+  { stdio: "inherit", windowsHide: true }
+);
+if (runtimeAudit.error || runtimeAudit.status !== 0) {
+  console.error("Packed asset audit failed: packaged memory runtime is missing or invalid.");
+  process.exit(1);
+}

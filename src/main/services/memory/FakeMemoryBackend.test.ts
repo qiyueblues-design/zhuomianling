@@ -94,7 +94,7 @@ describe("MemoryService orchestration", () => {
 
     await expect(service.retrieve("pet-a", "query")).resolves.toEqual({
       ok: true,
-      value: { items: [] }
+      value: { items: [], answerPolicy: "reference" }
     });
     await expect(
       service.memorize({

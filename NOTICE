@@ -1,25 +1,23 @@
-Third-Party Notices
-===================
+第三方声明
+==========
 
-Live2D Runtime and Cubism SDK Files
------------------------------------
+Live2D Runtime 与 Cubism SDK 文件
+---------------------------------
 
-This repository includes Live2D runtime and SDK-related files for loading and
-driving Live2D models in the Electron renderer, including but not limited to:
+本仓库包含用于在 Electron renderer 中加载和驱动 Live2D 模型的 runtime 与
+SDK 相关文件，包括但不限于：
 
 - `public/vendor/live2dcubismcore.min.js`
 - `public/vendor/live2d-v2/`
 - `public/vendor/cubism/Shaders/`
 - `src/renderer/live2d/cubism/`
 
-These files are Live2D runtime / Cubism SDK related files provided by Live2D
-Inc. through official Live2D distribution channels or derived from the official
-Cubism SDK layout. They are not original source code of this project.
+这些文件由 Live2D Inc. 通过官方 Live2D 分发渠道提供，或基于官方 Cubism SDK
+目录布局整理，不属于本项目原创源码。
 
-Use, copying, redistribution, and publication of software that includes Live2D
-Cubism Core are governed by Live2D's official license terms. Before publishing a
-release, redistributing this repository, or using it commercially, review and
-comply with the current official Live2D agreements and release license terms:
+使用、复制、再分发或发布包含 Live2D Cubism Core 的软件时，应遵守 Live2D
+官方许可条款。在发布版本、再分发本仓库或用于商业用途前，请阅读并遵守当前
+官方协议和发布许可条款：
 
 - Live2D Cubism SDK:
   https://www.live2d.com/en/sdk/about/
@@ -28,14 +26,32 @@ comply with the current official Live2D agreements and release license terms:
 - Live2D License Agreement:
   https://www.live2d.com/en/terms/
 
-If you do not want to redistribute Live2D runtime / Cubism SDK files with this
-repository, remove the files listed above and ask users to download the required
-runtime from Live2D's official website, then place the required files back in
-the same paths expected by the application, including:
+如果不希望随本仓库再分发 Live2D runtime / Cubism SDK 文件，请移除上述文件，
+并要求用户从 Live2D 官方网站下载所需 runtime，再放回应用要求的相同路径，
+包括：
 
 ```text
 public/vendor/live2dcubismcore.min.js
 ```
 
-This notice is informational only and is not legal advice. The official Live2D
-license terms control.
+本声明仅用于提供信息，不构成法律意见；最终以 Live2D 官方许可条款为准。
+
+
+本地记忆运行时
+--------------
+
+正式 Windows 发布包可以包含应用自有的 CPython 3.13 embeddable runtime、
+memu-py 1.5.1、ONNX Runtime 1.27.0、Tokenizers 0.23.1、NumPy 2.5.1、
+FlatBuffers 25.12.19 及其锁定的传递依赖。完整的软件包清单、包元数据、
+许可证文件和补充声明位于：
+
+    resources/memory-sidecar/third-party-licenses/
+
+发布包中的 BGE INT8 ONNX 模型由本项目从固定的官方
+BAAI/bge-small-zh-v1.5 revision
+7999e1d3359715c523056ef9478215996d62a620 自行生成，其模型卡声明采用 MIT
+许可证。仅用于开发验证的第三方转换文件不会被再分发。安装包内的模型清单会
+保留官方源文件哈希、转换工具链版本和最终 ONNX 哈希。
+
+仓库不会提交生成后的 runtime 或模型二进制。发布准备流程会在被忽略的缓存
+目录中生成它们，打包审计会按生成的 SHA-256 白名单逐文件验证。

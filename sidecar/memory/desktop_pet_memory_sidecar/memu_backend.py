@@ -7,18 +7,26 @@ import math
 import os
 import re
 import sqlite3
+import struct
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from .embedding_runtime import (
+    EMBEDDING_BLOB_BYTES,
+    EMBEDDING_DIMENSION,
+    INDEX_METADATA,
+    MODEL_FINGERPRINT,
+    BgeEmbeddingClient,
+    get_embedding_runtime,
+)
 from .protocol import ProtocolError
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 INDEX_DATABASE_NAME = "index.sqlite3"
 RESOURCES_DIRECTORY_NAME = "resources"
-MODEL_FINGERPRINT = "memu-py-1.5.1:desktop-hash-embedding-v1"
 ALLOWED_MEMORY_TYPES = frozenset({"profile", "behavior", "event", "knowledge"})
 ALLOWED_CHAPTERS = frozenset(
     {"about_you", "preferences_habits", "important_events", "relationships_goals"}
@@ -45,29 +53,6 @@ def _keep_tag_for_language(tag: str, user_text: str, chinese_user_text: bool) ->
         return True
     latin_text = "".join(re.findall(r"[A-Za-z0-9_+.-]+", tag)).casefold()
     return bool(latin_text) and latin_text in user_text.casefold()
-
-
-def _stable_embedding(text: str) -> list[float]:
-    vector = [0.0] * 64
-    tokens = [token for token in text.casefold().split() if token]
-    if not tokens:
-        tokens = [text.casefold()]
-    for token in tokens:
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        bucket = int.from_bytes(digest[:4], "big") % len(vector)
-        vector[bucket] += -1.0 if digest[4] & 1 else 1.0
-    magnitude = math.sqrt(sum(value * value for value in vector)) or 1.0
-    return [value / magnitude for value in vector]
-
-
-class DeterministicEmbeddingClient:
-    """Offline M4 embedding proof; provider embeddings replace it before AI integration."""
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        return [_stable_embedding(text) for text in texts]
-
-    async def chat(self, *_args: object, **_kwargs: object) -> str:
-        raise ProtocolError("invalid-config", "A memory normalization provider is not configured.")
 
 
 def _require_string(value: object, field: str, maximum: int, *, allow_empty: bool = False) -> str:
@@ -141,50 +126,144 @@ def _canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+_query_prefix = "当前用户消息：\n"
+_cjk_or_word = re.compile(r"[\u3400-\u9fff]+|[A-Za-z][A-Za-z0-9_+.-]*|\d+(?:[./:-]\d+)*")
+_structured_value_patterns = (
+    re.compile(r"(?:我叫|名字是|昵称是|称呼我|叫我)([^，。！？,.!?\s]{1,32})"),
+    re.compile(r"(?:生日是|出生于|目标是|计划在)([^，。！？,.!?]{1,48})"),
+)
+_keyword_stop_terms = frozenset({
+    "当前用", "前用户", "用户消", "户消息", "近期对", "期对话", "你还记", "还记得",
+    "记得我", "是什么", "什么吗", "知道我", "请问我", "告诉我", "用户：", "助手：",
+})
+_exact_stop_terms = frozenset({"用户", "喜欢", "讨厌", "习惯", "记得", "知道", "目标", "名字"})
+
+
+def _current_query(query: str) -> str:
+    return query.rsplit(_query_prefix, 1)[-1].strip()
+
+
+def _normalized_exact(value: str) -> str:
+    return "".join(character.casefold() for character in value if character.isalnum() or "\u3400" <= character <= "\u9fff")
+
+
+def _character_trigrams(value: str) -> set[str]:
+    normalized = "".join(
+        character.casefold()
+        for character in value
+        if character.isalnum() or "\u3400" <= character <= "\u9fff"
+    )
+    return {
+        normalized[index:index + 3]
+        for index in range(max(0, len(normalized) - 2))
+        if normalized[index:index + 3] not in _keyword_stop_terms
+    }
+
+
+def _fts_terms(value: str) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for match in _cjk_or_word.finditer(value):
+        token = match.group(0).casefold()
+        candidates = (
+            [token[index:index + 3] for index in range(len(token) - 2)]
+            if any("\u3400" <= character <= "\u9fff" for character in token)
+            else [token]
+        )
+        for candidate in candidates:
+            if len(candidate) < 3 or candidate in seen or candidate in _keyword_stop_terms:
+                continue
+            seen.add(candidate)
+            terms.append(candidate)
+            if len(terms) >= 24:
+                return terms
+    return terms
+
+
+def _structured_terms(record: dict[str, Any]) -> list[tuple[str, str]]:
+    terms: set[tuple[str, str]] = set()
+    for tag in record["tags"]:
+        normalized = _normalized_exact(tag)
+        if len(normalized) >= 2 and normalized not in _exact_stop_terms:
+            terms.add((normalized, "tag"))
+    content = record["content"]
+    for match in re.finditer(r"[A-Za-z][A-Za-z0-9_+.-]{1,63}|\d+(?:[./:\-年/月日时点]\d+)*", content):
+        normalized = _normalized_exact(match.group(0))
+        if len(normalized) >= 2:
+            terms.add((normalized, "literal"))
+    for pattern in _structured_value_patterns:
+        for match in pattern.finditer(content):
+            normalized = _normalized_exact(match.group(1))
+            if 2 <= len(normalized) <= 64 and normalized not in _exact_stop_terms:
+                terms.add((normalized, "relation"))
+    return sorted(terms)
+
+
+def _pack_embedding(embedding: list[float]) -> bytes:
+    if (
+        len(embedding) != EMBEDDING_DIMENSION
+        or any(not isinstance(value, (int, float)) or not math.isfinite(float(value)) for value in embedding)
+    ):
+        raise ProtocolError("index-dirty", "Derived memory embedding is invalid.")
+    magnitude = math.sqrt(math.fsum(float(value) * float(value) for value in embedding))
+    if not 0.99 <= magnitude <= 1.01:
+        raise ProtocolError("index-dirty", "Derived memory embedding is not normalized.")
+    blob = struct.pack(f"<{EMBEDDING_DIMENSION}f", *(float(value) for value in embedding))
+    if len(blob) != EMBEDDING_BLOB_BYTES:
+        raise ProtocolError("index-dirty", "Derived memory embedding has an invalid byte length.")
+    return blob
+
+
+def _unpack_embedding(blob: object) -> list[float]:
+    if not isinstance(blob, bytes) or len(blob) != EMBEDDING_BLOB_BYTES:
+        raise ProtocolError("index-dirty", "Derived memory embedding BLOB is invalid.")
+    embedding = list(struct.unpack(f"<{EMBEDDING_DIMENSION}f", blob))
+    if any(not math.isfinite(value) for value in embedding):
+        raise ProtocolError("index-dirty", "Derived memory embedding contains invalid values.")
+    magnitude = math.sqrt(math.fsum(value * value for value in embedding))
+    if not 0.98 <= magnitude <= 1.02:
+        raise ProtocolError("index-dirty", "Derived memory embedding is not normalized.")
+    return embedding
+
+
+def _is_memory_check_query(value: str) -> bool:
+    compact = _normalized_exact(value)
+    return (
+        "记得" in compact
+        or "你知道我" in compact
+        or bool(re.search(r"(?:怎么|如何|应该)(?:称呼|叫)我", compact))
+        or bool(re.search(r"我(?:叫|的名字是|的昵称是)(?:什么|谁|吗)", compact))
+        or bool(re.search(r"我.*(?:喜欢|爱好|习惯|名字|昵称|生日|目标|关系).*(?:什么|哪|多少|怎么|吗)", compact))
+    )
+
+
 class MemuPetIndex:
-    """A desktop-owned SQLite index feeding an isolated memU in-memory RAG service.
+    """Disposable per-pet hybrid index with memU semantic RAG and SQLite evidence."""
 
-    memU 1.5.1's published SQLite ORM cannot create its advertised schema on SQLite
-    (it uses reserved ``sqlite_*`` table names and duplicates embedding fields). Keeping
-    persistence in this narrow adapter avoids patching or vendoring upstream source while
-    preserving memU's retrieval semantics and making the complete index disposable.
-    """
-
-    def __init__(self, pet_id: str, directory: Path, model_fingerprint: str = MODEL_FINGERPRINT):
+    def __init__(
+        self,
+        pet_id: str,
+        directory: Path,
+        model_fingerprint: str = MODEL_FINGERPRINT,
+        embedding_runtime: object | None = None,
+    ):
         from memu import MemoryService
 
+        if model_fingerprint != MODEL_FINGERPRINT:
+            raise ProtocolError("invalid-config", "Derived memory model fingerprint is unsupported.")
         self.pet_id = pet_id
         self.directory = directory
         self.model_fingerprint = model_fingerprint
+        runtime = embedding_runtime if embedding_runtime is not None else get_embedding_runtime()
         self.resources_directory = directory / RESOURCES_DIRECTORY_NAME
         self.resources_directory.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(directory / INDEX_DATABASE_NAME)
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.execute("PRAGMA synchronous=FULL")
-        self._connection.execute(
-            """CREATE TABLE IF NOT EXISTS desktop_memories(
-                desktop_id TEXT PRIMARY KEY,
-                record_json TEXT NOT NULL,
-                embedding_json TEXT NOT NULL
-            ) STRICT"""
-        )
-        self._connection.execute(
-            """CREATE TABLE IF NOT EXISTS adapter_metadata(
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            ) STRICT"""
-        )
-        self._connection.execute(
-            "INSERT INTO adapter_metadata(key,value) VALUES('schema_version',?) ON CONFLICT(key) DO NOTHING",
-            (str(SCHEMA_VERSION),),
-        )
-        self._connection.execute(
-            "INSERT INTO adapter_metadata(key,value) VALUES('model_fingerprint',?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (model_fingerprint,),
-        )
-        self._connection.commit()
-        self._embedding_client = DeterministicEmbeddingClient()
+        self._connection.execute("PRAGMA secure_delete=ON")
+        self._connection.execute("PRAGMA foreign_keys=ON")
+        self._index_compatible = self._initialize_schema()
+        self._embedding_client = BgeEmbeddingClient(runtime)  # type: ignore[arg-type]
         self._service = MemoryService(
             blob_config={"provider": "local", "resources_dir": str(self.resources_directory)},
             memorize_config={"memory_categories": []},
@@ -200,25 +279,116 @@ class MemuPetIndex:
         self._service._llm_clients["default"] = self._embedding_client
         self._service._llm_clients["embedding"] = self._embedding_client
         self._records: dict[str, dict[str, Any]] = {}
+        self._embeddings: dict[str, list[float]] = {}
+        self._exact_terms: dict[str, set[str]] = {}
         self._memu_by_desktop_id: dict[str, str] = {}
         self._desktop_by_memu_id: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._closed = False
-        self._load_existing()
+        self._needs_compaction = False
+        if self._index_compatible:
+            self._load_existing()
+
+    def _initialize_schema(self) -> bool:
+        existing = self._connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='desktop_memories'"
+        ).fetchone()
+        if existing is not None:
+            try:
+                metadata = dict(self._connection.execute("SELECT key,value FROM adapter_metadata"))
+                columns = {
+                    row[1]: row[2].upper()
+                    for row in self._connection.execute("PRAGMA table_info(desktop_memories)")
+                }
+                fts_exists = self._connection.execute(
+                    "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='desktop_memories_fts'"
+                ).fetchone()
+            except sqlite3.DatabaseError:
+                return False
+            if (
+                metadata != INDEX_METADATA
+                or columns != {"desktop_id": "TEXT", "record_json": "TEXT", "embedding": "BLOB"}
+                or fts_exists is None
+            ):
+                return False
+            if self._connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                return False
+            return True
+
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            self._connection.execute(
+                f"""CREATE TABLE desktop_memories(
+                    desktop_id TEXT PRIMARY KEY,
+                    record_json TEXT NOT NULL,
+                    embedding BLOB NOT NULL
+                        CHECK(typeof(embedding)='blob' AND length(embedding)={EMBEDDING_BLOB_BYTES})
+                ) STRICT"""
+            )
+            self._connection.execute(
+                """CREATE TABLE adapter_metadata(
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                ) STRICT"""
+            )
+            self._connection.execute(
+                """CREATE TABLE structured_terms(
+                    desktop_id TEXT NOT NULL REFERENCES desktop_memories(desktop_id) ON DELETE CASCADE,
+                    term TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK(kind IN ('tag','literal','relation')),
+                    PRIMARY KEY(desktop_id,term,kind)
+                ) WITHOUT ROWID, STRICT"""
+            )
+            self._connection.execute(
+                "CREATE INDEX structured_terms_term_idx ON structured_terms(term,desktop_id)"
+            )
+            self._connection.execute(
+                """CREATE VIRTUAL TABLE desktop_memories_fts USING fts5(
+                    desktop_id UNINDEXED,
+                    searchable_text,
+                    tokenize='trigram'
+                )"""
+            )
+            self._connection.executemany(
+                "INSERT INTO adapter_metadata(key,value) VALUES(?,?)",
+                sorted(INDEX_METADATA.items()),
+            )
+            self._connection.commit()
+            return True
+        except sqlite3.DatabaseError as error:
+            self._connection.rollback()
+            self._connection.close()
+            raise ProtocolError("unavailable", "Derived memory index could not be initialized.") from error
 
     def _load_existing(self) -> None:
-        rows = self._connection.execute(
-            "SELECT desktop_id,record_json,embedding_json FROM desktop_memories ORDER BY desktop_id"
-        ).fetchall()
-        for desktop_id, record_json, embedding_json in rows:
-            try:
+        try:
+            rows = self._connection.execute(
+                "SELECT desktop_id,record_json,embedding FROM desktop_memories ORDER BY desktop_id"
+            ).fetchall()
+            loaded_terms: dict[str, set[str]] = {}
+            for desktop_id, term in self._connection.execute(
+                "SELECT desktop_id,term FROM structured_terms ORDER BY desktop_id,term"
+            ):
+                loaded_terms.setdefault(desktop_id, set()).add(term)
+            for desktop_id, record_json, embedding_blob in rows:
                 record = validate_memory_record(json.loads(record_json), self.pet_id)
-                embedding = json.loads(embedding_json)
-                if not isinstance(embedding, list) or not embedding:
-                    raise ValueError("invalid embedding")
-            except (json.JSONDecodeError, ValueError, ProtocolError) as error:
-                raise ProtocolError("index-dirty", "Derived memory index is corrupted.") from error
-            self._insert_memu(record, [float(value) for value in embedding])
+                if record["id"] != desktop_id or record.get("deletedAt") is not None:
+                    raise ProtocolError("index-dirty", "Derived memory index identity is corrupted.")
+                embedding = _unpack_embedding(embedding_blob)
+                expected_terms = {term for term, _kind in _structured_terms(record)}
+                if loaded_terms.get(desktop_id, set()) != expected_terms:
+                    raise ProtocolError("index-dirty", "Derived memory structured terms are corrupted.")
+                self._insert_memu(record, embedding)
+                self._embeddings[desktop_id] = embedding
+                self._exact_terms[desktop_id] = expected_terms
+            fts_count = self._connection.execute("SELECT count(*) FROM desktop_memories_fts").fetchone()[0]
+            if fts_count != len(rows):
+                raise ProtocolError("index-dirty", "Derived memory keyword index is corrupted.")
+        except (json.JSONDecodeError, ValueError, sqlite3.DatabaseError, ProtocolError) as error:
+            self._connection.close()
+            if isinstance(error, ProtocolError):
+                raise
+            raise ProtocolError("index-dirty", "Derived memory index is corrupted.") from error
 
     def _insert_memu(self, record: dict[str, Any], embedding: list[float]) -> None:
         item = self._service.database.memory_item_repo.create_item(
@@ -238,68 +408,242 @@ class MemuPetIndex:
             self._service.database.memory_item_repo.delete_item(memu_id)
             self._desktop_by_memu_id.pop(memu_id, None)
         self._records.pop(desktop_id, None)
+        self._embeddings.pop(desktop_id, None)
+        self._exact_terms.pop(desktop_id, None)
 
     def _assert_open(self) -> None:
         if self._closed:
             raise ProtocolError("unavailable", "Memory index is closed.")
 
-    async def retrieve(self, query: str, limit: int) -> dict[str, object]:
+    def _assert_index_compatible(self) -> None:
         self._assert_open()
+        if not self._index_compatible:
+            raise ProtocolError("index-dirty", "Derived memory index requires a staging rebuild.")
+
+    def _keyword_candidates(self, query: str, limit: int) -> dict[str, float]:
+        terms = _fts_terms(query)
+        if not terms:
+            return {}
+        expression = " OR ".join(f'"{term}"' for term in terms)
+        try:
+            rows = self._connection.execute(
+                "SELECT desktop_id FROM desktop_memories_fts WHERE desktop_memories_fts MATCH ? "
+                "ORDER BY bm25(desktop_memories_fts),desktop_id LIMIT ?",
+                (expression, limit),
+            ).fetchall()
+        except sqlite3.OperationalError as error:
+            raise ProtocolError("index-dirty", "Derived memory keyword index failed.") from error
+        query_trigrams = _character_trigrams(query)
+        result: dict[str, float] = {}
+        for (desktop_id,) in rows:
+            record = self._records.get(desktop_id)
+            if record is None:
+                raise ProtocolError("index-dirty", "Derived memory keyword index crossed its records.")
+            record_trigrams = _character_trigrams(
+                f"{record['content']} {' '.join(record['tags'])}"
+            )
+            common = len(query_trigrams & record_trigrams)
+            if common:
+                result[desktop_id] = common / max(1, min(len(query_trigrams), len(record_trigrams)))
+        return result
+
+    def _exact_candidates(self, query: str) -> dict[str, int]:
+        normalized = _normalized_exact(query)
+        result: dict[str, int] = {}
+        for desktop_id, terms in self._exact_terms.items():
+            hits = sum(1 for term in terms if term and term in normalized)
+            if hits:
+                result[desktop_id] = hits
+        return result
+
+    @staticmethod
+    def _confidence(semantic: float | None, keyword: float | None, exact: int, important: bool) -> float:
+        semantic_confidence = max(0.0, min(1.0, ((semantic or 0.0) - 0.20) / 0.45))
+        keyword_confidence = 0.0 if keyword is None else min(0.82, 0.25 + 0.55 * keyword)
+        exact_confidence = 0.96 if exact else 0.0
+        evidence_count = sum((semantic_confidence >= 0.2, keyword_confidence >= 0.3, exact_confidence > 0))
+        confidence = max(semantic_confidence, keyword_confidence, exact_confidence)
+        if evidence_count >= 2:
+            confidence += 0.08
+        if important:
+            confidence += 0.02
+        return max(0.0, min(0.99, confidence))
+
+    async def retrieve(self, query: str, limit: int) -> dict[str, object]:
+        self._assert_index_compatible()
         _require_string(query, "query", 2_048)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 10:
             raise ProtocolError("invalid-request", "Retrieve limit is invalid.")
         async with self._lock:
-            self._service.retrieve_config.item.top_k = limit
+            current_query = _current_query(query)
+            candidate_limit = min(40, max(10, limit * 4))
+            self._service.retrieve_config.item.top_k = min(10, candidate_limit)
             response = await self._service.retrieve(queries=[{"role": "user", "content": query}])
-            result: list[dict[str, object]] = []
+            semantic: dict[str, float] = {}
             for item in response.get("items", []):
                 if not isinstance(item, dict):
                     continue
                 desktop_id = self._desktop_by_memu_id.get(item.get("id"))
-                record = self._records.get(desktop_id or "")
                 score = item.get("score")
-                if record is None or not isinstance(score, (int, float)) or not math.isfinite(score):
+                if desktop_id is None or not isinstance(score, (int, float)) or not math.isfinite(score):
                     continue
-                result.append({"memory": dict(record), "score": max(0.0, min(1.0, float(score)))})
-            return {"items": result[:limit]}
+                semantic[desktop_id] = max(-1.0, min(1.0, float(score)))
+            keyword = self._keyword_candidates(current_query, candidate_limit)
+            exact = self._exact_candidates(current_query)
+
+            ranks: dict[str, float] = {}
+            for weight, channel in (
+                (0.58, sorted(semantic, key=lambda key: (-semantic[key], key))),
+                (0.34, sorted(keyword, key=lambda key: (-keyword[key], key))),
+                (0.82, sorted(exact, key=lambda key: (-exact[key], key))),
+            ):
+                for rank, desktop_id in enumerate(channel, start=1):
+                    ranks[desktop_id] = ranks.get(desktop_id, 0.0) + weight / (60 + rank)
+
+            candidates: list[tuple[str, float, float]] = []
+            for desktop_id, fusion_rank in ranks.items():
+                record = self._records.get(desktop_id)
+                if record is None:
+                    continue
+                confidence = self._confidence(
+                    semantic.get(desktop_id), keyword.get(desktop_id), exact.get(desktop_id, 0), record["important"]
+                )
+                if confidence >= 0.2:
+                    candidates.append((desktop_id, fusion_rank, confidence))
+            candidates.sort(
+                key=lambda value: (
+                    -value[1],
+                    -value[2],
+                    -int(self._records[value[0]]["important"]),
+                    -datetime.fromisoformat(
+                        self._records[value[0]]["updatedAt"].replace("Z", "+00:00")
+                    ).timestamp(),
+                    value[0],
+                )
+            )
+
+            answer_policy = "reference"
+            if _is_memory_check_query(current_query):
+                answer_policy = "unknown"
+                if candidates:
+                    top_id = candidates[0][0]
+                    top_semantic = semantic.get(top_id, -1.0)
+                    second_semantic = semantic.get(candidates[1][0], -1.0) if len(candidates) > 1 else -1.0
+                    exact_ids = [desktop_id for desktop_id in exact if desktop_id in ranks]
+                    exact_unambiguous = exact.get(top_id, 0) > 0 and exact_ids == [top_id]
+                    no_exact_conflict = len(exact_ids) <= 1
+                    semantic_unambiguous = (
+                        no_exact_conflict and top_semantic >= 0.48 and top_semantic - second_semantic >= 0.06
+                    )
+                    hybrid_unambiguous = (
+                        no_exact_conflict
+                        and
+                        top_semantic >= 0.40
+                        and keyword.get(top_id, 0.0) >= 0.18
+                        and top_semantic - second_semantic >= 0.04
+                    )
+                    if exact_unambiguous or semantic_unambiguous or hybrid_unambiguous:
+                        answer_policy = "verified"
+                        candidates = candidates[:1]
+                    else:
+                        candidates = []
+
+            if answer_policy == "reference" and candidates:
+                relevance_floor = max(0.30, candidates[0][2] - 0.25)
+                candidates = [candidate for candidate in candidates if candidate[2] >= relevance_floor]
+
+            result = [
+                {"memory": dict(self._records[desktop_id]), "score": confidence}
+                for desktop_id, _fusion_rank, confidence in candidates[:limit]
+            ]
+            return {"items": result, "answerPolicy": answer_policy}
 
     async def upsert(self, value: object) -> None:
-        self._assert_open()
+        self._assert_index_compatible()
         record = validate_memory_record(value, self.pet_id)
         if record.get("deletedAt") is not None:
             await self.forget(record["id"])
             return
-        embedding = _stable_embedding(record["content"])
+        await self.upsert_many([record])
+
+    async def upsert_many(self, values: list[object]) -> None:
+        self._assert_index_compatible()
+        if not values or len(values) > 32:
+            raise ProtocolError("invalid-request", "Memory upsert batch is invalid.")
+        records = [validate_memory_record(value, self.pet_id) for value in values]
+        if any(record.get("deletedAt") is not None for record in records):
+            raise ProtocolError("invalid-request", "Memory upsert batch contains a deleted record.")
+        if len({record["id"] for record in records}) != len(records):
+            raise ProtocolError("invalid-request", "Memory upsert batch contains duplicate IDs.")
+        embeddings = await self._embedding_client.embed([record["content"] for record in records])
+        if len(embeddings) != len(records):
+            raise ProtocolError("index-dirty", "Embedding batch count is inconsistent.")
         async with self._lock:
-            self._delete_memu(record["id"])
             try:
                 self._connection.execute("BEGIN IMMEDIATE")
-                self._connection.execute(
-                    "INSERT INTO desktop_memories(desktop_id,record_json,embedding_json) VALUES(?,?,?) "
-                    "ON CONFLICT(desktop_id) DO UPDATE SET record_json=excluded.record_json, embedding_json=excluded.embedding_json",
-                    (record["id"], _canonical_json(record), _canonical_json(embedding)),
-                )
+                prepared: list[tuple[dict[str, Any], list[float], set[str]]] = []
+                for record, embedding in zip(records, embeddings, strict=True):
+                    blob = _pack_embedding(embedding)
+                    searchable_text = f"{record['content']} {' '.join(record['tags'])}".strip()
+                    terms = _structured_terms(record)
+                    self._connection.execute("DELETE FROM desktop_memories_fts WHERE desktop_id=?", (record["id"],))
+                    self._connection.execute("DELETE FROM structured_terms WHERE desktop_id=?", (record["id"],))
+                    self._connection.execute(
+                        "INSERT INTO desktop_memories(desktop_id,record_json,embedding) VALUES(?,?,?) "
+                        "ON CONFLICT(desktop_id) DO UPDATE SET record_json=excluded.record_json, embedding=excluded.embedding",
+                        (record["id"], _canonical_json(record), blob),
+                    )
+                    self._connection.execute(
+                        "INSERT INTO desktop_memories_fts(desktop_id,searchable_text) VALUES(?,?)",
+                        (record["id"], searchable_text),
+                    )
+                    self._connection.executemany(
+                        "INSERT INTO structured_terms(desktop_id,term,kind) VALUES(?,?,?)",
+                        ((record["id"], term, kind) for term, kind in terms),
+                    )
+                    prepared.append((record, embedding, {term for term, _kind in terms}))
                 self._connection.commit()
-                self._insert_memu(record, embedding)
             except BaseException:
                 self._connection.rollback()
                 raise
+            for record, embedding, terms in prepared:
+                self._delete_memu(record["id"])
+                self._insert_memu(record, embedding)
+                self._embeddings[record["id"]] = embedding
+                self._exact_terms[record["id"]] = terms
+            self._needs_compaction = True
 
     async def forget(self, memory_id: str) -> None:
-        self._assert_open()
+        self._assert_index_compatible()
         _require_string(memory_id, "memoryId", 128)
         async with self._lock:
-            self._connection.execute("DELETE FROM desktop_memories WHERE desktop_id=?", (memory_id,))
-            self._connection.commit()
+            try:
+                self._connection.execute("BEGIN IMMEDIATE")
+                self._connection.execute("DELETE FROM desktop_memories_fts WHERE desktop_id=?", (memory_id,))
+                self._connection.execute("DELETE FROM structured_terms WHERE desktop_id=?", (memory_id,))
+                self._connection.execute("DELETE FROM desktop_memories WHERE desktop_id=?", (memory_id,))
+                self._connection.commit()
+            except BaseException:
+                self._connection.rollback()
+                raise
             self._delete_memu(memory_id)
+            self._needs_compaction = True
 
     async def clear(self) -> None:
-        self._assert_open()
+        self._assert_index_compatible()
         async with self._lock:
-            self._connection.execute("DELETE FROM desktop_memories")
-            self._connection.commit()
+            try:
+                self._connection.execute("BEGIN IMMEDIATE")
+                self._connection.execute("DELETE FROM desktop_memories_fts")
+                self._connection.execute("DELETE FROM structured_terms")
+                self._connection.execute("DELETE FROM desktop_memories")
+                self._connection.commit()
+            except BaseException:
+                self._connection.rollback()
+                raise
             for desktop_id in list(self._records):
                 self._delete_memu(desktop_id)
+            self._needs_compaction = True
 
     @staticmethod
     def _chat_completions_url(base_url: str) -> str:
@@ -322,6 +666,16 @@ class MemuPetIndex:
             "只返回一个 JSON 对象，其中必须包含 memories 数组。"
             "只保留用户明确陈述、适合长期记住的事实、偏好、习惯、事件、关系或目标；"
             "不得保存助手的断言、临时请求、系统提示词或召回的上下文。"
+            "每条 content 都必须采用当前桌宠的第一人称视角：‘我’始终指当前桌宠/助手，"
+            "‘你’始终指当前用户。先根据消息来源和语义判断原句中每个人称指向，再重述，"
+            "禁止机械复制 userText 中的‘我’和‘你’。userText 是当前用户说的话，因此其中通常"
+            "‘我’指用户、‘你’指桌宠；assistantReply 是桌宠说的话，其中‘我’指桌宠、‘你’指用户。"
+            "例如：用户说‘我喜欢喝奶茶’应整理为‘你喜欢喝奶茶’；"
+            "用户说‘你喜欢喝奶茶’应整理为‘我喜欢喝奶茶’；"
+            "用户说‘你称赞我很可爱’应整理为‘我称赞你很可爱’。"
+            "当正文只出现一个人称时也必须按消息来源正确换位，不能因为缺少另一个人称而省略判断。"
+            "assistantReply 只可用于理解本轮桌宠实际说过或做过什么，不能把助手单方面提出、"
+            "猜测或断言的用户信息保存成用户事实。"
             "每条记忆必须包含 chapter "
             "(about_you|preferences_habits|important_events|relationships_goals)、"
             "memoryType (profile|behavior|event|knowledge)、content，并可选包含 tags。"
@@ -457,13 +811,37 @@ class MemuPetIndex:
         return {"ready": True}
 
     def inspect(self) -> dict[str, object]:
-        self._assert_open()
-        rows = self._connection.execute("SELECT record_json FROM desktop_memories ORDER BY desktop_id").fetchall()
+        self._assert_index_compatible()
+        try:
+            rows = self._connection.execute(
+                "SELECT record_json,embedding FROM desktop_memories ORDER BY desktop_id"
+            ).fetchall()
+            chapter_counts = {chapter: 0 for chapter in sorted(ALLOWED_CHAPTERS)}
+            for record_json, embedding_blob in rows:
+                record = validate_memory_record(json.loads(record_json), self.pet_id)
+                chapter_counts[record["chapter"]] += 1
+                _unpack_embedding(embedding_blob)
+            fts_count = self._connection.execute("SELECT count(*) FROM desktop_memories_fts").fetchone()[0]
+            if fts_count != len(rows):
+                raise ProtocolError("index-dirty", "Derived memory keyword count is inconsistent.")
+            if dict(self._connection.execute("SELECT key,value FROM adapter_metadata")) != INDEX_METADATA:
+                raise ProtocolError("index-dirty", "Derived memory metadata is inconsistent.")
+            if self._connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise ProtocolError("index-dirty", "Derived memory database integrity check failed.")
+        except (json.JSONDecodeError, sqlite3.DatabaseError, ProtocolError) as error:
+            if isinstance(error, ProtocolError):
+                raise
+            raise ProtocolError("index-dirty", "Derived memory inspection failed.") from error
         canonical = "\n".join(row[0] for row in rows)
         return {
             "indexedCount": len(rows),
             "contentFingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
             "modelFingerprint": self.model_fingerprint,
+            "indexSchemaVersion": SCHEMA_VERSION,
+            "embeddingBlobBytes": EMBEDDING_BLOB_BYTES,
+            "keywordCount": fts_count,
+            "chapterCounts": chapter_counts,
+            "integrity": "ok",
         }
 
     async def close(self) -> None:
@@ -471,11 +849,21 @@ class MemuPetIndex:
             return
         async with self._lock:
             self._closed = True
-            self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            self._connection.close()
-            self._records.clear()
-            self._memu_by_desktop_id.clear()
-            self._desktop_by_memu_id.clear()
+            try:
+                if self._needs_compaction:
+                    self._connection.execute(
+                        "INSERT INTO desktop_memories_fts(desktop_memories_fts) VALUES('optimize')"
+                    )
+                    self._connection.commit()
+                    self._connection.execute("VACUUM")
+                self._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            finally:
+                self._connection.close()
+                self._records.clear()
+                self._embeddings.clear()
+                self._exact_terms.clear()
+                self._memu_by_desktop_id.clear()
+                self._desktop_by_memu_id.clear()
 
 
 def validate_index_path(value: object) -> Path:

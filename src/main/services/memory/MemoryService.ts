@@ -111,7 +111,7 @@ export class MemoryService {
       };
       assertMemoryRetrieveRequest(request);
       if (!settings.recallEnabled) {
-        return Promise.resolve({ ok: true, value: { items: [] } });
+        return Promise.resolve({ ok: true, value: { items: [], answerPolicy: "reference" } });
       }
       return this.run(
         async (operationSignal) => {

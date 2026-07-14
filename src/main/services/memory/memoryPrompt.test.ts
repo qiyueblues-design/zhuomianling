@@ -27,6 +27,22 @@ function recall(id: string, content: string, score: number, important = false): 
 }
 
 describe("memory recall prompt boundary", () => {
+  it("向聊天模型明确声明桌宠第一人称记忆视角", () => {
+    const settings = {
+      ...DEFAULT_MEMORY_SETTINGS,
+      recallEnabled: true,
+      contextBudgetChars: 1_024
+    };
+    const result = buildUntrustedMemoryContext([
+      recall("pov", "我称赞你很可爱", 0.9)
+    ], settings);
+
+    expect(result.context).toContain("正文由当前桌宠以第一人称记录");
+    expect(result.context).toContain("“我”始终指当前桌宠/助手");
+    expect(result.context).toContain("“你”始终指当前用户");
+    expect(result.context).toContain("我称赞你很可爱");
+  });
+
   it("builds a bounded query from the current user message and only recent conversation", () => {
     const query = buildMemoryRecallQuery([
       { role: "system", content: "persona-secret" },
@@ -64,5 +80,21 @@ describe("memory recall prompt boundary", () => {
       { role: "system", content: "memory-context" },
       { role: "user", content: "hello" }
     ]);
+  });
+
+  it("turns an unanswered memory check into a no-guessing system constraint", () => {
+    const settings = { ...DEFAULT_MEMORY_SETTINGS, recallEnabled: true };
+    const result = buildUntrustedMemoryContext([], settings, "unknown");
+    expect(result.includedCount).toBe(0);
+    expect(result.context).toContain("必须明确承认不知道或记不清");
+    expect(result.context).toContain("禁止");
+  });
+
+  it("marks verified checks as hard facts without weakening current-user priority", () => {
+    const settings = { ...DEFAULT_MEMORY_SETTINGS, recallEnabled: true, contextBudgetChars: 1_024 };
+    const result = buildUntrustedMemoryContext([recall("1", "用户喜欢咖啡", 0.9)], settings, "verified");
+    expect(result.context).toContain("高置信度");
+    expect(result.context).toContain("硬约束");
+    expect(result.context).toContain("当前用户这次的新表达优先级最高");
   });
 });

@@ -6,7 +6,7 @@ export interface AvailablePetsLoadResult {
 }
 
 export function hasUsableLive2DModel(pet: PetDefinition): boolean {
-  if (!pet.modelPath.trim()) {
+  if (!pet.modelPath?.trim()) {
     return false;
   }
 
@@ -14,7 +14,7 @@ export function hasUsableLive2DModel(pet: PetDefinition): boolean {
     return true;
   }
 
-  return pet.details.features.some((feature) =>
+  return (pet.details?.features ?? []).some((feature) =>
     feature.title === "Live2D 显示" && feature.status === "ready"
   );
 }

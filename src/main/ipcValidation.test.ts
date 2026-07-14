@@ -145,6 +145,18 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("unknown:channel", [])).toThrow(/没有注册运行时 schema/);
   });
 
+  it("only accepts fixed renderer startup timing stages", () => {
+    expect(() =>
+      validateIpcArguments("app-window:startup-timing", ["splash-hidden"])
+    ).not.toThrow();
+    expect(() =>
+      validateIpcArguments("app-window:startup-timing", ["C:\\private\\config.json"])
+    ).toThrow(/startup stage/);
+    expect(() =>
+      validateIpcArguments("app-window:startup-timing", ["splash-hidden", "extra"])
+    ).toThrow(/参数数量/);
+  });
+
   it("keeps every IPC registration covered by a validation schema", async () => {
     const ipcSource = await fs.readFile(new URL("./ipc.ts", import.meta.url), "utf8");
     const registeredChannels = Array.from(

@@ -227,7 +227,7 @@ describe("atomic Live2D model replacement", () => {
     expect(storedPet.personaPrompt).toBe("keep this unless replacement succeeds");
     expect(storedPet.personaSettings).toEqual({ speakingStyle: "keep persona settings" });
     expect(storedPet.defaultVoice).toBe("keep-default-voice");
-    expect(storedPet.voiceModelSettings).toEqual({ enabled: false, connected: false });
+    expect(storedPet.voiceModelSettings).toMatchObject({ enabled: false, connected: false });
     expect(storedPet).not.toHaveProperty("expressions");
     expect(storedPet.lines).toEqual({ click: ["old line"] });
     expect(await fs.readFile(path.join(unrelatedDirectory, "keep.txt"), "utf8")).toBe("keep");

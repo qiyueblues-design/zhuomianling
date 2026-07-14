@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -250,6 +251,59 @@ describe("MemoryLedger mutations and recovery", () => {
     migrated.close();
   });
 
+  it("rolls a failed schema migration back without replacing the original ledger", async () => {
+    const ledgerPath = path.join(temporaryDirectory, "ledger.sqlite3");
+    const database = new DatabaseSync(ledgerPath);
+    database.exec(`
+      CREATE TABLE memory_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+      INSERT INTO memory_meta(key, value) VALUES ('schema_version', '0');
+      CREATE TABLE memories(marker TEXT NOT NULL) STRICT;
+      INSERT INTO memories(marker) VALUES ('pre-migration-authority');
+    `);
+    database.close();
+
+    await expect(MemoryLedger.open("pet-a", ledgerOptions())).rejects.toMatchObject({
+      code: "LEDGER_CORRUPTED"
+    });
+    const unchanged = new DatabaseSync(ledgerPath, { readOnly: true });
+    expect((unchanged.prepare("SELECT value FROM memory_meta WHERE key = 'schema_version'").get() as { value: string }).value).toBe("0");
+    expect((unchanged.prepare("SELECT marker FROM memories").get() as { marker: string }).marker).toBe("pre-migration-authority");
+    unchanged.close();
+    await expect(fs.access(path.join(temporaryDirectory, "ledger.sqlite3.bak"))).resolves.toBeUndefined();
+  });
+
+  it("maps a simulated disk-full SQLite failure and leaves authority unchanged", async () => {
+    const ledger = await MemoryLedger.open("pet-a", ledgerOptions());
+    await createMemory(ledger, "existing authority");
+    const faultConnection = new DatabaseSync(ledger.paths.ledger);
+    faultConnection.exec(`
+      CREATE TRIGGER fail_memory_insert BEFORE INSERT ON memories BEGIN
+        SELECT RAISE(ABORT, 'database or disk is full');
+      END;
+    `);
+    faultConnection.close();
+
+    await expect(createMemory(ledger, "must not commit")).rejects.toMatchObject({
+      code: "MEMORY_STORAGE_UNAVAILABLE"
+    });
+    expect(ledger.snapshot().map(({ content }) => content)).toEqual(["existing authority"]);
+    expect(ledger.listOutbox()).toHaveLength(1);
+    ledger.close();
+  });
+
+  it("fails closed when the backup target becomes unwritable without mutating authority", async () => {
+    const ledger = await MemoryLedger.open("pet-a", ledgerOptions());
+    await createMemory(ledger, "stable before backup failure");
+    await fs.rm(ledger.paths.ledgerBackup, { force: true });
+    await fs.mkdir(ledger.paths.ledgerBackup);
+
+    await expect(createMemory(ledger, "must not commit")).rejects.toMatchObject({
+      code: "MEMORY_STORAGE_UNAVAILABLE"
+    });
+    expect(ledger.snapshot().map(({ content }) => content)).toEqual(["stable before backup failure"]);
+    ledger.close();
+  });
+
   it("rejects a valid ledger copied into another pet boundary", async () => {
     const petADirectory = path.join(temporaryDirectory, "pet-a-memory");
     const petBDirectory = path.join(temporaryDirectory, "pet-b-memory");
@@ -281,9 +335,95 @@ describe("MemoryLedger mutations and recovery", () => {
     expect(ledger.listOutbox()[0]?.processedAt).toBeDefined();
     ledger.close();
   });
+
+  it("rejects corrupted index metadata instead of using an invalid outbox cursor", async () => {
+    const ledger = await MemoryLedger.open("pet-a", ledgerOptions());
+    const connection = new DatabaseSync(ledger.paths.ledger);
+    connection.prepare("UPDATE index_metadata SET value = 'not-a-sequence' WHERE key = 'last_applied_sequence'").run();
+    connection.close();
+    expect(() => ledger.getIndexMetadata()).toThrow(expect.objectContaining({ code: "LEDGER_CORRUPTED" }));
+    ledger.close();
+  });
+
+  it("physically purges synchronized forgotten content, sources, outbox payloads, WAL, and backup copies", async () => {
+    const ledger = await MemoryLedger.open("pet-a", ledgerOptions());
+    const privateText = "sensitive-source-physical-cleanup-fixture";
+    const committed = await ledger.commitAutomaticTurn(
+      {
+        petId: "pet-a",
+        requestId: "request-cleanup",
+        userText: privateText,
+        assistantReply: "private response",
+        occurredAt: "2026-07-13T00:00:00.000Z",
+        retainSource: true
+      },
+      "c".repeat(64),
+      [{
+        id: "automatic-cleanup",
+        petId: "pet-a",
+        chapter: "about_you",
+        memoryType: "profile",
+        content: privateText,
+        origin: "automatic"
+      }]
+    );
+    const forgotten = await ledger.forget("pet-a", committed.memories[0].id, 1);
+    await ledger.markOutboxProcessed("pet-a", forgotten.outboxSequence);
+
+    await expect(ledger.purgeDeleted("pet-a", "9999-12-31T23:59:59.999Z")).resolves.toEqual({
+      purgedCount: 1,
+      sourceTurnsPurged: 1
+    });
+    expect(ledger.snapshot(true)).toEqual([]);
+    expect(ledger.getSourceTurns()).toEqual([]);
+    expect(ledger.listOutbox()).toEqual([]);
+    const ledgerPath = ledger.paths.ledger;
+    const backupPath = ledger.paths.ledgerBackup;
+    ledger.close();
+
+    await expect(fs.access(`${ledgerPath}-wal`)).rejects.toMatchObject({ code: "ENOENT" });
+    const backup = new DatabaseSync(backupPath, { readOnly: true });
+    expect((backup.prepare("SELECT count(*) count FROM memories").get() as { count: number }).count).toBe(0);
+    expect((backup.prepare("SELECT count(*) count FROM source_turns").get() as { count: number }).count).toBe(0);
+    expect((backup.prepare("SELECT count(*) count FROM index_outbox").get() as { count: number }).count).toBe(0);
+    backup.close();
+    expect((await fs.readFile(ledgerPath)).includes(Buffer.from(privateText, "utf8"))).toBe(false);
+    expect((await fs.readFile(backupPath)).includes(Buffer.from(privateText, "utf8"))).toBe(false);
+    expect((await fs.readdir(temporaryDirectory)).some((name) => name.endsWith(".tmp"))).toBe(false);
+  });
 });
 
 describe("pending durability and exports", () => {
+  it("loads a large durable pending queue in stable order without crossing its storage boundary", async () => {
+    const pendingDirectory = path.join(temporaryDirectory, "pending");
+    await fs.mkdir(pendingDirectory, { recursive: true });
+    const count = 256;
+    await Promise.all(Array.from({ length: count }, async (_, index) => {
+      const requestId = `bulk-request-${String(index).padStart(3, "0")}`;
+      const stem = crypto.createHash("sha256").update(requestId, "utf8").digest("hex");
+      const value = {
+        schemaVersion: 1,
+        petId: "pet-a",
+        requestId,
+        contentHash: crypto.createHash("sha256").update(`content-${index}`, "utf8").digest("hex"),
+        userText: `user-${index}`,
+        assistantReply: `assistant-${index}`,
+        occurredAt: new Date(Date.UTC(2026, 6, 13, 0, 0, index)).toISOString(),
+        retainSource: false,
+        attempt: 0,
+        createdAt: new Date(Date.UTC(2026, 6, 13, 0, 0, index)).toISOString()
+      };
+      await fs.writeFile(path.join(pendingDirectory, `${stem}.json`), JSON.stringify(value), "utf8");
+    }));
+    await fs.writeFile(path.join(pendingDirectory, "unrecognized.local"), "must remain ignored", "utf8");
+
+    const store = new MemoryPendingStore("pet-a", { memoryDirectoryPath: temporaryDirectory });
+    const pending = await store.list();
+    expect(pending).toHaveLength(count);
+    expect(pending[0]?.requestId).toBe("bulk-request-000");
+    expect(pending.at(-1)?.requestId).toBe("bulk-request-255");
+  });
+
   it("uses the current pet name for a filesystem-safe export filename", () => {
     expect(createMemoryExportFileName("若叶睦", "former-name", "md")).toBe("若叶睦-memory.md");
     expect(createMemoryExportFileName("若叶/睦:*", "pet-a", "json")).toBe("若叶 睦-memory.json");

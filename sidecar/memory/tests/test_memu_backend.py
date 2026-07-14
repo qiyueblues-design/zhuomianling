@@ -1,6 +1,11 @@
 import asyncio
+import hashlib
 import importlib.util
 import json
+import math
+import re
+import sqlite3
+import struct
 import tempfile
 import threading
 import unittest
@@ -14,6 +19,22 @@ MEMU_AVAILABLE = importlib.util.find_spec("memu") is not None
 if MEMU_AVAILABLE:
     from desktop_pet_memory_sidecar.memu_backend import MemuPetIndex
     from desktop_pet_memory_sidecar.protocol import ProtocolError
+
+
+class FakeEmbeddingRuntime:
+    """512-dimensional deterministic test double; production never uses this path."""
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        result: list[list[float]] = []
+        for text in texts:
+            vector = [0.0] * 512
+            tokens = re.findall(r"[A-Za-z0-9_+.-]+|[\u3400-\u9fff]", text.casefold()) or [text]
+            for token in tokens:
+                digest = hashlib.sha256(token.encode("utf-8")).digest()
+                vector[int.from_bytes(digest[:2], "little") % len(vector)] += 1.0
+            magnitude = math.sqrt(sum(value * value for value in vector)) or 1.0
+            result.append([value / magnitude for value in vector])
+        return result
 
 
 class NormalizationHandler(BaseHTTPRequestHandler):
@@ -65,6 +86,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.temp.name)
         NormalizationHandler.requests = []
         NormalizationHandler.response_content = json.dumps({"memories": []})
+        self.embedding_runtime = FakeEmbeddingRuntime()
 
     async def asyncTearDown(self):
         self.temp.cleanup()
@@ -74,9 +96,16 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def open_index(self, pet_id: str, target: str = "current") -> MemuPetIndex:
+        return MemuPetIndex(
+            pet_id,
+            self.index_path(pet_id, target),
+            embedding_runtime=self.embedding_runtime,
+        )
+
     async def test_two_pet_indexes_never_cross_contaminate_under_pressure(self):
-        first = MemuPetIndex("pet-a", self.index_path("pet-a"))
-        second = MemuPetIndex("pet-b", self.index_path("pet-b"))
+        first = self.open_index("pet-a")
+        second = self.open_index("pet-b")
         try:
             await asyncio.gather(*[
                 first.upsert(record("pet-a", f"a-{index}", f"alpha tea preference {index}"))
@@ -100,14 +129,14 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reopen_and_rebuild_reproduce_the_authority_visible_set(self):
         path = self.index_path("pet-a", "staging-rebuild")
-        index = MemuPetIndex("pet-a", path)
+        index = MemuPetIndex("pet-a", path, embedding_runtime=self.embedding_runtime)
         expected = [record("pet-a", f"memory-{number}", f"stable fact {number}") for number in range(6)]
         for item in expected:
             await index.upsert(item)
         before = index.inspect()
         await index.close()
 
-        reopened = MemuPetIndex("pet-a", path)
+        reopened = MemuPetIndex("pet-a", path, embedding_runtime=self.embedding_runtime)
         try:
             after = reopened.inspect()
             self.assertEqual(after["indexedCount"], len(expected))
@@ -117,8 +146,106 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await reopened.close()
 
+    async def test_forget_and_clear_physically_remove_derived_content_and_wal(self):
+        path = self.index_path("pet-a")
+        database_path = path / "index.sqlite3"
+        index = MemuPetIndex("pet-a", path, embedding_runtime=self.embedding_runtime)
+        private_text = "sensitive-derived-content-fixture"
+        await index.upsert(record("pet-a", "private-1", private_text))
+        await index.forget("private-1")
+        await index.close()
+
+        self.assertNotIn(private_text.encode("utf-8"), database_path.read_bytes())
+        self.assertFalse(Path(f"{database_path}-wal").exists())
+        reopened = MemuPetIndex("pet-a", path, embedding_runtime=self.embedding_runtime)
+        await reopened.upsert(record("pet-a", "private-2", f"{private_text}-two"))
+        await reopened.upsert(record("pet-a", "private-3", f"{private_text}-three"))
+        await reopened.clear()
+        await reopened.close()
+        self.assertNotIn(private_text.encode("utf-8"), database_path.read_bytes())
+        self.assertFalse(Path(f"{database_path}-wal").exists())
+
+    async def test_v2_index_uses_normalized_512_float_blob_and_trigram_evidence(self):
+        path = self.index_path("pet-a")
+        database_path = path / "index.sqlite3"
+        index = self.open_index("pet-a")
+        named = record("pet-a", "name-1", "用户希望被称为若叶睦")
+        named["tags"] = ["若叶睦", "称呼"]
+        await index.upsert(named)
+        result = await index.retrieve("你应该怎么称呼我？若叶睦吗？", 5)
+        self.assertEqual(result["answerPolicy"], "verified")
+        self.assertEqual(result["items"][0]["memory"]["id"], "name-1")
+        inspection = index.inspect()
+        self.assertEqual(inspection["embeddingBlobBytes"], 2048)
+        self.assertEqual(inspection["keywordCount"], 1)
+        await index.close()
+
+        connection = sqlite3.connect(database_path)
+        try:
+            columns = {row[1]: row[2] for row in connection.execute("PRAGMA table_info(desktop_memories)")}
+            self.assertEqual(columns, {
+                "desktop_id": "TEXT", "record_json": "TEXT", "embedding": "BLOB"
+            })
+            storage = connection.execute(
+                "SELECT typeof(embedding),length(embedding) FROM desktop_memories"
+            ).fetchone()
+            self.assertEqual(storage, ("blob", 2048))
+            metadata = dict(connection.execute("SELECT key,value FROM adapter_metadata"))
+            self.assertEqual(metadata["dimension"], "512")
+            self.assertEqual(metadata["dtype"], "float32-le")
+            self.assertEqual(metadata["normalization"], "l2")
+            self.assertEqual(metadata["pooling"], "cls")
+        finally:
+            connection.close()
+
+    async def test_non_finite_embedding_blob_is_rejected_on_reopen(self):
+        path = self.index_path("pet-a")
+        index = self.open_index("pet-a")
+        await index.upsert(record("pet-a", "memory-1", "finite fixture"))
+        await index.close()
+        connection = sqlite3.connect(path / "index.sqlite3")
+        connection.execute(
+            "UPDATE desktop_memories SET embedding=? WHERE desktop_id='memory-1'",
+            (struct.pack("<512f", math.nan, *([0.0] * 511)),),
+        )
+        connection.commit()
+        connection.close()
+        with self.assertRaisesRegex(ProtocolError, "invalid values"):
+            self.open_index("pet-a")
+
+    async def test_legacy_index_allows_normalization_but_requires_staging_for_index_work(self):
+        path = self.index_path("pet-a")
+        connection = sqlite3.connect(path / "index.sqlite3")
+        connection.execute(
+            "CREATE TABLE desktop_memories(desktop_id TEXT PRIMARY KEY,record_json TEXT NOT NULL,embedding_json TEXT NOT NULL) STRICT"
+        )
+        connection.execute("CREATE TABLE adapter_metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL) STRICT")
+        connection.execute("INSERT INTO adapter_metadata VALUES('schema_version','1')")
+        connection.commit()
+        connection.close()
+        index = MemuPetIndex("pet-a", path, embedding_runtime=self.embedding_runtime)
+        try:
+            with self.assertRaisesRegex(ProtocolError, "staging rebuild"):
+                index.inspect()
+            index._normalize_conversation = AsyncMock(return_value=[])
+            result = await index.memorize({
+                "requestId": "legacy-normalize",
+                "userText": "这轮没有长期记忆",
+                "assistantReply": "好的",
+                "occurredAt": "2026-07-13T00:00:00.000Z",
+                "retainSource": False,
+            }, {
+                "apiKey": "secret",
+                "baseUrl": "https://example.com/v1",
+                "chatModel": "model",
+                "provider": "openai-compatible",
+            })
+            self.assertEqual(result, {"entries": []})
+        finally:
+            await index.close()
+
     async def test_successful_conversation_proof_removes_raw_resource(self):
-        index = MemuPetIndex("pet-a", self.index_path("pet-a"))
+        index = self.open_index("pet-a")
         try:
             normalized = record("pet-a", "auto-1", "我喜欢散步")
             normalized["origin"] = "automatic"
@@ -145,7 +272,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), NormalizationHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        index = MemuPetIndex("pet-a", self.index_path("pet-a"))
+        index = self.open_index("pet-a")
         try:
             NormalizationHandler.response_content = json.dumps({
                 "memories": [{
@@ -180,6 +307,12 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("userText 的主要自然语言", system_prompt)
             self.assertIn("必须使用自然的简体中文", system_prompt)
             self.assertIn("不受 assistantReply 所用语言影响", system_prompt)
+            self.assertIn("‘我’始终指当前桌宠/助手", system_prompt)
+            self.assertIn("‘你’始终指当前用户", system_prompt)
+            self.assertIn("用户说‘我喜欢喝奶茶’应整理为‘你喜欢喝奶茶’", system_prompt)
+            self.assertIn("用户说‘你喜欢喝奶茶’应整理为‘我喜欢喝奶茶’", system_prompt)
+            self.assertIn("用户说‘你称赞我很可爱’应整理为‘我称赞你很可爱’", system_prompt)
+            self.assertIn("不能因为缺少另一个人称而省略判断", system_prompt)
             conversation = json.loads(request["body"]["messages"][1]["content"])
             self.assertEqual(conversation, {
                 "assistantReply": "我记住了",
@@ -203,7 +336,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), NormalizationHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        index = MemuPetIndex("pet-a", self.index_path("pet-a"))
+        index = self.open_index("pet-a")
         try:
             NormalizationHandler.response_content = json.dumps({
                 "memories": [{
@@ -237,7 +370,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), NormalizationHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        index = MemuPetIndex("pet-a", self.index_path("pet-a"))
+        index = self.open_index("pet-a")
         turn = {
             "requestId": "request-failure",
             "userText": "temporary request",

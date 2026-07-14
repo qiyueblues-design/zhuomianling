@@ -5,10 +5,16 @@ backend-path = ["."]
 
 [project]
 name = "desktop-pet-memory-sidecar"
-version = "0.1.0"
+version = "0.2.0"
 description = "Private NDJSON memory sidecar protocol for Zhuomianling"
 requires-python = ">=3.13,<3.14"
-dependencies = ["memu-py==1.5.1"]
+dependencies = [
+  "flatbuffers==25.12.19",
+  "memu-py==1.5.1",
+  "numpy==2.5.1",
+  "onnxruntime==1.27.0",
+  "tokenizers==0.23.1",
+]
 
 [tool.unittest]
 start-directory = "tests"

@@ -62,7 +62,7 @@ export interface TextToSpeechResponse {
   ok: boolean;
   message: string;
   requestId?: string;
-  code?: "CANCELED" | "TIMEOUT";
+  code?: "CANCELED" | "TIMEOUT" | "INVALID_CONFIG";
   audioBase64?: string;
   mimeType?: string;
 }

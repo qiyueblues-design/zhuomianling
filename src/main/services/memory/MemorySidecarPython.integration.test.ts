@@ -32,6 +32,8 @@ describe.skipIf(!pythonPath)("Python 3.13 memory sidecar integration", () => {
       await expect(client.request("crash", {}, { deadlineMs: 1_000 })).rejects.toMatchObject({
         code: "unavailable"
       });
+      await expect(client.request("health")).rejects.toMatchObject({ code: "unavailable" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
       const recovered = await client.request<{ pid: number; status: string }>("health");
       expect(recovered.status).toBe("ready");
       expect(recovered.pid).not.toBe(health.pid);
@@ -54,6 +56,8 @@ describe.skipIf(!pythonPath)("Python 3.13 memory sidecar integration", () => {
         await expect(client.request(method, {}, { deadlineMs: 1_000 })).rejects.toMatchObject({
           code: "invalid-response"
         });
+        await expect(client.request("health")).rejects.toMatchObject({ code: "unavailable" });
+        await new Promise<void>((resolve) => setTimeout(resolve, 300));
         await expect(client.request("health")).resolves.toMatchObject({ status: "ready" });
       } finally {
         await client.shutdown();

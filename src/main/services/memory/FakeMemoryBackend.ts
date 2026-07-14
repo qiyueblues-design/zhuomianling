@@ -145,7 +145,7 @@ export class FakeMemoryBackend implements MemoryBackend {
         return true;
       })
       .slice(0, request.limit);
-    const response = { items };
+    const response: MemoryRetrieveResponse = { items, answerPolicy: "reference" };
     assertMemoryObjectBudget(response);
     return response;
   }

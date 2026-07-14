@@ -15,6 +15,7 @@ import { registerMemorySidecar, unregisterMemorySidecar } from "./memorySidecarR
 
 const pythonBootstrap = [
   "import runpy,sys",
+  "sys.dont_write_bytecode=True",
   "root=sys.argv[1]",
   "sys.path[:0]=[root,*sys.argv[2:]]",
   "runpy.run_module('desktop_pet_memory_sidecar',run_name='__main__')"
@@ -40,9 +41,15 @@ export interface MemorySidecarClientOptions {
   executablePath: string;
   sidecarRoot: string;
   dependencyRoots?: string[];
+  modelRoot?: string;
   testCommandArguments?: string[];
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
+  restartBaseDelayMs?: number;
+  restartMaxDelayMs?: number;
+  circuitFailureThreshold?: number;
+  circuitCooldownMs?: number;
+  now?: () => number;
   onDiagnostic?: (event: { kind: "stderr" | "protocol" | "exit"; bytes?: number }) => void;
 }
 
@@ -66,17 +73,24 @@ export interface MemorySidecarMetrics {
   lastColdStartMs?: number;
   lastWarmRequestMs?: number;
   stderrBytes: number;
+  consecutiveFailures: number;
+  retryAfterMs: number;
+  circuitOpen: boolean;
 }
 
-function safeEnvironment(): NodeJS.ProcessEnv {
+function safeEnvironment(modelRoot?: string): NodeJS.ProcessEnv {
   const allowedNames = ["SYSTEMROOT", "WINDIR", "TEMP", "TMP", "LANG"];
   const environment: NodeJS.ProcessEnv = {
     PYTHONUTF8: "1",
-    PYTHONIOENCODING: "utf-8"
+    PYTHONIOENCODING: "utf-8",
+    // Packaged resources are immutable inputs. Portable installs may still be
+    // writable, so never create __pycache__ beside sidecar/dependency files.
+    PYTHONDONTWRITEBYTECODE: "1"
   };
   for (const name of allowedNames) {
     if (process.env[name]) environment[name] = process.env[name];
   }
+  if (modelRoot) environment.DESKTOP_PET_MEMORY_MODEL_ROOT = modelRoot;
   return environment;
 }
 
@@ -98,9 +112,17 @@ export class MemorySidecarClient {
   private lastWarmRequestMs?: number;
   private stderrBytes = 0;
   private shutdownPromise?: Promise<void>;
+  private consecutiveFailures = 0;
+  private restartNotBefore = 0;
+  private circuitOpenUntil = 0;
+  private readonly failedChildren = new WeakSet<ChildProcessWithoutNullStreams>();
 
   constructor(private readonly options: MemorySidecarClientOptions) {
-    if (!path.isAbsolute(options.executablePath) || !path.isAbsolute(options.sidecarRoot)) {
+    if (
+      !path.isAbsolute(options.executablePath) ||
+      !path.isAbsolute(options.sidecarRoot) ||
+      (options.modelRoot !== undefined && !path.isAbsolute(options.modelRoot))
+    ) {
       throw new MemorySidecarClientError("internal", "Sidecar executable and root must be absolute paths.");
     }
     if (options.testCommandArguments && process.env.NODE_ENV !== "test") {
@@ -109,15 +131,38 @@ export class MemorySidecarClient {
     if (options.dependencyRoots?.some((entry) => !path.isAbsolute(entry))) {
       throw new MemorySidecarClientError("internal", "Sidecar dependency roots must be absolute paths.");
     }
+    for (const [name, value] of Object.entries({
+      restartBaseDelayMs: options.restartBaseDelayMs,
+      restartMaxDelayMs: options.restartMaxDelayMs,
+      circuitCooldownMs: options.circuitCooldownMs
+    })) {
+      if (value !== undefined && (!Number.isInteger(value) || value < 1 || value > 300_000)) {
+        throw new MemorySidecarClientError("internal", `Invalid ${name}.`);
+      }
+    }
+    if (
+      options.circuitFailureThreshold !== undefined &&
+      (!Number.isInteger(options.circuitFailureThreshold) || options.circuitFailureThreshold < 2 || options.circuitFailureThreshold > 20)
+    ) {
+      throw new MemorySidecarClientError("internal", "Invalid circuitFailureThreshold.");
+    }
+  }
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
   }
 
   getMetrics(): MemorySidecarMetrics {
+    const now = this.now();
     return {
       pid: isProcessRunning(this.child) ? this.child.pid : undefined,
       startCount: this.startCount,
       lastColdStartMs: this.lastColdStartMs,
       lastWarmRequestMs: this.lastWarmRequestMs,
-      stderrBytes: this.stderrBytes
+      stderrBytes: this.stderrBytes,
+      consecutiveFailures: this.consecutiveFailures,
+      retryAfterMs: Math.max(0, Math.max(this.restartNotBefore, this.circuitOpenUntil) - now),
+      circuitOpen: now < this.circuitOpenUntil
     };
   }
 
@@ -125,6 +170,13 @@ export class MemorySidecarClient {
     if (this.handshake && isProcessRunning(this.child)) return this.handshake;
     if (this.startPromise) return this.startPromise;
     if (this.shuttingDown) throw new MemorySidecarClientError("unavailable", "Memory sidecar is shutting down.");
+    const now = this.now();
+    if (now < this.circuitOpenUntil) {
+      throw new MemorySidecarClientError("unavailable", "Memory sidecar restart circuit is temporarily open.");
+    }
+    if (now < this.restartNotBefore) {
+      throw new MemorySidecarClientError("unavailable", "Memory sidecar restart is backing off.");
+    }
     this.startPromise = this.start().finally(() => {
       this.startPromise = undefined;
     });
@@ -147,18 +199,25 @@ export class MemorySidecarClient {
     ) {
       throw new MemorySidecarClientError("unavailable", "Memory sidecar launch paths are unsafe.");
     }
+    if (this.options.modelRoot) {
+      const modelStat = await fs.lstat(this.options.modelRoot);
+      if (modelStat.isSymbolicLink() || !modelStat.isDirectory()) {
+        throw new MemorySidecarClientError("unavailable", "Memory sidecar model root is unsafe.");
+      }
+    }
     const [executablePath, sidecarRoot, ...dependencyRoots] = await Promise.all([
       fs.realpath(this.options.executablePath),
       fs.realpath(this.options.sidecarRoot),
       ...(this.options.dependencyRoots ?? []).map((entry) => fs.realpath(entry))
     ]);
     const args = this.options.testCommandArguments ?? ["-u", "-c", pythonBootstrap, sidecarRoot, ...dependencyRoots];
+    const modelRoot = this.options.modelRoot ? await fs.realpath(this.options.modelRoot) : undefined;
     const child = spawn(executablePath, args, {
       cwd: sidecarRoot,
       shell: false,
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
-      env: safeEnvironment()
+      env: safeEnvironment(modelRoot)
     });
     this.child = child;
     this.handshake = undefined;
@@ -193,6 +252,7 @@ export class MemorySidecarClient {
       this.lastColdStartMs = performance.now() - startedAt;
       return handshake;
     } catch (error) {
+      this.recordFailure(child);
       this.terminateOwnedProcess(child);
       if (error instanceof MemorySidecarClientError) throw error;
       throw new MemorySidecarClientError("incompatible", "Memory sidecar handshake failed.");
@@ -213,6 +273,7 @@ export class MemorySidecarClient {
     const startedAt = performance.now();
     await this.ensureStarted();
     const result = await this.send(method, params, options, true);
+    this.recordSuccess();
     if (wasWarm) this.lastWarmRequestMs = performance.now() - startedAt;
     return result as T;
   }
@@ -364,7 +425,31 @@ export class MemorySidecarClient {
   private failProtocol(child: ChildProcessWithoutNullStreams): void {
     this.options.onDiagnostic?.({ kind: "protocol" });
     this.rejectAll(new MemorySidecarClientError("invalid-response", "Memory sidecar protocol failed."));
+    this.recordFailure(child);
     this.terminateOwnedProcess(child);
+  }
+
+  private recordSuccess(): void {
+    this.consecutiveFailures = 0;
+    this.restartNotBefore = 0;
+    this.circuitOpenUntil = 0;
+  }
+
+  private recordFailure(child?: ChildProcessWithoutNullStreams): void {
+    if (this.shuttingDown) return;
+    if (child) {
+      if (this.failedChildren.has(child)) return;
+      this.failedChildren.add(child);
+    }
+    this.consecutiveFailures += 1;
+    const base = this.options.restartBaseDelayMs ?? 250;
+    const maximum = this.options.restartMaxDelayMs ?? 10_000;
+    const delay = Math.min(maximum, base * (2 ** Math.min(16, this.consecutiveFailures - 1)));
+    const now = this.now();
+    this.restartNotBefore = Math.max(this.restartNotBefore, now + delay);
+    if (this.consecutiveFailures >= (this.options.circuitFailureThreshold ?? 5)) {
+      this.circuitOpenUntil = Math.max(this.circuitOpenUntil, now + (this.options.circuitCooldownMs ?? 30_000));
+    }
   }
 
   private rejectAll(error: MemorySidecarClientError): void {
@@ -373,6 +458,7 @@ export class MemorySidecarClient {
 
   private onExit(child: ChildProcessWithoutNullStreams): void {
     if (this.child !== child) return;
+    this.recordFailure(child);
     this.options.onDiagnostic?.({ kind: "exit" });
     this.child = undefined;
     this.handshake = undefined;

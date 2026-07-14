@@ -456,7 +456,6 @@
         }
       }
     </style>
-    <script defer src="./vendor/live2dcubismcore.min.js"></script>
   </head>
   <body>
     <div id="root">
@@ -494,6 +493,7 @@
     </div>
     <script>
       (() => {
+        window.desktopPet?.appWindow?.reportStartupTiming?.("html-inline-script-started");
         let hasFirstContentfulPaint = false;
         let hasStartupSurfaceReady = false;
         let paintEntryPollTimer;
@@ -504,6 +504,7 @@
           }
 
           hasStartupSurfaceReady = true;
+          window.desktopPet?.appWindow?.reportStartupTiming?.("first-contentful-paint");
           window.__desktopPetStartupSurfaceReady = true;
           document.documentElement.classList.add("startupAnimationsActive");
           window.desktopPet?.appWindow?.revealStartupSurface?.(reason);
@@ -568,6 +569,13 @@
         window.setTimeout(() => {
           markFirstContentfulPaint("timeout fallback");
         }, 1800);
+
+        window.addEventListener("DOMContentLoaded", () => {
+          window.desktopPet?.appWindow?.reportStartupTiming?.("dom-content-loaded");
+        }, { once: true });
+        window.addEventListener("load", () => {
+          window.desktopPet?.appWindow?.reportStartupTiming?.("window-load-complete");
+        }, { once: true });
       })();
     </script>
     <script type="module" src="/src/renderer/main.tsx"></script>

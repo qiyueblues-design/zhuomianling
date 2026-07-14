@@ -1,5 +1,6 @@
 import { assertValidPetId } from "../shared/validation/petId";
 import { MEMORY_LIMITS } from "../shared/types/memory";
+import { startupRendererStages } from "../shared/types/startup";
 import {
   assertMemoryClearRequest,
   assertMemoryCreateRequest,
@@ -45,6 +46,7 @@ export const validatedIpcChannels = new Set([
   "app:get-version",
   "app-window:is-shown",
   "app-window:startup-surface-ready",
+  "app-window:startup-timing",
   "pet-config:list-local",
   "pet-config:restore-backup",
   "pet-config:list-ui-themes",
@@ -506,6 +508,14 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
       maxStringLength: 16_384,
       maxTotalStringLength: 262_144
     });
+    return;
+  }
+
+  if (channel === "app-window:startup-timing") {
+    expectArgumentCount(channel, args, 1);
+    if (typeof args[0] !== "string" || !startupRendererStages.includes(args[0] as never)) {
+      fail(channel, "startup stage 无效。");
+    }
     return;
   }
 

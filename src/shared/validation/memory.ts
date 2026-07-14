@@ -313,7 +313,15 @@ export function assertMemoryExportRequest(value: MemoryExportRequest): void {
 }
 
 export function assertMemoryRetrieveResponse(value: MemoryRetrieveResponse, petId?: string): void {
-  if (!isRecord(value) || !Array.isArray(value.items) || value.items.length > MEMORY_LIMITS.backendItemsMax) {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((key) => !["items", "answerPolicy"].includes(key)) ||
+    !Array.isArray(value.items) ||
+    value.items.length > MEMORY_LIMITS.backendItemsMax ||
+    !["reference", "verified", "unknown"].includes(String(value.answerPolicy)) ||
+    (value.answerPolicy === "unknown" && value.items.length !== 0) ||
+    (value.answerPolicy === "verified" && value.items.length === 0)
+  ) {
     throw new MemoryValidationError("Invalid memory retrieve response.");
   }
   value.items.forEach((item) => {
