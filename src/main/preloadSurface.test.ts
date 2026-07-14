@@ -10,6 +10,7 @@ describe("preload capability separation", () => {
     expect(source).toContain('ipcRenderer.invoke("memory:list"');
     expect(source).toContain('ipcRenderer.invoke("memory:get-source-conversation"');
     expect(source).toContain('ipcRenderer.invoke("memory:clear"');
+    expect(source).toContain('ipcRenderer.invoke("ai-settings:test-output"');
     for (const forbiddenChannel of [
       "ai-chat:stream",
       "ai-chat:cancel",

@@ -6,7 +6,6 @@ import type {
   PetReplyLength,
   PetVoiceLanguage
 } from "../../shared/types/pet";
-import { parseFinalAiReply } from "../../shared/aiReply";
 
 const chatLanguageLabels: Record<PetChatLanguage, string> = {
   zh: "中文",
@@ -101,70 +100,6 @@ export function splitVoiceTextIntoSegments(text: string): string[] {
   return segments;
 }
 
-function unescapePartialJsonText(value: string): string {
-  return value
-    .replace(/\\"/g, '"')
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\r")
-    .replace(/\\t/g, "\t");
-}
-
-export function extractStreamingReplyText(content: string): string {
-  const replyMatch = content.match(/"reply"\s*:\s*"((?:\\.|[^"\\])*)/);
-
-  if (replyMatch?.[1]) {
-    return unescapePartialJsonText(replyMatch[1]).trim();
-  }
-
-  const trimmedContent = content.trim();
-
-  if (!trimmedContent || trimmedContent.startsWith("{")) {
-    return "";
-  }
-
-  return trimmedContent;
-}
-
-export function extractStreamingVoiceText(content: string): string {
-  const voiceTextMatch = content.match(/"voiceText"\s*:\s*"((?:\\.|[^"\\])*)/);
-
-  if (!voiceTextMatch?.[1]) {
-    return "";
-  }
-
-  return unescapePartialJsonText(voiceTextMatch[1]).trim();
-}
-
-export function takeCompleteVoiceSegments(text: string): { segments: string[]; rest: string } {
-  const normalized = text.replace(/\s+/g, " ").trimStart();
-  const segments: string[] = [];
-  let current = "";
-
-  for (const character of Array.from(normalized)) {
-    current += character;
-
-    const shouldSplit =
-      /[。！？!?]/.test(character) ||
-      (current.length >= 36 && /[、，,；;]/.test(character)) ||
-      current.length >= 80;
-
-    if (shouldSplit) {
-      const segment = current.trim();
-
-      if (segment) {
-        segments.push(segment);
-      }
-
-      current = "";
-    }
-  }
-
-  return {
-    segments,
-    rest: current.trimStart()
-  };
-}
-
 export function inferExpressionFromAiReply(text: string): PetExpressionKey {
   const normalizedText = text.toLowerCase();
 
@@ -189,15 +124,6 @@ export function inferExpressionFromAiReply(text: string): PetExpressionKey {
   }
 
   return "normal";
-}
-
-export function parseStructuredReplyFallback(content: string): {
-  reply: string;
-  emotion?: string;
-  voiceText?: string;
-} {
-  const { reply, emotion, voiceText } = parseFinalAiReply(content);
-  return { reply, emotion, voiceText };
 }
 
 function isPetExpressionKey(value: string): value is PetExpressionKey {

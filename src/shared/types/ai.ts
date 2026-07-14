@@ -31,12 +31,29 @@ export interface AiConnectionDraft {
   models?: AiModelOption[];
 }
 
+export type AiOutputMode = "json-schema" | "json-object" | "plain-text";
+export type AiOutputCapabilityConfidence = "tested" | "fallback";
+
+export interface AiOutputCapability {
+  baseUrl: string;
+  model: string;
+  mode: AiOutputMode;
+  streaming: boolean;
+  confidence: AiOutputCapabilityConfidence;
+  checkedAt: string;
+}
+
+export interface AiOutputCapabilityTestResult extends AiConnectionTestResult {
+  capability?: AiOutputCapability;
+}
+
 export interface AiConnectionConfig {
   petId: string;
   providerName: string;
   baseUrl: string;
   model: string;
   models?: AiModelOption[];
+  outputCapability?: AiOutputCapability;
   updatedAt: string;
 }
 
@@ -47,6 +64,7 @@ export interface AiConnectionSummary {
   model: string;
   models: AiModelOption[];
   hasApiKey: boolean;
+  outputCapability?: AiOutputCapability;
   updatedAt?: string;
 }
 
@@ -116,6 +134,9 @@ export interface AiChatStreamEvent {
   type: "chunk" | "done" | "error" | "canceled";
   delta?: string;
   content?: string;
+  voiceText?: string;
+  emotion?: string;
+  quality?: "structured" | "recovered" | "plain-text";
   message?: string;
   reason?: "renderer" | "replaced" | "owner-destroyed" | "connect-timeout" | "idle-timeout" | "total-timeout";
 }
@@ -124,7 +145,6 @@ export interface AiChatResponse {
   ok: boolean;
   message: string;
   content?: string;
-  rawContent?: string;
   emotion?: string;
   voiceText?: string;
 }

@@ -9,6 +9,8 @@ import {
   type AiConnectionSaveResult,
   type AiConnectionSummary,
   type AiConnectionTestResult,
+  type AiOutputCapability,
+  type AiOutputCapabilityTestResult,
   type AiModelOption
 } from "../../../shared/types/ai";
 export { normalizeAiBaseUrl } from "../../../shared/types/ai";
@@ -21,9 +23,10 @@ import {
   setSecureString
 } from "../config/secureConfigStore";
 import { writeJsonFileAtomically } from "../config/durableJsonFile";
+import { probeAiOutputCapability } from "./aiCapabilityProbe";
 
 interface AiSettingsFile {
-  version: 2;
+  version: 3;
   connections: Record<string, AiConnectionConfig>;
 }
 
@@ -78,8 +81,42 @@ function normalizeModelOptions(models: unknown): AiModelOption[] {
   });
 }
 
+function normalizeOutputCapability(
+  value: unknown,
+  baseUrl: string,
+  model: string
+): AiOutputCapability | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Record<string, unknown>;
+  const capabilityBaseUrl =
+    typeof candidate.baseUrl === "string" ? normalizeAiBaseUrl(candidate.baseUrl) : "";
+  const capabilityModel = typeof candidate.model === "string" ? candidate.model.trim() : "";
+  if (capabilityBaseUrl !== baseUrl || capabilityModel !== model) return undefined;
+  if (
+    candidate.mode !== "json-schema" &&
+    candidate.mode !== "json-object" &&
+    candidate.mode !== "plain-text"
+  ) {
+    return undefined;
+  }
+  if (typeof candidate.streaming !== "boolean") return undefined;
+  if (candidate.confidence !== "tested" && candidate.confidence !== "fallback") return undefined;
+  if (typeof candidate.checkedAt !== "string" || !candidate.checkedAt) return undefined;
+
+  return {
+    baseUrl: capabilityBaseUrl,
+    model: capabilityModel,
+    mode: candidate.mode,
+    streaming: candidate.streaming,
+    confidence: candidate.confidence,
+    checkedAt: candidate.checkedAt
+  };
+}
+
 function normalizeStoredConfig(petId: string, value: unknown): AiConnectionConfig {
   const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const baseUrl = typeof candidate.baseUrl === "string" ? normalizeAiBaseUrl(candidate.baseUrl) : "";
+  const model = typeof candidate.model === "string" ? candidate.model.trim() : "";
 
   return {
     petId: typeof candidate.petId === "string" && candidate.petId.trim() ? candidate.petId.trim() : petId,
@@ -87,10 +124,10 @@ function normalizeStoredConfig(petId: string, value: unknown): AiConnectionConfi
       typeof candidate.providerName === "string" && candidate.providerName.trim()
         ? candidate.providerName.trim()
         : "OpenAI Compatible",
-    baseUrl:
-      typeof candidate.baseUrl === "string" ? normalizeAiBaseUrl(candidate.baseUrl) : "",
-    model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+    baseUrl,
+    model,
     models: normalizeModelOptions(candidate.models),
+    outputCapability: normalizeOutputCapability(candidate.outputCapability, baseUrl, model),
     updatedAt:
       typeof candidate.updatedAt === "string" && candidate.updatedAt
         ? candidate.updatedAt
@@ -112,7 +149,7 @@ function parseSettingsFile(value: unknown): ParsedAiSettingsFile {
   const rawConnections = (candidate.connections ?? {}) as Record<string, unknown>;
   const connections: Record<string, AiConnectionConfig> = {};
   const legacySecrets: ParsedAiSettingsFile["legacySecrets"] = [];
-  let needsRewrite = candidate.version !== 2;
+  let needsRewrite = candidate.version !== 3;
 
   for (const [connectionId, rawConnection] of Object.entries(rawConnections)) {
     const normalizedConnection = normalizeStoredConfig(connectionId, rawConnection);
@@ -139,7 +176,7 @@ function parseSettingsFile(value: unknown): ParsedAiSettingsFile {
 
   return {
     settings: {
-      version: 2,
+      version: 3,
       connections
     },
     legacySecrets,
@@ -155,7 +192,7 @@ async function readSettingsFile(): Promise<ParsedAiSettingsFile> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return {
         settings: {
-          version: 2,
+          version: 3,
           connections: {}
         },
         legacySecrets: [],
@@ -263,6 +300,7 @@ async function toSummary(config: AiConnectionConfig): Promise<AiConnectionSummar
     baseUrl: config.baseUrl,
     model: config.model,
     models: config.models ?? [],
+    outputCapability: config.outputCapability,
     hasApiKey: Boolean(apiKey),
     updatedAt: config.updatedAt
   };
@@ -525,6 +563,99 @@ export async function testAiConnection(draft: AiConnectionDraft): Promise<AiConn
   };
 }
 
+function getCapabilityMessage(capability: AiOutputCapability): string {
+  if (capability.confidence === "fallback") {
+    return "聊天能力探测未完成，将使用兼容模式。";
+  }
+  const modeLabel =
+    capability.mode === "json-schema"
+      ? "结构化回复"
+      : capability.mode === "json-object"
+        ? "JSON 回复"
+        : "兼容文本";
+  return `${modeLabel} · ${capability.streaming ? "支持流式" : "完整回复模式"}`;
+}
+
+export async function testAiOutputCapability(
+  draft: AiConnectionDraft
+): Promise<AiOutputCapabilityTestResult> {
+  const normalized = normalizeDraft(draft);
+  const checkedAt = new Date().toISOString();
+
+  if (!normalized.petId || !normalized.baseUrl || !normalized.model) {
+    return {
+      ok: false,
+      message: "请先填写 Base URL 并选择模型。",
+      checkedAt,
+      code: "INVALID_AI_SETTINGS"
+    };
+  }
+
+  return runPetMutation(normalized.petId, async () => {
+    let settings: AiSettingsFile;
+    let resolution: Awaited<ReturnType<typeof resolveApiKey>>;
+    try {
+      settings = await readSettings();
+      resolution = await resolveApiKey(normalized, settings.connections[normalized.petId]);
+    } catch (error: unknown) {
+      return getSettingsFailure(error, checkedAt);
+    }
+
+    if (!resolution.apiKey) {
+      return getMissingApiKeyResult(checkedAt, resolution.endpointChanged);
+    }
+
+    const probe = await probeAiOutputCapability({
+      baseUrl: normalized.baseUrl,
+      model: normalized.model,
+      apiKey: resolution.apiKey,
+      checkedAt
+    });
+
+    const existing = settings.connections[normalized.petId];
+    if (existing?.baseUrl === normalized.baseUrl && existing.model === normalized.model) {
+      await runSettingsMutation(async () => {
+        const latest = (await readSettingsFile()).settings;
+        const current = latest.connections[normalized.petId];
+        if (current?.baseUrl === normalized.baseUrl && current.model === normalized.model) {
+          current.outputCapability = probe.capability;
+          await writeSettingsFile(latest);
+        }
+      });
+    }
+
+    return {
+      ok: probe.tested,
+      message: getCapabilityMessage(probe.capability),
+      checkedAt,
+      capability: probe.capability
+    };
+  });
+}
+
+export async function recordAiOutputCapability(
+  petId: string,
+  expectedBaseUrl: string,
+  expectedModel: string,
+  capability: AiOutputCapability
+): Promise<void> {
+  await runPetMutation(petId, async () => {
+    await runSettingsMutation(async () => {
+      const settings = (await readSettingsFile()).settings;
+      const current = settings.connections[petId];
+      if (
+        !current ||
+        current.baseUrl !== normalizeAiBaseUrl(expectedBaseUrl) ||
+        current.model !== expectedModel.trim()
+      ) {
+        return;
+      }
+      current.outputCapability = capability;
+      await writeSettingsFile(settings);
+    });
+  });
+}
+
 export async function saveAiConnection(
   draft: AiConnectionDraft
 ): Promise<AiConnectionSaveResult> {
@@ -566,14 +697,6 @@ export async function saveAiConnection(
     }
 
     const existingConfig = settings.connections[normalized.petId];
-    const config: AiConnectionConfig = {
-      petId: normalized.petId,
-      providerName: normalized.providerName,
-      baseUrl: normalized.baseUrl,
-      model: normalized.model,
-      models: normalized.models?.length ? normalized.models : existingConfig?.models ?? [],
-      updatedAt: new Date().toISOString()
-    };
 
     try {
       assertSecureStorageAvailable();
@@ -594,9 +717,28 @@ export async function saveAiConnection(
     }
 
     const modelsResult = await fetchAiModels(normalized, resolution.apiKey, checkedAt);
+    const capabilityProbe = modelsResult.ok && normalized.model
+      ? await probeAiOutputCapability({
+          baseUrl: normalized.baseUrl,
+          model: normalized.model,
+          apiKey: resolution.apiKey,
+          checkedAt
+        })
+      : undefined;
+    const config: AiConnectionConfig = {
+      petId: normalized.petId,
+      providerName: normalized.providerName,
+      baseUrl: normalized.baseUrl,
+      model: normalized.model,
+      models: normalized.models?.length ? normalized.models : existingConfig?.models ?? [],
+      outputCapability: capabilityProbe?.capability,
+      updatedAt: new Date().toISOString()
+    };
     const test: AiConnectionTestResult = {
       ok: modelsResult.ok,
-      message: modelsResult.ok ? "连接成功，设置已保存。" : modelsResult.message,
+      message: modelsResult.ok
+        ? `连接成功，设置已保存。${capabilityProbe ? ` ${getCapabilityMessage(capabilityProbe.capability)}` : ""}`
+        : modelsResult.message,
       checkedAt: modelsResult.checkedAt,
       code: modelsResult.code
     };
@@ -625,6 +767,7 @@ export async function saveAiConnection(
         baseUrl: config.baseUrl,
         model: config.model,
         models: config.models ?? [],
+        outputCapability: config.outputCapability,
         hasApiKey: true,
         updatedAt: config.updatedAt
       },

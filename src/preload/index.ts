@@ -3,7 +3,8 @@ import type {
   AiConnectionDraft,
   AiModelListResult,
   AiConnectionSaveResult,
-  AiConnectionSummary
+  AiConnectionSummary,
+  AiOutputCapabilityTestResult
 } from "../shared/types/ai";
 import type {
   DesktopPetPayload,
@@ -165,6 +166,8 @@ const desktopPetApi = {
       ipcRenderer.invoke("ai-settings:get", petId) as Promise<AiConnectionSummary | undefined>,
     listModels: (draft: AiConnectionDraft) =>
       ipcRenderer.invoke("ai-settings:list-models", draft) as Promise<AiModelListResult>,
+    testOutput: (draft: AiConnectionDraft) =>
+      ipcRenderer.invoke("ai-settings:test-output", draft) as Promise<AiOutputCapabilityTestResult>,
     save: (draft: AiConnectionDraft) =>
       ipcRenderer.invoke("ai-settings:save", draft) as Promise<AiConnectionSaveResult>
   },

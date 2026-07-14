@@ -53,6 +53,31 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("accepts a bounded AI output probe and rejects oversized connection fields", () => {
+    expect(() =>
+      validateIpcArguments("ai-settings:test-output", [
+        {
+          petId: "pet-a",
+          providerName: "Custom",
+          baseUrl: "https://api.example.com/v1",
+          model: "model-a",
+          apiKey: "secret"
+        }
+      ])
+    ).not.toThrow();
+    expect(() =>
+      validateIpcArguments("ai-settings:test-output", [
+        {
+          petId: "pet-a",
+          providerName: "Custom",
+          baseUrl: `https://example.com/${"x".repeat(4096)}`,
+          model: "model-a",
+          apiKey: "secret"
+        }
+      ])
+    ).toThrow(/4096/);
+  });
+
   it("accepts bounded memory management requests and explicit destructive confirmations", () => {
     expect(() => validateIpcArguments("memory:list", [{ petId: "pet-a", pageSize: 5 }])).not.toThrow();
     expect(() => validateIpcArguments("memory:get-source-conversation", [{

@@ -35,6 +35,16 @@ function createModelsResponse(): Response {
   });
 }
 
+function createProbeResponse(content = '{"reply":"probe-ok"}'): Response {
+  return new Response(
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`,
+    {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" }
+    }
+  );
+}
+
 async function writeLegacySettings(apiKey = "legacy-secret"): Promise<void> {
   await fs.writeFile(
     path.join(temporaryDirectory, "ai-connections.json"),
@@ -267,5 +277,147 @@ describe("AI API key storage", () => {
 
     expect(result.test.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("persists a v3 capability for the exact endpoint and model without exposing the key", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createModelsResponse())
+      .mockResolvedValueOnce(createProbeResponse());
+    const {
+      getAiConnectionConfig,
+      getAiConnectionSummary,
+      saveAiConnection
+    } = await import("./aiSettings");
+
+    const saved = await saveAiConnection({
+      petId: "pet-a",
+      providerName: "Provider A",
+      baseUrl: "https://api.example.com/v1/",
+      model: "model-a",
+      apiKey: "private-key"
+    });
+    const summary = await getAiConnectionSummary("pet-a");
+    const resolved = await getAiConnectionConfig("pet-a");
+    const metadataContent = await fs.readFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      "utf8"
+    );
+    const metadata = JSON.parse(metadataContent) as {
+      version: number;
+      connections: Record<string, { outputCapability?: Record<string, unknown> }>;
+    };
+
+    expect(saved.config.outputCapability).toMatchObject({
+      baseUrl: "https://api.example.com/v1",
+      model: "model-a",
+      mode: "json-schema",
+      streaming: true,
+      confidence: "tested"
+    });
+    expect(summary?.outputCapability).toEqual(saved.config.outputCapability);
+    expect(resolved?.outputCapability).toEqual(saved.config.outputCapability);
+    expect(metadata.version).toBe(3);
+    expect(metadata.connections["pet-a"]?.outputCapability).toEqual(saved.config.outputCapability);
+    expect(metadataContent).not.toContain("private-key");
+  });
+
+  it("discards a stored capability when its endpoint or model tuple is stale", async () => {
+    await fs.writeFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      JSON.stringify({
+        version: 3,
+        connections: {
+          "pet-a": {
+            petId: "pet-a",
+            providerName: "Provider A",
+            baseUrl: "https://api.example.com/v1",
+            model: "model-new",
+            models: [{ id: "model-new", name: "model-new" }],
+            outputCapability: {
+              baseUrl: "https://api.example.com/v1",
+              model: "model-old",
+              mode: "json-schema",
+              streaming: true,
+              confidence: "tested",
+              checkedAt: "2026-07-15T00:00:00.000Z"
+            },
+            updatedAt: "2026-07-15T00:00:00.000Z"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const { getAiConnectionSummary } = await import("./aiSettings");
+
+    await expect(getAiConnectionSummary("pet-a")).resolves.toMatchObject({
+      baseUrl: "https://api.example.com/v1",
+      model: "model-new",
+      outputCapability: undefined
+    });
+  });
+
+  it("upgrades a v2 connection without capability metadata and keeps it usable", async () => {
+    await fs.writeFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      JSON.stringify({
+        version: 2,
+        connections: {
+          "pet-a": {
+            petId: "pet-a",
+            providerName: "Legacy Provider",
+            baseUrl: "https://legacy.example.com/v1/",
+            model: "legacy-model",
+            models: [{ id: "legacy-model", name: "Legacy Model" }],
+            updatedAt: "2026-01-01T00:00:00.000Z"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const { getAiConnectionSummary } = await import("./aiSettings");
+
+    const summary = await getAiConnectionSummary("pet-a");
+    const rewritten = JSON.parse(
+      await fs.readFile(path.join(temporaryDirectory, "ai-connections.json"), "utf8")
+    ) as { version: number; connections: Record<string, Record<string, unknown>> };
+
+    expect(summary).toMatchObject({
+      petId: "pet-a",
+      providerName: "Legacy Provider",
+      baseUrl: "https://legacy.example.com/v1",
+      model: "legacy-model",
+      models: [{ id: "legacy-model", name: "Legacy Model" }],
+      outputCapability: undefined
+    });
+    expect(rewritten.version).toBe(3);
+    expect(rewritten.connections["pet-a"]).not.toHaveProperty("outputCapability");
+  });
+
+  it("uses only a fixed probe conversation and does not create memory data", async () => {
+    await writeLegacySettings();
+    fetchMock.mockResolvedValueOnce(createProbeResponse());
+    const { testAiOutputCapability } = await import("./aiSettings");
+
+    const result = await testAiOutputCapability({
+      petId: "pet-a",
+      providerName: "Provider A",
+      baseUrl: "https://old.example.com",
+      model: "model-a",
+      apiKey: ""
+    });
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const entries = await fs.readdir(temporaryDirectory, { recursive: true });
+
+    expect(result.ok).toBe(true);
+    expect(requestBody.messages).toEqual([
+      {
+        role: "system",
+        content: "这是连接能力测试。不要输出推理、Markdown 或解释；请只返回包含 reply 字段的 JSON。"
+      },
+      { role: "user", content: "将 reply 设置为 probe-ok。" }
+    ]);
+    expect(entries.some((entry) => /memory|ledger|pending/i.test(entry))).toBe(false);
   });
 });

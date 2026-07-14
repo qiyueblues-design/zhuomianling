@@ -6,7 +6,9 @@ import type {
   AiConnectionSaveResult,
   AiConnectionSummary,
   AiModelListResult,
-  AiModelOption
+  AiModelOption,
+  AiOutputCapability,
+  AiOutputCapabilityTestResult
 } from "../../../shared/types/ai";
 import type { PetDefinition } from "../../../shared/types/pet";
 import { AppleSelect, SaveSuccessToast } from "./EditorShared";
@@ -84,9 +86,11 @@ export function AiPanel({
   });
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [testingOutput, setTestingOutput] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [result, setResult] = useState<AiConnectionSaveResult | undefined>();
   const [modelResult, setModelResult] = useState<AiModelListResult | undefined>();
+  const [outputResult, setOutputResult] = useState<AiOutputCapabilityTestResult | undefined>();
   const [asyncError, setAsyncError] = useState<string>();
   const requestSequenceRef = useRef(0);
 
@@ -122,7 +126,7 @@ export function AiPanel({
         : savedKeyBelongsToAnotherEndpoint
           ? "Base URL 已更改。为避免把旧密钥发送到新地址，请输入新地址自己的 API Key。"
           : "请填写 API Key；只有 Base URL 与已保存地址一致时，才能复用本机旧密钥。";
-  const formDisabled = loadingSummary || saving || connecting;
+  const formDisabled = loadingSummary || saving || connecting || testingOutput;
   const saveFeedbackResult = useMemo(
     () => (result?.test.ok ? { ok: true, message: result.test.message } : undefined),
     [result]
@@ -131,6 +135,19 @@ export function AiPanel({
     () => (modelResult?.ok ? { ok: true, message: modelResult.message } : undefined),
     [modelResult]
   );
+  const activeOutputCapability = useMemo<AiOutputCapability | undefined>(() => {
+    const candidate = outputResult?.capability ?? summary?.outputCapability;
+    if (!candidate) return undefined;
+    return normalizeAiBaseUrl(candidate.baseUrl) === normalizedFormBaseUrl &&
+      candidate.model === form.model.trim()
+      ? candidate
+      : undefined;
+  }, [form.model, normalizedFormBaseUrl, outputResult?.capability, summary?.outputCapability]);
+  const outputCapabilityLabel = activeOutputCapability
+    ? activeOutputCapability.confidence === "fallback"
+      ? "兼容模式 · 尚未确认结构化能力"
+      : `${activeOutputCapability.mode === "json-schema" ? "结构化回复" : activeOutputCapability.mode === "json-object" ? "JSON 回复" : "兼容文本"} · ${activeOutputCapability.streaming ? "支持流式" : "完整回复模式"}`
+    : "尚未测试当前模型的输出兼容性";
 
   useEffect(() => {
     let cancelled = false;
@@ -139,11 +156,13 @@ export function AiPanel({
 
     setLoadingSummary(true);
     setConnecting(false);
+    setTestingOutput(false);
     setSaving(false);
     setSummary(undefined);
     setModels([]);
     setResult(undefined);
     setModelResult(undefined);
+    setOutputResult(undefined);
     setAsyncError(undefined);
     setForm({
       petId: pet.id,
@@ -231,6 +250,7 @@ export function AiPanel({
     onDirtyChange(true);
     setResult(undefined);
     setModelResult(undefined);
+    setOutputResult(undefined);
     setAsyncError(undefined);
 
     if (field === "baseUrl") {
@@ -264,6 +284,7 @@ export function AiPanel({
     if (providerId === "custom") {
       setResult(undefined);
       setModelResult(undefined);
+      setOutputResult(undefined);
       setAsyncError(undefined);
       onDirtyChange(true);
       setModels([]);
@@ -284,6 +305,7 @@ export function AiPanel({
 
     setResult(undefined);
     setModelResult(undefined);
+    setOutputResult(undefined);
     setAsyncError(undefined);
     onDirtyChange(true);
     setModels([]);
@@ -317,6 +339,7 @@ export function AiPanel({
     setConnecting(true);
     setResult(undefined);
     setModelResult(undefined);
+    setOutputResult(undefined);
     setAsyncError(undefined);
 
     try {
@@ -356,6 +379,41 @@ export function AiPanel({
     }
   };
 
+  const testOutputCapability = async (): Promise<void> => {
+    if (!hasUsableApiKey || !form.model.trim()) {
+      setAsyncError(credentialMessage ?? "请先连接并选择当前模型。");
+      return;
+    }
+
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+    setTestingOutput(true);
+    setOutputResult(undefined);
+    setAsyncError(undefined);
+
+    try {
+      const nextResult = await window.desktopPet?.aiSettings.testOutput(buildDraft());
+      if (requestId !== requestSequenceRef.current) return;
+      if (!nextResult) {
+        setAsyncError("输出能力测试没有返回结果，请稍后重试。");
+        return;
+      }
+      setOutputResult(nextResult);
+      if (nextResult.capability) {
+        setSummary((current) => current
+          ? { ...current, outputCapability: nextResult.capability }
+          : current);
+      }
+    } catch (error) {
+      if (requestId === requestSequenceRef.current) {
+        console.error("Failed to test AI output capability.", error);
+        setAsyncError("输出能力测试失败，聊天将继续使用兼容模式。");
+      }
+    } finally {
+      if (requestId === requestSequenceRef.current) setTestingOutput(false);
+    }
+  };
+
   const saveSettings = async (): Promise<void> => {
     if (!hasUsableApiKey) {
       setAsyncError(credentialMessage ?? "请填写当前 Base URL 对应的 API Key。");
@@ -366,6 +424,7 @@ export function AiPanel({
     requestSequenceRef.current = requestId;
     setSaving(true);
     setResult(undefined);
+    setOutputResult(undefined);
     setAsyncError(undefined);
 
     try {
@@ -494,6 +553,18 @@ export function AiPanel({
         <span>可选择预设服务商自动填入 Base URL，也可以选择自定义后手动填写兼容 OpenAI 接口的地址。</span>
       </div>
 
+      <div className="settingsHint">
+        <PlugZap size={16} />
+        <span>输出兼容性：{outputCapabilityLabel}</span>
+      </div>
+
+      {outputResult ? (
+        <div className="settingsHint">
+          <PlugZap size={16} />
+          <span>{outputResult.message}</span>
+        </div>
+      ) : null}
+
       {credentialMessage ? (
         <div className="settingsResult error">
           <XCircle size={17} />
@@ -534,16 +605,25 @@ export function AiPanel({
         <button
           className="secondaryAction"
           type="button"
-          disabled={connecting || saving || loadingSummary || !hasUsableApiKey}
+          disabled={connecting || saving || testingOutput || loadingSummary || !hasUsableApiKey}
           onClick={() => void connectModels()}
         >
           <PlugZap size={17} />
           {connecting ? "连接中" : "连接"}
         </button>
         <button
+          className="secondaryAction"
+          type="button"
+          disabled={connecting || saving || testingOutput || loadingSummary || !form.model || !hasUsableApiKey}
+          onClick={() => void testOutputCapability()}
+        >
+          <PlugZap size={17} />
+          {testingOutput ? "测试中" : "测试输出"}
+        </button>
+        <button
           className="primaryAction"
           type="button"
-          disabled={saving || connecting || loadingSummary || !form.model || !hasUsableApiKey}
+          disabled={saving || connecting || testingOutput || loadingSummary || !form.model || !hasUsableApiKey}
           onClick={() => void saveSettings()}
         >
           <Save size={17} />

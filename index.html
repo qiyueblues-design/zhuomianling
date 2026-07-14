@@ -506,6 +506,7 @@
           hasStartupSurfaceReady = true;
           window.desktopPet?.appWindow?.reportStartupTiming?.("first-contentful-paint");
           window.__desktopPetStartupSurfaceReady = true;
+          window.__desktopPetStartupSurfaceShownAt = performance.now();
           document.documentElement.classList.add("startupAnimationsActive");
           window.desktopPet?.appWindow?.revealStartupSurface?.(reason);
           window.dispatchEvent(new CustomEvent("desktop-pet-startup-surface-ready", { detail: reason }));

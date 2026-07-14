@@ -42,13 +42,13 @@ describe("voice reply final-text reconciliation", () => {
     ]);
   });
 
-  it("only queues the final voiceText remainder after streamed sentences", () => {
+  it("only queues the final voiceText remainder after already queued sentences", () => {
     expect(
       getUnqueuedFinalVoiceSegments("第一句。 第二句！第三句？", ["第一句。", "第二句！"])
     ).toEqual(["第三句？"]);
   });
 
-  it("deduplicates matching streamed segments when final formatting changed", () => {
+  it("deduplicates matching queued segments when final formatting changed", () => {
     expect(
       getUnqueuedFinalVoiceSegments("开场。补充说明。结尾！", ["开场。", "结尾！"])
     ).toEqual(["补充说明。"]);

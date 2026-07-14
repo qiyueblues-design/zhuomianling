@@ -12,7 +12,7 @@ export interface PromptBuilderChatMessage {
   text: string;
   status?: "thinking" | "error";
   voiceText?: string;
-  aiRawContent?: string;
+  aiStructuredContent?: string;
 }
 
 export interface BuildAiMessagesOptions {
@@ -63,13 +63,16 @@ function buildAssistantHistoryContent(
     voiceTextOutputEnabled: boolean;
   }
 ): string {
-  if (message.aiRawContent) {
-    if (options.voiceTextOutputEnabled || !/"voiceText"\s*:/.test(message.aiRawContent)) {
-      return message.aiRawContent;
+  if (message.aiStructuredContent) {
+    if (
+      options.voiceTextOutputEnabled ||
+      !/"voiceText"\s*:/.test(message.aiStructuredContent)
+    ) {
+      return message.aiStructuredContent;
     }
 
     try {
-      const parsed = JSON.parse(message.aiRawContent) as Record<string, unknown>;
+      const parsed = JSON.parse(message.aiStructuredContent) as Record<string, unknown>;
       delete parsed.voiceText;
 
       return JSON.stringify(parsed);

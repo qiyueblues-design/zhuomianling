@@ -134,7 +134,7 @@ describe("buildAiMessages", () => {
           role: "pet",
           text: "原句",
           voiceText: "被改写的原句",
-          aiRawContent: '{"voiceText":"被改写的原句","reply":"原句","emotion":"normal"}'
+          aiStructuredContent: '{"voiceText":"被改写的原句","reply":"原句","emotion":"normal"}'
         }
       ],
       nextUserText: "继续",
@@ -171,7 +171,7 @@ describe("buildAiMessages", () => {
       {
         role: "pet",
         text: "保留回复",
-        aiRawContent: '{"reply":"保留回复","emotion":"normal"}'
+        aiStructuredContent: '{"reply":"保留回复","emotion":"normal"}'
       }
     ];
     const messages = buildAiMessages({

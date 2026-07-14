@@ -75,6 +75,7 @@ export const validatedIpcChannels = new Set([
   "ai-settings:list",
   "ai-settings:get",
   "ai-settings:list-models",
+  "ai-settings:test-output",
   "ai-settings:save",
   "memory:get-summary",
   "memory:list",
@@ -497,7 +498,11 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     return;
   }
 
-  if (channel === "ai-settings:list-models" || channel === "ai-settings:save") {
+  if (
+    channel === "ai-settings:list-models" ||
+    channel === "ai-settings:test-output" ||
+    channel === "ai-settings:save"
+  ) {
     expectArgumentCount(channel, args, 1);
     const draft = assertRecord(channel, args[0]);
     assertPetId(channel, draft.petId);

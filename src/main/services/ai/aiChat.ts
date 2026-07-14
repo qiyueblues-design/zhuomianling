@@ -6,17 +6,25 @@ import type {
   AiChatStreamCancelRequest,
   AiChatStreamCancelResult,
   AiChatStreamRequest,
-  AiChatStreamEvent
+  AiChatStreamEvent,
+  AiOutputMode
 } from "../../../shared/types/ai";
 import { parseFinalAiReply } from "../../../shared/aiReply";
 import {
   SecureStorageCorruptedError,
   SecureStorageUnavailableError
 } from "../config/secureConfigStore";
-import { getAiConnectionConfig } from "./aiSettings";
+import { getAiConnectionConfig, recordAiOutputCapability } from "./aiSettings";
 import { recallMemoryForAi } from "../memory/memoryRecall";
 import { injectMemoryContext } from "../memory/memoryPrompt";
 import { captureCompletedAiTurn } from "../memory/memoryCapture";
+import { AiStreamNormalizer } from "./aiStreamNormalizer";
+import {
+  buildAiChatRequestBody,
+  buildChatCompletionsUrl,
+  canFallbackAiOutputMode,
+  getAiOutputModeFallbacks
+} from "./aiProtocol";
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -33,9 +41,13 @@ interface ChatCompletionStreamChunk {
   choices?: Array<{
     delta?: {
       content?: string;
+      reasoning_content?: string;
+      reasoning?: string;
     };
     message?: {
       content?: string;
+      reasoning_content?: string;
+      reasoning?: string;
     };
   }>;
   error?: {
@@ -54,19 +66,6 @@ function getAiSettingsErrorMessage(error: unknown): string {
   return "无法读取本机 AI 设置，请检查配置文件权限后重试。";
 }
 
-function buildChatCompletionsUrl(baseUrl: string): string {
-  const url = new URL(`${baseUrl}/`);
-  const normalizedPath = url.pathname.replace(/\/+$/, "");
-
-  if (normalizedPath && normalizedPath !== "") {
-    url.pathname = `${normalizedPath}/chat/completions`;
-    return url.toString();
-  }
-
-  url.pathname = "/v1/chat/completions";
-  return url.toString();
-}
-
 function normalizeMessages(messages: AiChatMessage[]): AiChatMessage[] {
   const normalizedMessages = messages
     .map((message) => ({
@@ -78,6 +77,105 @@ function normalizeMessages(messages: AiChatMessage[]): AiChatMessage[] {
   const conversationMessages = normalizedMessages.filter((message) => message.role !== "system");
 
   return [...systemMessages, ...conversationMessages.slice(-15)];
+}
+
+interface AiCompletionFetchResult {
+  response: Response;
+  mode: AiOutputMode;
+  streaming: boolean;
+}
+
+type ResolvedAiConfig = NonNullable<Awaited<ReturnType<typeof getAiConnectionConfig>>>;
+
+function getPreferredOutput(config: ResolvedAiConfig): {
+  mode: AiOutputMode;
+  streaming: boolean;
+} {
+  return {
+    mode: config.outputCapability?.mode ?? "json-object",
+    streaming: config.outputCapability?.streaming ?? true
+  };
+}
+
+async function fetchAiCompletion(options: {
+  config: ResolvedAiConfig;
+  messages: AiChatMessage[];
+  streaming: boolean;
+  signal?: AbortSignal;
+}): Promise<AiCompletionFetchResult> {
+  const modes = getAiOutputModeFallbacks(getPreferredOutput(options.config).mode);
+  const streamingOptions = options.streaming ? [true, false] : [false];
+  let lastResponse: Response | undefined;
+  let lastMode = modes[modes.length - 1];
+  let lastStreaming = options.streaming;
+
+  for (let streamingIndex = 0; streamingIndex < streamingOptions.length; streamingIndex += 1) {
+    const streaming = streamingOptions[streamingIndex];
+    for (let modeIndex = 0; modeIndex < modes.length; modeIndex += 1) {
+      const mode = modes[modeIndex];
+      const response = await fetch(buildChatCompletionsUrl(options.config.baseUrl), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${options.config.apiKey}`,
+          "Content-Type": "application/json",
+          Accept: streaming ? "text/event-stream, application/json" : "application/json"
+        },
+        signal: options.signal,
+        body: JSON.stringify(
+          buildAiChatRequestBody({
+            model: options.config.model,
+            messages: options.messages,
+            mode,
+            stream: streaming
+          })
+        )
+      });
+      lastResponse = response;
+      lastMode = mode;
+      lastStreaming = streaming;
+
+      if (response.ok || !canFallbackAiOutputMode(response.status)) {
+        return { response, mode, streaming };
+      }
+
+      const hasModeFallback = modeIndex < modes.length - 1;
+      const hasStreamingFallback = streamingIndex < streamingOptions.length - 1;
+      if (!hasModeFallback && !hasStreamingFallback) {
+        return { response, mode, streaming };
+      }
+
+      await response.body?.cancel("retrying with compatible AI output settings").catch(() => undefined);
+    }
+  }
+
+  return {
+    response: lastResponse as Response,
+    mode: lastMode,
+    streaming: lastStreaming
+  };
+}
+
+function recordRuntimeCapability(
+  config: ResolvedAiConfig,
+  mode: AiOutputMode,
+  streaming: boolean
+): void {
+  if (
+    config.outputCapability?.mode === mode &&
+    config.outputCapability.streaming === streaming &&
+    config.outputCapability.confidence === "tested"
+  ) {
+    return;
+  }
+
+  void recordAiOutputCapability(config.petId, config.baseUrl, config.model, {
+    baseUrl: config.baseUrl,
+    model: config.model,
+    mode,
+    streaming,
+    confidence: "tested",
+    checkedAt: new Date().toISOString()
+  }).catch(() => undefined);
 }
 
 export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse> {
@@ -111,23 +209,8 @@ export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse
   let response: Response;
 
   try {
-    response = await fetch(buildChatCompletionsUrl(config.baseUrl), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        temperature: 0.8,
-        max_tokens: 1200,
-        response_format: {
-          type: "json_object"
-        }
-      })
-    });
+    const fetched = await fetchAiCompletion({ config, messages, streaming: false });
+    response = fetched.response;
   } catch {
     return {
       ok: false,
@@ -164,11 +247,17 @@ export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse
 
   const parsedReply = parseFinalAiReply(content);
 
+  if (!parsedReply.reply) {
+    return {
+      ok: false,
+      message: "AI 返回的回复格式无法识别，请重试或切换兼容模式。"
+    };
+  }
+
   return {
     ok: true,
     message: "ok",
     content: parsedReply.reply,
-    rawContent: content,
     emotion: parsedReply.emotion,
     voiceText: parsedReply.voiceText
   };
@@ -471,27 +560,20 @@ export async function startAiChatStream(
   }
 
   let response: Response;
+  let responseMode: AiOutputMode;
+  let requestedStreaming: boolean;
 
   try {
-    response = await fetch(buildChatCompletionsUrl(config.baseUrl), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "text/event-stream"
-      },
-      signal: entry.controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        temperature: 0.8,
-        max_tokens: 1200,
-        response_format: {
-          type: "json_object"
-        },
-        stream: true
-      })
+    const preferred = getPreferredOutput(config);
+    const fetched = await fetchAiCompletion({
+      config,
+      messages,
+      streaming: preferred.streaming,
+      signal: entry.controller.signal
     });
+    response = fetched.response;
+    responseMode = fetched.mode;
+    requestedStreaming = fetched.streaming;
   } catch {
     if (!entry.active) {
       return;
@@ -534,12 +616,111 @@ export async function startAiChatStream(
     return;
   }
 
+  const contentType = response.headers?.get?.("Content-Type")?.toLowerCase() ?? "";
+  if (!requestedStreaming || contentType.includes("application/json")) {
+    let body: ChatCompletionResponse;
+    try {
+      body = (await response.json()) as ChatCompletionResponse;
+    } catch {
+      completeEntry(entry, {
+        ok: false,
+        type: "error",
+        message: "AI 服务返回异常内容。"
+      });
+      return;
+    }
+
+    const content = body.choices?.[0]?.message?.content?.trim();
+    const parsedReply = content ? parseFinalAiReply(content) : undefined;
+    if (!parsedReply?.reply) {
+      completeEntry(entry, {
+        ok: false,
+        type: "error",
+        message: "AI 返回的回复格式无法识别，请重试或切换兼容模式。"
+      });
+      return;
+    }
+
+    completeEntry(entry, {
+      ok: true,
+      type: "done",
+      content: parsedReply.reply,
+      emotion: parsedReply.emotion,
+      voiceText: parsedReply.voiceText,
+      quality: parsedReply.quality === "invalid" ? undefined : parsedReply.quality
+    });
+    recordRuntimeCapability(config, responseMode, false);
+    if (currentUserText && parsedReply.completeForMemory) {
+      void captureCompletedAiTurn({
+        petId: request.petId,
+        requestId: request.requestId,
+        userText: currentUserText,
+        assistantReply: parsedReply.reply,
+        occurredAt: new Date().toISOString()
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
   const decoder = new TextDecoder();
   const reader = response.body.getReader();
   entry.reader = reader;
   let buffer = "";
-  let content = "";
+  const normalizer = new AiStreamNormalizer();
   resetIdleTimeout(entry, timeouts.idleTimeoutMs);
+
+  const processSseLine = async (rawLine: string): Promise<boolean> => {
+    const line = rawLine.trim();
+
+    if (!line.startsWith("data:")) {
+      return true;
+    }
+
+    const data = line.slice(5).trim();
+
+    if (!data || data === "[DONE]") {
+      return true;
+    }
+
+    const { delta, error } = readStreamChunkDelta(data);
+
+    if (error) {
+      await reader.cancel("AI provider returned a stream error").catch(() => undefined);
+      completeEntry(entry, {
+        ok: false,
+        type: "error",
+        message: error
+      });
+      return false;
+    }
+
+    if (!delta) {
+      return true;
+    }
+
+    const safeSnapshot = normalizer.append(delta);
+    if (safeSnapshot.overflowed) {
+      await reader.cancel("AI response exceeded the bounded parser budget").catch(() => undefined);
+      completeEntry(entry, {
+        ok: false,
+        type: "error",
+        message: "AI 返回内容过长，已停止本次回复。"
+      });
+      return false;
+    }
+
+    if (safeSnapshot.changed) {
+      emitEntryEvent(entry, {
+        ok: true,
+        type: "chunk",
+        delta: safeSnapshot.replyDelta,
+        content: safeSnapshot.reply,
+        voiceText: safeSnapshot.voiceText
+      });
+    }
+
+    return true;
+  };
 
   try {
     while (true) {
@@ -560,41 +741,15 @@ export async function startAiChatStream(
       buffer = lines.pop() ?? "";
 
       for (const rawLine of lines) {
-        const line = rawLine.trim();
-
-        if (!line.startsWith("data:")) {
-          continue;
-        }
-
-        const data = line.slice(5).trim();
-
-        if (!data || data === "[DONE]") {
-          continue;
-        }
-
-        const { delta, error } = readStreamChunkDelta(data);
-
-        if (error) {
-          completeEntry(entry, {
-            ok: false,
-            type: "error",
-            message: error
-          });
+        if (!(await processSseLine(rawLine))) {
           return;
         }
-
-        if (!delta) {
-          continue;
-        }
-
-        content += delta;
-        emitEntryEvent(entry, {
-          ok: true,
-          type: "chunk",
-          delta,
-          content
-        });
       }
+    }
+
+    buffer += decoder.decode();
+    if (buffer && !(await processSseLine(buffer))) {
+      return;
     }
   } catch {
     if (!entry.active) {
@@ -609,7 +764,7 @@ export async function startAiChatStream(
     return;
   }
 
-  if (!content.trim()) {
+  if (!normalizer.hasContent()) {
     completeEntry(entry, {
       ok: false,
       type: "error",
@@ -618,12 +773,24 @@ export async function startAiChatStream(
     return;
   }
 
-  const parsedReply = parseFinalAiReply(content);
+  const parsedReply = normalizer.finalize();
+  if (!parsedReply.reply) {
+    completeEntry(entry, {
+      ok: false,
+      type: "error",
+      message: "AI 返回的回复格式无法识别，请重试或切换兼容模式。"
+    });
+    return;
+  }
   completeEntry(entry, {
     ok: true,
     type: "done",
-    content
+    content: parsedReply.reply,
+    emotion: parsedReply.emotion,
+    voiceText: parsedReply.voiceText,
+    quality: parsedReply.quality === "invalid" ? undefined : parsedReply.quality
   });
+  recordRuntimeCapability(config, responseMode, true);
   if (currentUserText && parsedReply.completeForMemory && parsedReply.reply) {
     void captureCompletedAiTurn({
       petId: request.petId,

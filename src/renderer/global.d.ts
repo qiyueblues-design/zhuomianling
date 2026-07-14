@@ -7,6 +7,7 @@ declare global {
   interface Window {
     desktopPet?: DesktopPetApi;
     __desktopPetStartupSurfaceReady?: boolean;
+    __desktopPetStartupSurfaceShownAt?: number;
   }
 }
 

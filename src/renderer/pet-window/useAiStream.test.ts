@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { PetDefinition } from "../../shared/types/pet";
 import type { SpeechFrontendSettings } from "../services/speech/speechSettings";
-import { createAiStreamSettingsSnapshot } from "./useAiStream";
+import {
+  createAiStreamSettingsSnapshot,
+  reconcileTypewriterText,
+  selectFinalVoiceText,
+  selectSafeAiStreamPresentation
+} from "./useAiStream";
 
 const voiceSettings: SpeechFrontendSettings = {
   autoEndEnabled: true,
@@ -28,7 +33,7 @@ describe("AI stream settings snapshot", () => {
     });
   });
 
-  it("selects voiceText streaming when chat and voice languages differ", () => {
+  it("selects the finalized voiceText field when chat and voice languages differ", () => {
     const petDefinition = {
       personaSettings: { chatLanguage: "zh" },
       voiceModelSettings: { language: "ja" }
@@ -49,5 +54,38 @@ describe("AI stream settings snapshot", () => {
       syncTextWithVoice: false,
       useReplyAsVoiceText: false
     });
+  });
+});
+
+describe("safe AI stream presentation", () => {
+  it("uses only normalized IPC content for streaming chat and subtitles", () => {
+    expect(selectSafeAiStreamPresentation({ content: "安全聊天正文" })).toEqual({
+      replyText: "安全聊天正文"
+    });
+  });
+
+  it("allows updates only when they preserve the already displayed prefix", () => {
+    expect(reconcileTypewriterText("已经显示旧尾巴", 4, "已经显示新尾巴")).toBe(
+      "已经显示新尾巴"
+    );
+    expect(reconcileTypewriterText("已经显示旧尾巴", 5, "完全不同的回复")).toBe(
+      "已经显示旧尾巴"
+    );
+  });
+
+  it("selects voice only from the finalized normalized fields", () => {
+    expect(selectFinalVoiceText("聊天正文", "语音正文", false)).toBe("语音正文");
+    expect(selectFinalVoiceText("直接朗读正文", "不应采用", true)).toBe("直接朗读正文");
+    expect(selectFinalVoiceText("回退正文", undefined, false)).toBe("回退正文");
+  });
+
+  it("refuses to send internal or structured artifacts to TTS", () => {
+    expect(selectFinalVoiceText("安全正文", "<think>内部推理</think>", false)).toBeUndefined();
+    expect(selectFinalVoiceText("安全正文", "<reasoning>内部推理</reasoning>", false))
+      .toBeUndefined();
+    expect(selectFinalVoiceText("安全正文", "<analysis>内部推理</analysis>", false))
+      .toBeUndefined();
+    expect(selectFinalVoiceText("安全正文", '{"reply":"错误外壳"}', false)).toBeUndefined();
+    expect(selectFinalVoiceText("```json\n内容\n```", undefined, true)).toBeUndefined();
   });
 });

@@ -11,10 +11,7 @@ import type { PetExpressionEvent } from "../live2d/Live2DCanvas";
 import type { SpeechFrontendSettings } from "../services/speech/speechSettings";
 import type { useSubtitle } from "../services/subtitle/subtitleStore";
 import {
-  extractStreamingReplyText,
-  extractStreamingVoiceText,
   inferExpressionFromAiReply,
-  parseStructuredReplyFallback,
   resolveMappedExpression
 } from "./aiReplyUtils";
 import { isCurrentAiStreamEvent } from "./aiStreamGuard";
@@ -67,7 +64,7 @@ interface TypewriterPresentation {
   fullText: string;
   displayedCharacters: number;
   voiceText?: string;
-  aiRawContent?: string;
+  aiStructuredContent?: string;
   finalized: boolean;
   holdMs?: number;
 }
@@ -78,12 +75,16 @@ export interface AiStreamSettingsSnapshot {
   useReplyAsVoiceText: boolean;
 }
 
+export interface SafeAiStreamPresentation {
+  replyText: string;
+}
+
 export interface UseAiStreamResult {
   cancel: (options?: { updateUi?: boolean }) => void;
   messages: ChatMessage[];
   sendMessageText: (text: string, isVoiceTriggered?: boolean) => Promise<void>;
   sending: boolean;
-  showStreamingReply: (pendingMessageId: number, rawContent: string) => boolean;
+  showStreamingReply: (pendingMessageId: number, replyText: string) => boolean;
 }
 
 const chatReplyTypewriterDelayMs = 34;
@@ -106,6 +107,46 @@ export function createAiStreamSettingsSnapshot(
       (petDefinition?.personaSettings?.chatLanguage ?? "zh") ===
         (petDefinition?.voiceModelSettings?.language ?? "zh")
   };
+}
+
+export function selectSafeAiStreamPresentation(
+  event: Pick<AiChatStreamEvent, "content">
+): SafeAiStreamPresentation {
+  return {
+    replyText: event.content ?? ""
+  };
+}
+
+export function selectFinalVoiceText(
+  replyText: string,
+  voiceText: string | undefined,
+  useReplyAsVoiceText: boolean
+): string | undefined {
+  const selected = (useReplyAsVoiceText ? replyText : voiceText?.trim() || replyText).trim();
+
+  if (
+    !selected ||
+    /<\/?(?:think|analysis|reasoning)\b/i.test(selected) ||
+    /```/.test(selected) ||
+    /^\s*[{[]/.test(selected) ||
+    /"(?:reply|emotion|voiceText)"\s*:/.test(selected)
+  ) {
+    return undefined;
+  }
+
+  return selected;
+}
+
+export function reconcileTypewriterText(
+  currentFullText: string,
+  displayedCharacters: number,
+  nextFullText: string
+): string {
+  const displayedPrefix = Array.from(currentFullText)
+    .slice(0, displayedCharacters)
+    .join("");
+
+  return nextFullText.startsWith(displayedPrefix) ? nextFullText : currentFullText;
 }
 
 export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
@@ -157,7 +198,9 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
               text: visibleText,
               status: undefined,
               voiceText: presentation.finalized ? presentation.voiceText : message.voiceText,
-              aiRawContent: presentation.finalized ? presentation.aiRawContent : message.aiRawContent
+              aiStructuredContent: presentation.finalized
+                ? presentation.aiStructuredContent
+                : message.aiStructuredContent
             }
           : message
       )
@@ -196,7 +239,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
   const queuePetMessageWithTypewriter = (
     messageId: number,
     fullText: string,
-    messageOptions?: { voiceText?: string; aiRawContent?: string },
+    messageOptions?: { voiceText?: string; aiStructuredContent?: string },
     completionOptions?: { finalized?: boolean; holdMs?: number }
   ): void => {
     const normalizedText = fullText.trim();
@@ -210,20 +253,25 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
         fullText: normalizedText,
         displayedCharacters: 0,
         voiceText: messageOptions?.voiceText,
-        aiRawContent: messageOptions?.aiRawContent,
+        aiStructuredContent: messageOptions?.aiStructuredContent,
         finalized: Boolean(completionOptions?.finalized),
         holdMs: completionOptions?.holdMs
       };
       typewriterPresentationRef.current = presentation;
     } else {
-      presentation.fullText = normalizedText;
+      presentation.fullText = reconcileTypewriterText(
+        presentation.fullText,
+        presentation.displayedCharacters,
+        normalizedText
+      );
       presentation.voiceText = messageOptions?.voiceText ?? presentation.voiceText;
-      presentation.aiRawContent = messageOptions?.aiRawContent ?? presentation.aiRawContent;
+      presentation.aiStructuredContent =
+        messageOptions?.aiStructuredContent ?? presentation.aiStructuredContent;
       presentation.finalized ||= Boolean(completionOptions?.finalized);
       presentation.holdMs = completionOptions?.holdMs ?? presentation.holdMs;
       presentation.displayedCharacters = Math.min(
         presentation.displayedCharacters,
-        Array.from(normalizedText).length
+        Array.from(presentation.fullText).length
       );
     }
 
@@ -232,8 +280,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     }
   };
 
-  const showStreamingReply = (pendingMessageId: number, rawContent: string): boolean => {
-    const replyText = extractStreamingReplyText(rawContent);
+  const showStreamingReply = (pendingMessageId: number, replyText: string): boolean => {
     if (!replyText) {
       return false;
     }
@@ -242,26 +289,14 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     return true;
   };
 
-  const getStreamingVoiceSourceText = (
-    content: string,
-    useReplyAsVoiceText: boolean
-  ): string => {
-    return useReplyAsVoiceText
-      ? extractStreamingReplyText(content)
-      : extractStreamingVoiceText(content);
-  };
-
-  const finishReply = async (context: AiStreamContext, rawContent: string): Promise<void> => {
+  const finishReply = async (context: AiStreamContext, event: AiChatStreamEvent): Promise<void> => {
     const currentOptions = optionsRef.current;
     const definition = currentOptions.petDefinition;
-    const parsedResponse = parseStructuredReplyFallback(rawContent);
-    const replyText = parsedResponse.reply;
-    const voiceText = parsedResponse.voiceText;
+    const replyText = event.content ?? "";
+    const voiceText = event.voiceText;
     const effectiveVoiceText = context.voiceReplyEnabled
-      ? context.useReplyAsVoiceText || !voiceText?.trim()
-        ? replyText
-        : voiceText
-      : voiceText;
+      ? selectFinalVoiceText(replyText, voiceText, context.useReplyAsVoiceText)
+      : undefined;
     const inferredExpression = inferExpressionFromAiReply(replyText);
     const randomExpressionMode = definition?.expressionSelectionMode === "random";
     const randomReplySource = randomExpressionMode
@@ -269,7 +304,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       : undefined;
     const replyExpression = randomExpressionMode
       ? undefined
-      : resolveMappedExpression(parsedResponse.emotion, definition?.expressions, inferredExpression);
+      : resolveMappedExpression(event.emotion, definition?.expressions, inferredExpression);
     const shouldHoldSubtitleForVoice =
       context.voiceReplyEnabled && Boolean(effectiveVoiceText?.trim());
     const requestId = context.voiceReplyRequestId;
@@ -277,9 +312,9 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       shouldHoldSubtitleForVoice && context.syncTextWithVoice;
 
     if (syncTextWithVoice) {
-      currentOptions.voiceReply.updateSynchronizedContent(rawContent);
+      currentOptions.voiceReply.updateSynchronizedContent(replyText);
       currentOptions.voiceReply.enqueueFinalText(
-        effectiveVoiceText || currentOptions.voiceReply.getStreamedVoiceText(),
+        effectiveVoiceText ?? "",
         requestId
       );
       if (currentOptions.voiceReply.isPlaybackBlocked()) {
@@ -301,7 +336,11 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       replyText,
       {
         voiceText: effectiveVoiceText,
-        aiRawContent: rawContent
+        aiStructuredContent: JSON.stringify({
+          ...(effectiveVoiceText ? { voiceText: effectiveVoiceText } : {}),
+          reply: replyText,
+          ...(event.emotion ? { emotion: event.emotion } : {})
+        })
       },
       { finalized: true, holdMs: shouldHoldSubtitleForVoice ? Number.POSITIVE_INFINITY : undefined }
     );
@@ -333,7 +372,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
 
     if (!syncTextWithVoice && shouldHoldSubtitleForVoice) {
       currentOptions.voiceReply.enqueueFinalText(
-        effectiveVoiceText || currentOptions.voiceReply.getStreamedVoiceText(),
+        effectiveVoiceText ?? "",
         requestId
       );
     }
@@ -432,23 +471,11 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       }
 
       if (event.type === "chunk") {
-        const content = event.content ?? "";
+        const { replyText } = selectSafeAiStreamPresentation(event);
         if (context.syncTextWithVoice) {
-          optionsRef.current.voiceReply.updateSynchronizedContent(content);
-          optionsRef.current.voiceReply.enqueueStreamingText(
-            getStreamingVoiceSourceText(content, context.useReplyAsVoiceText),
-            context.voiceReplyRequestId
-          );
-          optionsRef.current.voiceReply.revealSynchronizedOutput(context.voiceReplyRequestId);
-          if (optionsRef.current.voiceReply.isSynchronizedRevealVisible()) {
-            showStreamingReply(context.pendingMessageId, content);
-          }
+          optionsRef.current.voiceReply.updateSynchronizedContent(replyText);
         } else {
-          optionsRef.current.voiceReply.enqueueStreamingText(
-            extractStreamingVoiceText(content),
-            context.voiceReplyRequestId
-          );
-          showStreamingReply(context.pendingMessageId, content);
+          showStreamingReply(context.pendingMessageId, replyText);
         }
         return;
       }
@@ -457,7 +484,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       streamIdRef.current = undefined;
       streamContextRef.current = undefined;
       if (event.type === "done" && event.ok && event.content) {
-        void finishReply(context, event.content);
+        void finishReply(context, event);
       } else {
         failReply(
           context,

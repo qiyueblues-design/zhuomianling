@@ -51,7 +51,8 @@ import {
   deleteAiConnection,
   listAiModels,
   listAiConnectionSummaries,
-  saveAiConnection
+  saveAiConnection,
+  testAiOutputCapability
 } from "./services/ai/aiSettings";
 import {
   getPetWindowState,
@@ -429,6 +430,10 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
 
   handle("ai-settings:list-models", "main", (_event, draft: AiConnectionDraft) =>
     listAiModels(draft)
+  );
+
+  handle("ai-settings:test-output", "main", (_event, draft: AiConnectionDraft) =>
+    testAiOutputCapability(draft)
   );
 
   handle("ai-settings:save", "main", (_event, draft: AiConnectionDraft) =>

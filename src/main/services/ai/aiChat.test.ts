@@ -1,17 +1,33 @@
 import { EventEmitter } from "node:events";
 import type { WebContents } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { maxAiReplyTextCharacters } from "../../../shared/aiReply";
 
 const recallMock = vi.hoisted(() => vi.fn());
 const captureMock = vi.hoisted(() => vi.fn());
-
-vi.mock("./aiSettings", () => ({
-  getAiConnectionConfig: vi.fn(async (petId: string) => ({
-    petId,
+const aiSettingsMock = vi.hoisted(() => ({
+  config: {
+    petId: "pet-a",
     baseUrl: "https://ai.example.com/v1",
     model: "model-a",
-    apiKey: "secret"
-  }))
+    apiKey: "secret",
+    outputCapability: undefined as
+      | {
+          baseUrl: string;
+          model: string;
+          mode: "json-schema" | "json-object" | "plain-text";
+          streaming: boolean;
+          confidence: "tested" | "fallback";
+          checkedAt: string;
+        }
+      | undefined
+  },
+  record: vi.fn(async () => undefined)
+}));
+
+vi.mock("./aiSettings", () => ({
+  recordAiOutputCapability: aiSettingsMock.record,
+  getAiConnectionConfig: vi.fn(async (petId: string) => ({ ...aiSettingsMock.config, petId }))
 }));
 
 vi.mock("../config/secureConfigStore", () => ({
@@ -112,6 +128,10 @@ function createStreamingResponse(reader: ControlledReader): Response {
   } as unknown as Response;
 }
 
+function createSseDelta(content: string): string {
+  return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
+}
+
 function createAbortablePendingFetch(): ReturnType<typeof vi.fn> {
   return vi.fn((_url: string, init?: RequestInit) =>
     new Promise<Response>((_resolve, reject) => {
@@ -133,9 +153,110 @@ beforeEach(() => {
   recallMock.mockResolvedValue({ recalledCount: 0 });
   captureMock.mockReset();
   captureMock.mockResolvedValue(true);
+  aiSettingsMock.config.outputCapability = undefined;
+  aiSettingsMock.record.mockClear();
 });
 
 describe("AI chat stream lifecycle", () => {
+  it("falls back from JSON Schema to JSON Object and records the working capability", async () => {
+    aiSettingsMock.config.outputCapability = {
+      baseUrl: "https://ai.example.com/v1",
+      model: "model-a",
+      mode: "json-schema",
+      streaming: true,
+      confidence: "tested",
+      checkedAt: "2026-07-15T00:00:00.000Z"
+    };
+    const reader = new ControlledReader();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("unsupported schema", { status: 400 }))
+      .mockResolvedValueOnce(createStreamingResponse(reader));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-schema-fallback"),
+      "stream-schema-fallback"
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).response_format.type)
+      .toBe("json_schema");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).response_format.type)
+      .toBe("json_object");
+    reader.push(createSseDelta('{"reply":"compatible"}'));
+    reader.end();
+    await pending;
+
+    expect(aiSettingsMock.record).toHaveBeenCalledWith(
+      "pet-a",
+      "https://ai.example.com/v1",
+      "model-a",
+      expect.objectContaining({ mode: "json-object", streaming: true, confidence: "tested" })
+    );
+  });
+
+  it("uses a tested non-streaming capability without emitting unsafe chunks", async () => {
+    aiSettingsMock.config.outputCapability = {
+      baseUrl: "https://ai.example.com/v1",
+      model: "model-a",
+      mode: "json-schema",
+      streaming: false,
+      confidence: "tested",
+      checkedAt: "2026-07-15T00:00:00.000Z"
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '{"reply":"完整回复","voiceText":"最终语音"}' } }]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+
+    await startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-non-stream"),
+      "stream-non-stream"
+    );
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).stream).toBe(false);
+    const events = owner.send.mock.calls.map((call) => call[1]);
+    expect(events.some((event) => event?.type === "chunk")).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "完整回复",
+      voiceText: "最终语音"
+    }));
+    expect(captureMock).toHaveBeenCalledWith(expect.objectContaining({
+      assistantReply: "完整回复"
+    }));
+  });
+
+  it("does not retry authentication, rate-limit, or server failures as format errors", async () => {
+    for (const status of [401, 429, 500]) {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { message: `failure-${status}` } }), {
+          status,
+          headers: { "Content-Type": "application/json" }
+        })
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const { startAiChatStream } = await import("./aiChat");
+      await startAiChatStream(
+        asWebContents(new FakeWebContents()),
+        createRequest(`request-status-${status}`),
+        `stream-status-${status}`
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("emits done before queuing only the current user text and parsed visible reply", async () => {
     const reader = new ControlledReader();
     const fetchMock = vi.fn().mockResolvedValue(createStreamingResponse(reader));
@@ -181,6 +302,237 @@ describe("AI chat stream lifecycle", () => {
     reader.push('data: {"choices":[{"delta":{"content":"{\\"reply\\":\\"partial\\""}}]}\n\n');
     reader.end();
     await pending;
+    expect(captureMock).not.toHaveBeenCalled();
+  });
+
+  it("captures only the final visible reply from a Grok-style reasoning and repeated JSON response", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-grok-style"),
+      "stream-grok-style"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+    reader.push(createSseDelta("<think>内部推理不能进入记忆</think>\n"));
+    reader.push(
+      createSseDelta(
+        '{"reply":"草稿回复"}\n{"reply":"最终可见回复","emotion":"happy","voiceText":"最终语音"}'
+      )
+    );
+    reader.end();
+    await pending;
+
+    expect(captureMock).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "request-grok-style",
+      assistantReply: "最终可见回复"
+    }));
+    expect(JSON.stringify(captureMock.mock.calls[0][0])).not.toContain("内部推理");
+    expect(JSON.stringify(captureMock.mock.calls[0][0])).not.toContain("最终语音");
+    const sentEvents = owner.send.mock.calls.map((call) => call[1]);
+    expect(JSON.stringify(sentEvents)).not.toContain("内部推理");
+    expect(JSON.stringify(sentEvents)).not.toContain("<think>");
+    expect(JSON.stringify(sentEvents)).not.toContain('\\"reply\\"');
+    expect(sentEvents).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "最终可见回复",
+      voiceText: "最终语音",
+      emotion: "happy",
+      quality: "structured"
+    }));
+  });
+
+  it("normalizes multiple Grok think blocks, independent reasoning fields, and split Markdown JSON", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-grok-multi-think"),
+      "stream-grok-multi-think"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+
+    reader.push(
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "hidden-reasoning-content" } }] })}\n\n`
+    );
+    reader.push(
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning: "hidden-reasoning" } }] })}\n\n`
+    );
+    reader.push(
+      `data: ${JSON.stringify({ choices: [{ message: { reasoning: "hidden-message-reasoning" } }] })}\n\n`
+    );
+    reader.push(createSseDelta("<think>第一段内部推理</think>\n<think>第二段"));
+    reader.push(createSseDelta('内部推理</think>\n```json\n{"reply":"分'));
+    reader.push(createSseDelta('片安全回复","voiceText":"安全语音"}\n```'));
+    reader.end();
+    await pending;
+
+    const events = owner.send.mock.calls.map((call) => call[1]);
+    const serializedEvents = JSON.stringify(events);
+    for (const forbidden of [
+      "hidden-reasoning-content",
+      "hidden-reasoning",
+      "hidden-message-reasoning",
+      "第一段内部推理",
+      "第二段内部推理",
+      "<think>",
+      "```json",
+      '\\"reply\\"'
+    ]) {
+      expect(serializedEvents).not.toContain(forbidden);
+    }
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "分片安全回复",
+      voiceText: "安全语音",
+      quality: "structured"
+    }));
+    expect(captureMock).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "request-grok-multi-think",
+      assistantReply: "分片安全回复"
+    }));
+    const serializedMemory = JSON.stringify(captureMock.mock.calls[0]?.[0]);
+    expect(serializedMemory).not.toContain("reasoning");
+    expect(serializedMemory).not.toContain("内部推理");
+    expect(serializedMemory).not.toContain("安全语音");
+  });
+
+  it("never rewrites an already emitted reply when later JSON changes it", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-rewritten-json"),
+      "stream-rewritten-json"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+    reader.push(createSseDelta('{"reply":"先显示的回复"}'));
+    reader.push(createSseDelta('\n{"reply":"后来改写的回复","voiceText":"改写语音"}'));
+    reader.end();
+    await pending;
+
+    const sentEvents = owner.send.mock.calls.map((call) => call[1]);
+    expect(sentEvents).toContainEqual(expect.objectContaining({
+      type: "chunk",
+      content: "先显示的回复"
+    }));
+    expect(sentEvents).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "先显示的回复",
+      quality: "recovered"
+    }));
+    expect(JSON.stringify(sentEvents)).not.toContain("后来改写的回复");
+    expect(JSON.stringify(sentEvents)).not.toContain("改写语音");
+    expect(captureMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores provider reasoning fields and emits only safe visible content", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-reasoning-field"),
+      "stream-reasoning-field"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+    reader.push(
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "hidden-chain" } }] })}\n\n`
+    );
+    reader.push(createSseDelta('{"reply":"safe-answer"}'));
+    reader.end();
+    await pending;
+
+    const sentEvents = owner.send.mock.calls.map((call) => call[1]);
+    expect(JSON.stringify(sentEvents)).not.toContain("hidden-chain");
+    expect(sentEvents).toContainEqual(expect.objectContaining({
+      type: "chunk",
+      content: "safe-answer"
+    }));
+    expect(sentEvents).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "safe-answer"
+    }));
+  });
+
+  it("processes a final SSE data line without a trailing newline", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-final-line"),
+      "stream-final-line"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+    reader.push(createSseDelta('{"reply":"no-newline"}').trimEnd());
+    reader.end();
+    await pending;
+
+    expect(owner.send).toHaveBeenCalledWith(
+      "ai-chat:stream-event",
+      expect.objectContaining({ type: "done", content: "no-newline" })
+    );
+  });
+
+  it("cancels an oversized visible stream before sending the unsafe chunk", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-oversized"),
+      "stream-oversized"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+    reader.push(createSseDelta("x".repeat(maxAiReplyTextCharacters + 1)));
+    await pending;
+
+    expect(reader.cancel).toHaveBeenCalled();
+    expect(owner.send).toHaveBeenCalledWith(
+      "ai-chat:stream-event",
+      expect.objectContaining({
+        type: "error",
+        message: "AI 返回内容过长，已停止本次回复。"
+      })
+    );
+    expect(owner.send.mock.calls.some((call) => call[1]?.type === "chunk")).toBe(false);
+    expect(captureMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reasoning-only final response instead of completing or capturing it", async () => {
+    const reader = new ControlledReader();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+    const pending = startAiChatStream(
+      asWebContents(owner),
+      createRequest("request-reasoning-only"),
+      "stream-reasoning-only"
+    );
+    await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
+    reader.push(createSseDelta("<think>只有内部推理，没有最终回答</think>"));
+    reader.end();
+    await pending;
+
+    expect(owner.send).toHaveBeenCalledWith(
+      "ai-chat:stream-event",
+      expect.objectContaining({
+        type: "error",
+        ok: false,
+        message: "AI 返回的回复格式无法识别，请重试或切换兼容模式。"
+      })
+    );
+    expect(owner.send.mock.calls.some((call) => call[1]?.type === "done")).toBe(false);
     expect(captureMock).not.toHaveBeenCalled();
   });
 
@@ -268,6 +620,13 @@ describe("AI chat stream lifecycle", () => {
       { role: "user", content: "old" },
       { role: "user", content: "hello" }
     ]);
+    expect(body).toMatchObject({
+      model: "model-a",
+      temperature: 0.8,
+      max_tokens: 1200,
+      response_format: { type: "json_object" },
+      stream: true
+    });
     reader.push('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n');
     reader.end();
     await pending;
@@ -467,5 +826,46 @@ describe("AI chat stream lifecycle", () => {
       requestId: "request-new",
       assistantReply: "new"
     }));
+  });
+});
+
+describe("AI chat final response normalization", () => {
+  it("returns only the normalized visible fields from mixed provider content", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn(async () => ({
+        choices: [{
+          message: {
+            content: '<think>隐藏推理</think>\n```json\n{"reply":"可见回复","voiceText":"可见语音"}\n```'
+          }
+        }]
+      }))
+    } as unknown as Response));
+    const { sendAiChat } = await import("./aiChat");
+
+    await expect(sendAiChat({ petId: "pet-a", messages: [{ role: "user", content: "hello" }] }))
+      .resolves.toMatchObject({
+        ok: true,
+        content: "可见回复",
+        voiceText: "可见语音"
+      });
+  });
+
+  it("returns a controlled error for an unrecognizable final response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn(async () => ({
+        choices: [{ message: { content: "<think>只有推理</think>" } }]
+      }))
+    } as unknown as Response));
+    const { sendAiChat } = await import("./aiChat");
+
+    await expect(sendAiChat({ petId: "pet-a", messages: [{ role: "user", content: "hello" }] }))
+      .resolves.toEqual({
+        ok: false,
+        message: "AI 返回的回复格式无法识别，请重试或切换兼容模式。"
+      });
   });
 });

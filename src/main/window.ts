@@ -7,6 +7,16 @@ import { startupProfiler } from "./startupProfiler";
 let startupSurfaceWindow: BrowserWindow | undefined;
 let hasRevealedStartupSurface = false;
 let hasSentStartupShownEvent = false;
+let fallbackShowTimer: NodeJS.Timeout | undefined;
+
+function clearFallbackShowTimer(): void {
+  if (!fallbackShowTimer) {
+    return;
+  }
+
+  clearTimeout(fallbackShowTimer);
+  fallbackShowTimer = undefined;
+}
 
 export function revealMainWindowStartupSurface(_reason?: string): void {
   const targetWindow = startupSurfaceWindow;
@@ -16,6 +26,7 @@ export function revealMainWindowStartupSurface(_reason?: string): void {
   }
 
   hasRevealedStartupSurface = true;
+  clearFallbackShowTimer();
 
   targetWindow.setOpacity(1);
 
@@ -72,15 +83,12 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.once("closed", () => {
     if (startupSurfaceWindow === mainWindow) {
       startupSurfaceWindow = undefined;
+      clearFallbackShowTimer();
     }
   });
 
-  let fallbackShowTimer: NodeJS.Timeout | undefined;
   const forceShowMainWindow = (): void => {
-    if (fallbackShowTimer) {
-      clearTimeout(fallbackShowTimer);
-      fallbackShowTimer = undefined;
-    }
+    clearFallbackShowTimer();
 
     if (mainWindow.isDestroyed()) {
       return;
@@ -96,7 +104,9 @@ export function createMainWindow(): BrowserWindow {
     }
   };
 
+  clearFallbackShowTimer();
   fallbackShowTimer = setTimeout(() => {
+    fallbackShowTimer = undefined;
     startupProfiler.markOnce("main-window-show-fallback", "主窗口触发 3 秒兜底显示");
     forceShowMainWindow();
     revealMainWindowStartupSurface("show fallback");

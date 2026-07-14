@@ -4,5 +4,5 @@ export interface ChatMessage {
   text: string;
   status?: "thinking" | "error";
   voiceText?: string;
-  aiRawContent?: string;
+  aiStructuredContent?: string;
 }

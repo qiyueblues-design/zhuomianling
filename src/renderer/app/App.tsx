@@ -28,6 +28,18 @@ const MIN_STARTUP_SPLASH_MS = 2000;
 const STARTUP_SPLASH_EXIT_MS = 360;
 const HOME_ICON_SRC = "./icons/home-icon.jpg";
 
+function getRemainingStartupSplashMs(): number {
+  const startupSurfaceShownAt = window.__desktopPetStartupSurfaceShownAt;
+
+  if (typeof startupSurfaceShownAt !== "number" || !Number.isFinite(startupSurfaceShownAt)) {
+    // A renderer that reached React through the main-process fallback may not
+    // have the static FCP timestamp. Keep the previous safe minimum in that case.
+    return MIN_STARTUP_SPLASH_MS;
+  }
+
+  return Math.max(0, MIN_STARTUP_SPLASH_MS - (performance.now() - startupSurfaceShownAt));
+}
+
 interface EditorPageOptions {
   mode?: "create" | "edit";
   petId?: string;
@@ -256,6 +268,7 @@ export function App(): JSX.Element {
   const petRefreshSequenceRef = useRef(0);
   const memoryBookStateRef = useRef<Record<string, MemoryBookRouteState>>({});
   const selectorScrollPositionRef = useRef(0);
+  const hasReportedMinimumStartupSplashRef = useRef(false);
 
   useEffect(() => {
     window.desktopPet?.appWindow.reportStartupTiming("react-mounted");
@@ -391,10 +404,25 @@ export function App(): JSX.Element {
       return;
     }
 
-    const splashTimer = window.setTimeout(() => {
+    const markMinimumSplashElapsed = (): void => {
+      if (hasReportedMinimumStartupSplashRef.current) {
+        return;
+      }
+
+      hasReportedMinimumStartupSplashRef.current = true;
       window.desktopPet?.appWindow.reportStartupTiming("minimum-splash-elapsed");
       setHasMinimumStartupSplashElapsed(true);
-    }, MIN_STARTUP_SPLASH_MS);
+    };
+    const remainingMs = getRemainingStartupSplashMs();
+
+    if (remainingMs === 0) {
+      markMinimumSplashElapsed();
+      return;
+    }
+
+    const splashTimer = window.setTimeout(() => {
+      markMinimumSplashElapsed();
+    }, remainingMs);
 
     return () => {
       window.clearTimeout(splashTimer);

@@ -34,6 +34,23 @@ describe("App initial module boundary", () => {
     expect(html).toContain('src="/src/renderer/main.tsx"');
   });
 
+  it("starts the splash minimum from the static first paint and cancels the show fallback after reveal", async () => {
+    const [html, appSource, windowSource] = await Promise.all([
+      fs.readFile(new URL("../../../index.html", import.meta.url), "utf8"),
+      fs.readFile(new URL("./App.tsx", import.meta.url), "utf8"),
+      fs.readFile(new URL("../../main/window.ts", import.meta.url), "utf8")
+    ]);
+
+    expect(html).toContain("window.__desktopPetStartupSurfaceShownAt = performance.now()");
+    expect(appSource).toContain("function getRemainingStartupSplashMs()");
+    expect(appSource).toContain(
+      "MIN_STARTUP_SPLASH_MS - (performance.now() - startupSurfaceShownAt)"
+    );
+    expect(appSource).toContain("}, remainingMs)");
+    expect(windowSource).toContain("function clearFallbackShowTimer()");
+    expect(windowSource).toContain("hasRevealedStartupSurface = true;\n  clearFallbackShowTimer();");
+  });
+
   it("keeps renderer bootstrap dependencies independently measurable", async () => {
     const source = await fs.readFile(new URL("../main.tsx", import.meta.url), "utf8");
 

@@ -2,10 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { PetExpressionKey } from "../../shared/types/pet";
 import type { PetExpressionEvent } from "../live2d/Live2DCanvas";
 import type { useSubtitle } from "../services/subtitle/subtitleStore";
-import {
-  splitVoiceTextIntoSegments,
-  takeCompleteVoiceSegments
-} from "./aiReplyUtils";
+import { splitVoiceTextIntoSegments } from "./aiReplyUtils";
 import { base64ToBlob } from "./audioUtils";
 
 export interface VoiceReplyAudio {
@@ -38,8 +35,6 @@ interface VoiceReplyQueueState {
   items: VoiceReplyQueueItem[];
   playing: boolean;
   playbackBlocked: boolean;
-  streamedVoiceText: string;
-  streamedConsumedLength: number;
   queuedVoiceSegments: string[];
 }
 
@@ -62,7 +57,7 @@ interface UseVoiceReplyQueueOptions {
     hold?: boolean
   ) => void;
   showVoiceMessage: (text: string, status?: "thinking" | "error") => void;
-  onSynchronizedReveal: (pendingMessageId: number, rawContent: string) => void;
+  onSynchronizedReveal: (pendingMessageId: number, replyText: string) => void;
   onPlaybackDrained: (restartContinuousConversation: boolean) => void;
 }
 
@@ -77,22 +72,14 @@ export interface UseVoiceReplyQueueResult {
   clearPendingExpression: () => void;
   completeSynchronizedReveal: () => void;
   enqueueFinalText: (voiceText: string, requestId?: number) => void;
-  enqueueStreamingText: (
-    streamedVoiceText: string,
-    requestId?: number,
-    flushRest?: boolean
-  ) => void;
-  getStreamedVoiceText: () => string;
   hasActiveAudio: () => boolean;
   holdExpression: (requestId: number, expression?: PetExpressionKey) => boolean;
   finalizeReply: (requestId: number, restartAfterReply: boolean) => void;
   holdSubtitle: (requestId: number) => void;
   isPlaybackBlocked: () => boolean;
   isSubtitleHeld: () => boolean;
-  isSynchronizedRevealVisible: () => boolean;
   playPresetLineAudio: (audioPath: string) => Promise<void>;
   releaseSubtitle: (requestId: number) => void;
-  revealSynchronizedOutput: (requestId: number) => boolean;
   setPendingExpression: (expression?: PetExpressionKey) => void;
   stop: (options?: { clearPresentation?: boolean }) => void;
   updateSynchronizedContent: (content: string) => void;
@@ -107,8 +94,6 @@ function createEmptyQueue(): VoiceReplyQueueState {
     items: [],
     playing: false,
     playbackBlocked: false,
-    streamedVoiceText: "",
-    streamedConsumedLength: 0,
     queuedVoiceSegments: []
   };
 }
@@ -568,42 +553,7 @@ export function useVoiceReplyQueue(
 
     const queue = queueRef.current;
     const finalSegments = getUnqueuedFinalVoiceSegments(voiceText, queue.queuedVoiceSegments);
-    const normalized = normalizeVoiceReplyText(voiceText);
-    queue.streamedVoiceText = normalized || queue.streamedVoiceText;
-    queue.streamedConsumedLength = queue.streamedVoiceText.length;
     enqueueSegments(finalSegments, requestId);
-  };
-
-  const enqueueStreamingText = (
-    streamedVoiceText: string,
-    requestId = requestIdRef.current,
-    flushRest = false
-  ): void => {
-    if (requestId !== requestIdRef.current || !voiceReplyEnabledRef.current) {
-      return;
-    }
-
-    const queue = queueRef.current;
-    if (!streamedVoiceText || streamedVoiceText.length < queue.streamedConsumedLength) {
-      return;
-    }
-
-    queue.streamedVoiceText = streamedVoiceText;
-    const unconsumedText = streamedVoiceText.slice(queue.streamedConsumedLength);
-    const { segments, rest } = takeCompleteVoiceSegments(unconsumedText);
-
-    if (segments.length) {
-      queue.streamedConsumedLength += unconsumedText.length - rest.length;
-      enqueueSegments(segments, requestId);
-    }
-
-    if (flushRest) {
-      const restText = streamedVoiceText.slice(queue.streamedConsumedLength).trim();
-      if (restText) {
-        queue.streamedConsumedLength = streamedVoiceText.length;
-        enqueueSegments([restText], requestId);
-      }
-    }
   };
 
   const stop = (stopOptions?: { clearPresentation?: boolean }): void => {
@@ -746,8 +696,6 @@ export function useVoiceReplyQueue(
       syncRevealRef.current = undefined;
     },
     enqueueFinalText,
-    enqueueStreamingText,
-    getStreamedVoiceText: () => queueRef.current.streamedVoiceText,
     hasActiveAudio,
     holdExpression,
     finalizeReply: (requestId: number, restartAfterReply: boolean) => {
@@ -767,10 +715,8 @@ export function useVoiceReplyQueue(
         subtitleHoldRef.current?.active &&
           subtitleHoldRef.current.requestId === requestIdRef.current
       ),
-    isSynchronizedRevealVisible: () => syncRevealRef.current?.revealed ?? false,
     playPresetLineAudio,
     releaseSubtitle,
-    revealSynchronizedOutput,
     setPendingExpression: (expression?: PetExpressionKey) => {
       pendingExpressionRef.current = expression;
     },
