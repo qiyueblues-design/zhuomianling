@@ -47,7 +47,8 @@ describe("旧版桌宠配置兼容", () => {
       },
       uiSettings: {
         theme: "soft",
-        cursorFollowEnabled: true
+        cursorFollowEnabled: true,
+        desktopScale: 1
       }
     });
     expect((original.voiceModelSettings as unknown as { referenceText?: string }).referenceText)
@@ -59,13 +60,32 @@ describe("旧版桌宠配置兼容", () => {
       modelPath: "pet-resource://local/legacy-pet/live2d/model.model3.json",
       capabilities: { chat: true, voiceOutput: true, subtitles: false },
       details: { role: "助手", personality: "安静", scenes: [], features: [] },
-      uiSettings: { theme: "journal", cursorFollowEnabled: false }
+      uiSettings: { theme: "journal", cursorFollowEnabled: false, desktopScale: 1.25 }
     }));
 
     expect(normalized.modelPath).toContain("model.model3.json");
     expect(normalized.capabilities).toMatchObject({ chat: true, voiceOutput: true, subtitles: false });
     expect(normalized.details).toMatchObject({ role: "助手", personality: "安静" });
-    expect(normalized.uiSettings).toMatchObject({ theme: "journal", cursorFollowEnabled: false });
+    expect(normalized.uiSettings).toMatchObject({
+      theme: "journal",
+      cursorFollowEnabled: false,
+      desktopScale: 1.25
+    });
+  });
+
+  it("把桌宠整体比例限制到受支持范围并对齐到五个百分点", () => {
+    expect(normalizeLegacyPetDefinition(legacyPet({
+      uiSettings: { theme: "soft", desktopScale: 2.5 }
+    })).uiSettings?.desktopScale).toBe(1.5);
+    expect(normalizeLegacyPetDefinition(legacyPet({
+      uiSettings: { theme: "soft", desktopScale: 0.2 }
+    })).uiSettings?.desktopScale).toBe(0.7);
+    expect(normalizeLegacyPetDefinition(legacyPet({
+      uiSettings: { theme: "soft", desktopScale: 0.73 }
+    })).uiSettings?.desktopScale).toBe(0.75);
+    expect(normalizeLegacyPetDefinition(legacyPet({
+      uiSettings: { theme: "soft", desktopScale: "invalid" }
+    })).uiSettings?.desktopScale).toBe(1);
   });
 
   it("把已有但类型错误的关键结构交给损坏配置流程处理", () => {

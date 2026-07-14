@@ -230,7 +230,8 @@ const createBlankPetDraft = (): PetDefinition => ({
   uiSettings: {
     theme: "soft",
     clickThroughOpacity: 0.45,
-    cursorFollowEnabled: true
+    cursorFollowEnabled: true,
+    desktopScale: 1
   },
   lines: {},
   subtitleStyle: {

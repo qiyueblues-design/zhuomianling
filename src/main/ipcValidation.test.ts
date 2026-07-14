@@ -53,6 +53,36 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("accepts only bounded finite desktop scale settings", () => {
+    const validDraft = {
+      petId: "pet-a",
+      theme: "soft",
+      desktopScale: 1.25
+    };
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [validDraft]))
+      .not.toThrow();
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      ...validDraft,
+      desktopScale: 0.7
+    }])).not.toThrow();
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      ...validDraft,
+      desktopScale: 1.5
+    }])).not.toThrow();
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      ...validDraft,
+      desktopScale: 0.69
+    }])).toThrow(/desktopScale/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      ...validDraft,
+      desktopScale: 1.51
+    }])).toThrow(/desktopScale/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      ...validDraft,
+      desktopScale: Number.NaN
+    }])).toThrow(/desktopScale/);
+  });
+
   it("accepts a bounded AI output probe and rejects oversized connection fields", () => {
     expect(() =>
       validateIpcArguments("ai-settings:test-output", [

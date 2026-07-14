@@ -2,6 +2,11 @@ import { assertValidPetId } from "../shared/validation/petId";
 import { MEMORY_LIMITS } from "../shared/types/memory";
 import { startupRendererStages } from "../shared/types/startup";
 import {
+  isPetDesktopScale,
+  maxPetDesktopScale,
+  minPetDesktopScale
+} from "../shared/validation/petUiSettings";
+import {
   assertMemoryClearRequest,
   assertMemoryCreateRequest,
   assertMemoryExportRequest,
@@ -408,11 +413,23 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     return;
   }
 
+  if (channel === "pet-config:save-ui-settings") {
+    expectArgumentCount(channel, args, 1);
+    const draft = assertRecord(channel, args[0]);
+    if (draft.desktopScale !== undefined && !isPetDesktopScale(draft.desktopScale)) {
+      fail(
+        channel,
+        `desktopScale 必须是 ${minPetDesktopScale}-${maxPetDesktopScale} 之间的有限数值。`
+      );
+    }
+    validatePetDraft(channel, draft);
+    return;
+  }
+
   if (
     channel === "pet-config:save-persona" ||
     channel === "pet-config:save-expression-mappings" ||
     channel === "pet-config:save-event-settings" ||
-    channel === "pet-config:save-ui-settings" ||
     channel === "pet-config:save-voice-input" ||
     channel === "pet-config:test-voice-model-connection" ||
     channel === "pet-config:save-voice-model"

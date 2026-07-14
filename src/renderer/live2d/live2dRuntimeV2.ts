@@ -8,6 +8,13 @@ import {
   raceLive2DLoadWithSignal,
   throwIfLive2DLoadAborted
 } from "./live2dResourceLoader";
+import {
+  calculateVisibleBottomTranslation,
+  measureLive2DVertexBounds,
+  projectRightFaceAnchorToClientPoint,
+  type Live2DClientPoint,
+  type Live2DModelBounds
+} from "./live2dModelBounds";
 
 interface Cubism2ModelJson {
   model?: string;
@@ -139,6 +146,12 @@ interface Cubism2ModelContext {
   _$qo?: number;
   _$_2?: ArrayLike<number>;
   _$fs?: Float32Array;
+  _$aS?: ArrayLike<unknown>;
+  _$C2?: (drawIndex: number) => {
+    _$yo?: () => boolean;
+    baseOpacity?: number;
+    getTransformedPoints?: () => ArrayLike<number> | null;
+  } | null;
 }
 
 interface Cubism2Pose {
@@ -197,7 +210,7 @@ const motionPriorities: Record<CubismMotionPriority, number> = {
 };
 const defaultFitScale = 0.96;
 const previewFitScale = 0.9;
-const bottomPaddingRatio = 0.02;
+const stageBottomPaddingPixels = 8;
 const previewPaddingRatio = 0.05;
 const identityMatrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const lookSmoothing = 12;
@@ -477,6 +490,7 @@ export class Cubism2Live2DModel {
   private lookX = 0;
   private lookY = 0;
   private cursorFollowEnabled: boolean;
+  private modelBounds?: Live2DModelBounds;
 
   private constructor(options: CubismLive2DModelOptions, framework: Live2DFrameworkExports) {
     this.canvas = options.canvas;
@@ -560,6 +574,9 @@ export class Cubism2Live2DModel {
     this.captureInitialParameterSnapshot();
     this.saveNeutralParameterBase();
     this.resetToNeutralFace();
+    this.baseModel.pose?.updateParam(rawModel);
+    rawModel.update();
+    this.modelBounds = this.measureModelBounds();
     this.resize();
     this.render();
     this.startLoop();
@@ -591,6 +608,33 @@ export class Cubism2Live2DModel {
 
     this.viewProjectionMatrix = projection;
     this.fitModelToViewport();
+  }
+
+  getRightFaceAnchorClientPoint(): Live2DClientPoint | undefined {
+    const rawModel = this.baseModel.live2DModel;
+    const modelMatrix = this.baseModel.modelMatrix;
+
+    if (!rawModel || !modelMatrix) {
+      return undefined;
+    }
+
+    const bounds =
+      this.modelBounds ??
+      {
+        left: 0,
+        right: rawModel.getCanvasWidth(),
+        top: 0,
+        bottom: rawModel.getCanvasHeight(),
+        width: rawModel.getCanvasWidth(),
+        height: rawModel.getCanvasHeight()
+      };
+
+    return projectRightFaceAnchorToClientPoint(
+      bounds,
+      "down",
+      multiplyMatrix(this.viewProjectionMatrix, modelMatrix.getArray()),
+      this.canvas.getBoundingClientRect()
+    );
   }
 
   async motion(group: string, index = 0, priority: CubismMotionPriority = "normal"): Promise<boolean> {
@@ -1275,8 +1319,61 @@ export class Cubism2Live2DModel {
 
     const ratio = this.canvas.height / Math.max(this.canvas.width, 1);
     const viewHeight = ratio >= 1 ? 2 * ratio : 2;
+    const bottomPaddingRatio = Math.min(
+      0.1,
+      stageBottomPaddingPixels / Math.max(this.canvas.clientHeight, 1)
+    );
     const targetBottom = -viewHeight / 2 + viewHeight * bottomPaddingRatio;
     modelMatrix.bottom(targetBottom);
+
+    if (this.modelBounds && Number.isFinite(this.modelBounds.bottom)) {
+      const matrix = modelMatrix.getArray();
+      const scaleY = matrix[5];
+
+      if (Number.isFinite(scaleY) && Math.abs(scaleY) > 0.000001) {
+        modelMatrix.setY(
+          calculateVisibleBottomTranslation(scaleY, this.modelBounds.bottom, targetBottom)
+        );
+      }
+    }
+  }
+
+  private measureModelBounds(): Live2DModelBounds | undefined {
+    const rawModel = this.baseModel.live2DModel;
+    const context = rawModel?.getModelContext?.();
+    const drawData = context?._$aS;
+    const resolveDrawContext = context?._$C2;
+
+    if (!rawModel || !drawData || !resolveDrawContext) {
+      return undefined;
+    }
+
+    const vertexSets: ArrayLike<number>[] = [];
+
+    for (let index = 0; index < drawData.length; index += 1) {
+      try {
+        const drawContext = resolveDrawContext.call(context, index);
+
+        if (
+          !drawContext?.getTransformedPoints ||
+          drawContext._$yo?.() === false ||
+          (typeof drawContext.baseOpacity === "number" && drawContext.baseOpacity <= 0.001)
+        ) {
+          continue;
+        }
+
+        const points = drawContext.getTransformedPoints();
+
+        if (points && points.length >= 4) {
+          vertexSets.push(points);
+        }
+      } catch {
+        // Cubism 2 model contexts also contain non-draw data. Ignore entries
+        // that cannot expose transformed drawable vertices.
+      }
+    }
+
+    return measureLive2DVertexBounds(vertexSets, "down");
   }
 
   private fitModelContain(): void {

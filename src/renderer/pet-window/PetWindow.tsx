@@ -18,9 +18,11 @@ import type {
   PetPresetLine
 } from "../../shared/types/pet";
 import type { PetWindowState } from "../../shared/types/window";
+import { normalizePetDesktopScale } from "../../shared/validation/petUiSettings";
 import { Subtitle } from "../components/Subtitle/Subtitle";
 import type { PetExpressionEvent } from "../live2d/Live2DCanvas";
 import { Live2DCanvas } from "../live2d/Live2DCanvas";
+import type { Live2DClientPoint } from "../live2d/live2dModelBounds";
 import { useSubtitle } from "../services/subtitle/subtitleStore";
 import {
   createPetWindowStateFromPayload,
@@ -95,6 +97,7 @@ export function PetWindow(): JSX.Element {
   const uiTheme = petDefinition?.uiSettings?.theme ?? "soft";
   const clickThroughOpacity = getClickThroughOpacity(petDefinition?.uiSettings?.clickThroughOpacity);
   const cursorFollowEnabled = petDefinition?.uiSettings?.cursorFollowEnabled !== false;
+  const desktopScale = normalizePetDesktopScale(petDefinition?.uiSettings?.desktopScale);
   const customThemeStyle = getCustomThemeStyle(petDefinition?.uiSettings?.customTheme);
   const subtitle = useSubtitle();
   const clickThroughButtonRef = useRef<HTMLButtonElement>(null);
@@ -189,6 +192,7 @@ export function PetWindow(): JSX.Element {
   const [closingEffect, setClosingEffect] = useState(false);
   const [expressionEvent, setExpressionEvent] = useState<PetExpressionEvent | undefined>();
   const [explodeEventId, setExplodeEventId] = useState(0);
+  const [rightFaceAnchor, setRightFaceAnchor] = useState<Live2DClientPoint>();
   const [draft, setDraft] = useState("");
   const petDefinitionRef = useRef(petDefinition);
   const speechSettings = useMemo(
@@ -863,7 +867,8 @@ export function PetWindow(): JSX.Element {
       data-pet-id={pet.petId}
       style={{
         ...customThemeStyle,
-        "--click-through-opacity": clickThroughOpacity
+        "--click-through-opacity": clickThroughOpacity,
+        "--desktop-scale": desktopScale
       } as CSSProperties}
     >
       <div
@@ -887,6 +892,7 @@ export function PetWindow(): JSX.Element {
           expressions={petDefinition?.expressions}
           expressionEffects={petDefinition?.expressionEffects}
           expressionEvent={expressionEvent}
+          onRightFaceAnchorChange={setRightFaceAnchor}
           onExpressionEventFinished={(eventId) => {
             void window.desktopPet?.petWindow.completeSourcePreview(eventId);
           }}
@@ -912,7 +918,7 @@ export function PetWindow(): JSX.Element {
         />
       </div>
 
-      {!closingEffect ? <Subtitle state={subtitle.state} /> : null}
+      {!closingEffect ? <Subtitle state={subtitle.state} anchor={rightFaceAnchor} /> : null}
 
       {chatOpen && !closingEffect ? (
         <section

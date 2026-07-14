@@ -152,14 +152,41 @@ describe("pet config durable persistence", () => {
       saveLocalPetUiSettings({
         petId: "pet-a",
         theme: "rock",
-        clickThroughOpacity: 0.63
+        clickThroughOpacity: 0.63,
+        desktopScale: 1.25
       })
     ]);
 
     const stored = JSON.parse(await fs.readFile(getPetConfigPath(), "utf8"));
     expect(stored.personaPrompt).toBe("serialized persona");
     expect(stored.personaSettings).toMatchObject({ chatLanguage: "zh", replyLength: "short" });
-    expect(stored.uiSettings).toMatchObject({ theme: "rock", clickThroughOpacity: 0.63 });
+    expect(stored.uiSettings).toMatchObject({
+      theme: "rock",
+      clickThroughOpacity: 0.63,
+      desktopScale: 1.25
+    });
+  });
+
+  it("reloads the saved desktop scale and companion quick actions after a process restart", async () => {
+    await writePetFixture();
+    const { saveLocalPetUiSettings } = await import("./petConfigStore");
+    await saveLocalPetUiSettings({
+      petId: "pet-a",
+      theme: "soft",
+      clickThroughOpacity: 0.55,
+      cursorFollowEnabled: false,
+      desktopScale: 1.5
+    });
+
+    vi.resetModules();
+    const { getLocalPetDefinition } = await import("./petConfigStore");
+    const reloadedPet = await getLocalPetDefinition("pet-a");
+
+    expect(reloadedPet?.uiSettings).toMatchObject({
+      clickThroughOpacity: 0.55,
+      cursorFollowEnabled: false,
+      desktopScale: 1.5
+    });
   });
 
   it("restores the most recent valid backup without replacing it with damaged content", async () => {

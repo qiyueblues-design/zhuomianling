@@ -23,8 +23,15 @@ interface Deferred<T> {
   reject: (error: unknown) => void;
 }
 
+interface Cubism2DrawableFixture {
+  visible: boolean;
+  opacity: number;
+  points: Float32Array;
+}
+
 interface RuntimeFixture {
   canvas: HTMLCanvasElement;
+  drawables: Cubism2DrawableFixture[];
   draw: ReturnType<typeof vi.fn>;
   expressionParser: ReturnType<typeof vi.fn>;
   framework: Record<string, unknown>;
@@ -32,6 +39,7 @@ interface RuntimeFixture {
   dispose: ReturnType<typeof vi.fn>;
   motionParser: ReturnType<typeof vi.fn>;
   motionStarts: ReturnType<typeof vi.fn>;
+  matrixSetY: ReturnType<typeof vi.fn>;
   expressionStarts: ReturnType<typeof vi.fn>;
   physicsParser: ReturnType<typeof vi.fn>;
   poseParser: ReturnType<typeof vi.fn>;
@@ -70,7 +78,15 @@ function createRuntimeFixture(): RuntimeFixture {
   const init = vi.fn();
   const dispose = vi.fn();
   const revokeObjectURL = vi.fn();
+  const matrixSetY = vi.fn();
   const animationFrames = new Map<number, FrameRequestCallback>();
+  const drawables: Cubism2DrawableFixture[] = [
+    {
+      visible: true,
+      opacity: 1,
+      points: new Float32Array([0.2, 0.3, 1.8, 1.6])
+    }
+  ];
   let animationFrameId = 0;
 
   class FakeMotionManager {
@@ -116,7 +132,19 @@ function createRuntimeFixture(): RuntimeFixture {
     getModelContext: () => ({
       _$qo: parameterValues.length,
       _$_2: parameterValues,
-      _$fs: savedParameterValues
+      _$fs: savedParameterValues,
+      _$aS: drawables,
+      _$C2: (index: number) => {
+        const drawable = drawables[index];
+
+        return drawable
+          ? {
+              _$yo: () => drawable.visible,
+              baseOpacity: drawable.opacity,
+              getTransformedPoints: () => drawable.points
+            }
+          : null;
+      }
     }),
     setTexture: vi.fn(),
     deleteTextures: vi.fn(),
@@ -167,10 +195,16 @@ function createRuntimeFixture(): RuntimeFixture {
     identity = vi.fn();
     getArray = () => this.values;
     multScale = vi.fn();
-    setWidth = vi.fn();
+    setWidth = vi.fn(() => {
+      this.values[0] = 1;
+      this.values[5] = -1;
+    });
     setHeight = vi.fn();
     setX = vi.fn();
-    setY = vi.fn();
+    setY = vi.fn((value: number) => {
+      this.values[13] = value;
+      matrixSetY(value);
+    });
     centerX = vi.fn();
     centerY = vi.fn();
     top = vi.fn();
@@ -265,6 +299,7 @@ function createRuntimeFixture(): RuntimeFixture {
 
   return {
     canvas,
+    drawables,
     draw,
     expressionParser,
     framework,
@@ -272,6 +307,7 @@ function createRuntimeFixture(): RuntimeFixture {
     dispose,
     motionParser,
     motionStarts,
+    matrixSetY,
     expressionStarts,
     physicsParser,
     poseParser,
@@ -314,6 +350,53 @@ afterEach(() => {
 });
 
 describe("Cubism 2 critical and deferred loading", () => {
+  it("anchors the lowest visible drawable instead of the logical model canvas", async () => {
+    fixture.drawables.splice(
+      0,
+      fixture.drawables.length,
+      {
+        visible: true,
+        opacity: 1,
+        points: new Float32Array([0.2, 0.3, 1.8, 1.6])
+      },
+      {
+        visible: false,
+        opacity: 1,
+        points: new Float32Array([0.3, 0.4, 1.7, 1.98])
+      },
+      {
+        visible: true,
+        opacity: 0.001,
+        points: new Float32Array([0.4, 0.5, 1.6, 1.95])
+      },
+      {
+        visible: true,
+        opacity: 0.9,
+        points: new Float32Array([0.5, 0.6, 1.9, 1.8])
+      }
+    );
+    resourceMocks.fetchJson.mockResolvedValue({ model: "pet.moc" });
+    const { Cubism2Live2DModel } = await import("./live2dRuntimeV2");
+    const model = await Cubism2Live2DModel.from({
+      canvas: fixture.canvas,
+      modelPath: "models/model.json",
+      autoIdle: false
+    });
+
+    expect(fixture.matrixSetY).toHaveBeenCalledOnce();
+    expect(fixture.matrixSetY.mock.calls.at(-1)?.[0]).toBeCloseTo(0.35, 6);
+
+    model.destroy();
+  });
+
+  it("routes exact model.json entries to Cubism 2 and model3 entries to Cubism 4/5", async () => {
+    const { isCubism2ModelPath } = await import("./live2dRuntimeV2");
+
+    expect(isCubism2ModelPath("models/model.json")).toBe(true);
+    expect(isCubism2ModelPath("models/avatar.model3.json")).toBe(false);
+    expect(isCubism2ModelPath("models/cubism5/avatar.model3.json")).toBe(false);
+  });
+
   it("renders once after model, textures and pose while deferring all optional assets", async () => {
     resourceMocks.fetchJson.mockResolvedValue({
       model: "pet.moc",

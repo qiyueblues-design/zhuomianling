@@ -473,6 +473,9 @@ describe("旧版桌宠配置结构兼容", () => {
         referenceAudioPath: "reference.wav",
         referenceText: "",
         language: "zh"
+      },
+      uiSettings: {
+        desktopScale: 1
       }
     });
     await expect(fs.readFile(configPath, "utf8")).resolves.toBe(originalContent);

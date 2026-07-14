@@ -33,6 +33,7 @@ import type {
 import type { MemorySettings } from "../../../shared/types/memory";
 import { normalizeMemorySettings } from "../../../shared/validation/memory";
 import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
+import { normalizePetDesktopScale } from "../../../shared/validation/petUiSettings";
 import { petResourceProtocol, toPetResourceUrl } from "./petResourceProtocol";
 import { validateLive2DFolder } from "./live2dImportService";
 import { resolveLegacyVoiceModelPaths } from "./legacyVoiceModelPath";
@@ -817,7 +818,8 @@ function buildPetDefinition(draft: LocalPetBasicInfoDraft, petId: string): PetDe
     expressionDescriptions: {},
     uiSettings: {
       theme: "soft",
-      clickThroughOpacity: 0.45
+      clickThroughOpacity: 0.45,
+      desktopScale: 1
     },
     isLocal: true,
     subtitleStyle: {
@@ -1975,6 +1977,9 @@ export async function saveLocalPetUiSettings(
     typeof draft.cursorFollowEnabled === "boolean"
       ? draft.cursorFollowEnabled
       : pet.uiSettings?.cursorFollowEnabled !== false;
+  const desktopScale = normalizePetDesktopScale(
+    draft.desktopScale ?? pet.uiSettings?.desktopScale
+  );
 
   const nextPet: PetDefinition = {
     ...pet,
@@ -1985,12 +1990,14 @@ export async function saveLocalPetUiSettings(
             customThemeId: customTheme.id,
             customTheme,
             clickThroughOpacity,
-            cursorFollowEnabled
+            cursorFollowEnabled,
+            desktopScale
           }
         : {
             theme: draft.theme,
             clickThroughOpacity,
-            cursorFollowEnabled
+            cursorFollowEnabled,
+            desktopScale
           },
     isLocal: true
   };

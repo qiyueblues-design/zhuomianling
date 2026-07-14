@@ -37,6 +37,13 @@ import {
   raceLive2DLoadWithSignal,
   throwIfLive2DLoadAborted
 } from "./live2dResourceLoader";
+import {
+  measureVisibleLive2DDrawableBounds,
+  projectRightFaceAnchorToClientPoint,
+  type Live2DClientPoint,
+  type Live2DDrawableGeometry,
+  type Live2DModelBounds
+} from "./live2dModelBounds";
 
 export type CubismMotionPriority = "idle" | "normal" | "force";
 export type Live2DFitMode = "stage" | "previewContain";
@@ -57,15 +64,6 @@ export interface CubismPartOpacityTarget {
   opacity: number;
 }
 
-interface ModelBounds {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  width: number;
-  height: number;
-}
-
 interface LoadedTexture {
   id: WebGLTexture;
   image: HTMLImageElement;
@@ -80,7 +78,7 @@ const motionPriorities: Record<CubismMotionPriority, number> = {
 };
 const defaultFitScale = 0.96;
 const previewFitScale = 0.9;
-const bottomPaddingRatio = 0.02;
+const stageBottomPaddingPixels = 8;
 const previewPaddingRatio = 0.05;
 const lookSmoothing = 12;
 const cubismCoreReadyTimeoutMs = 10_000;
@@ -326,7 +324,7 @@ export class CubismLive2DModel {
   private modelMatrix?: CubismModelMatrix;
   private viewMatrix = new CubismMatrix44();
   private mvpMatrix = new CubismMatrix44();
-  private modelBounds?: ModelBounds;
+  private modelBounds?: Live2DModelBounds;
   private physics?: CubismPhysics;
   private pose?: CubismPose;
   private eyeBlink?: CubismEyeBlink;
@@ -439,7 +437,6 @@ export class CubismLive2DModel {
     this.model.saveParameters();
     this.setupLayout();
     this.model.update();
-    this.modelBounds = this.measureModelBounds();
     await this.loadPose();
     this.throwIfAborted();
     this.setupEffects();
@@ -450,6 +447,7 @@ export class CubismLive2DModel {
     this.resetToNeutralFace();
     this.pose?.updateParameters(this.model, 0);
     this.model.update();
+    this.modelBounds = this.measureModelBounds();
     this.resize();
     this.draw();
     this.throwIfAborted();
@@ -477,6 +475,34 @@ export class CubismLive2DModel {
     this.height = nextHeight;
     this.renderer?.setRenderTargetSize(nextWidth, nextHeight);
     this.fitModelToViewport();
+  }
+
+  getRightFaceAnchorClientPoint(): Live2DClientPoint | undefined {
+    if (!this.model || !this.modelMatrix) {
+      return undefined;
+    }
+
+    const bounds =
+      this.modelBounds ??
+      {
+        left: -this.model.getCanvasWidth() / 2,
+        right: this.model.getCanvasWidth() / 2,
+        top: this.model.getCanvasHeight() / 2,
+        bottom: -this.model.getCanvasHeight() / 2,
+        width: this.model.getCanvasWidth(),
+        height: this.model.getCanvasHeight()
+      };
+    const modelToClipMatrix = new CubismMatrix44();
+    this.updateViewMatrix(this.viewMatrix);
+    modelToClipMatrix.setMatrix(this.viewMatrix.getArray());
+    modelToClipMatrix.multiplyByMatrix(this.modelMatrix);
+
+    return projectRightFaceAnchorToClientPoint(
+      bounds,
+      "up",
+      modelToClipMatrix.getArray(),
+      this.canvas.getBoundingClientRect()
+    );
   }
 
   async motion(
@@ -719,7 +745,13 @@ export class CubismLive2DModel {
     const viewWidth = viewportRatio >= 1 ? viewportRatio * 2 : 2;
     const viewHeight = viewportRatio >= 1 ? 2 : 2 / viewportRatio;
     const fitScale = this.fitMode === "previewContain" ? previewFitScale : defaultFitScale;
-    const paddingRatio = this.fitMode === "previewContain" ? previewPaddingRatio : bottomPaddingRatio;
+    const paddingRatio =
+      this.fitMode === "previewContain"
+        ? previewPaddingRatio
+        : Math.min(
+            0.1,
+            stageBottomPaddingPixels / Math.max(this.canvas.clientHeight, 1)
+          );
     const scale = Math.min(
       viewWidth / Math.max(bounds.width, 0.0001),
       viewHeight / Math.max(bounds.height, 0.0001)
@@ -744,17 +776,14 @@ export class CubismLive2DModel {
     );
   }
 
-  private measureModelBounds(): ModelBounds | undefined {
+  private measureModelBounds(): Live2DModelBounds | undefined {
     const model = this.model;
 
     if (!model) {
       return undefined;
     }
 
-    let left = Number.POSITIVE_INFINITY;
-    let right = Number.NEGATIVE_INFINITY;
-    let top = Number.NEGATIVE_INFINITY;
-    let bottom = Number.POSITIVE_INFINITY;
+    const drawables: Live2DDrawableGeometry[] = [];
     const drawableCount = model.getDrawableCount();
 
     for (let drawableIndex = 0; drawableIndex < drawableCount; drawableIndex += 1) {
@@ -765,36 +794,14 @@ export class CubismLive2DModel {
         continue;
       }
 
-      for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex += 1) {
-        const x = vertices[vertexIndex * 2];
-        const y = vertices[vertexIndex * 2 + 1];
-
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-        top = Math.max(top, y);
-        bottom = Math.min(bottom, y);
-      }
+      drawables.push({
+        vertices: vertices.subarray(0, vertexCount * 2),
+        visible: model.getDrawableDynamicFlagIsVisible(drawableIndex),
+        opacity: model.getDrawableOpacity(drawableIndex)
+      });
     }
 
-    if (
-      !Number.isFinite(left) ||
-      !Number.isFinite(right) ||
-      !Number.isFinite(top) ||
-      !Number.isFinite(bottom) ||
-      left >= right ||
-      bottom >= top
-    ) {
-      return undefined;
-    }
-
-    return {
-      left,
-      right,
-      top,
-      bottom,
-      width: right - left,
-      height: top - bottom
-    };
+    return measureVisibleLive2DDrawableBounds(drawables, "up");
   }
 
   private resolveExpressionIndex(id: string | number): number | undefined {

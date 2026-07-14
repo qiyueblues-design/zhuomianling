@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
 import type { LocalPetSaveResult, PetDefinition } from "../../../shared/types/pet";
+import {
+  defaultPetDesktopScale,
+  maxPetDesktopScale,
+  minPetDesktopScale,
+  normalizePetDesktopScale,
+  petDesktopScaleStep
+} from "../../../shared/validation/petUiSettings";
 import { PanelSaveActions } from "./EditorShared";
 
 const defaultClickThroughOpacity = 0.45;
@@ -14,6 +21,23 @@ function normalizeClickThroughOpacity(value: number | undefined): number {
   return Math.min(maxClickThroughOpacity, Math.max(minClickThroughOpacity, Math.round(value * 100) / 100));
 }
 
+export interface QuickActionsSettingsValues {
+  clickThroughOpacity: number;
+  cursorFollowEnabled: boolean;
+  desktopScale: number;
+}
+
+export function hasQuickActionsSettingsChanges(
+  current: QuickActionsSettingsValues,
+  saved: QuickActionsSettingsValues
+): boolean {
+  return (
+    current.clickThroughOpacity !== saved.clickThroughOpacity ||
+    current.cursorFollowEnabled !== saved.cursorFollowEnabled ||
+    current.desktopScale !== saved.desktopScale
+  );
+}
+
 export function QuickActionsPanel({
   pet,
   onSavedPet,
@@ -25,10 +49,13 @@ export function QuickActionsPanel({
 }): JSX.Element {
   const currentOpacity = normalizeClickThroughOpacity(pet.uiSettings?.clickThroughOpacity);
   const currentCursorFollowEnabled = pet.uiSettings?.cursorFollowEnabled !== false;
+  const currentDesktopScale = normalizePetDesktopScale(pet.uiSettings?.desktopScale);
   const [savedOpacity, setSavedOpacity] = useState(currentOpacity);
   const [selectedOpacity, setSelectedOpacity] = useState(currentOpacity);
   const [savedCursorFollowEnabled, setSavedCursorFollowEnabled] = useState(currentCursorFollowEnabled);
   const [cursorFollowEnabled, setCursorFollowEnabled] = useState(currentCursorFollowEnabled);
+  const [savedDesktopScale, setSavedDesktopScale] = useState(currentDesktopScale);
+  const [selectedDesktopScale, setSelectedDesktopScale] = useState(currentDesktopScale);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<LocalPetSaveResult | undefined>();
 
@@ -39,9 +66,28 @@ export function QuickActionsPanel({
     const nextCursorFollowEnabled = pet.uiSettings?.cursorFollowEnabled !== false;
     setSavedCursorFollowEnabled(nextCursorFollowEnabled);
     setCursorFollowEnabled(nextCursorFollowEnabled);
+    const nextDesktopScale = normalizePetDesktopScale(pet.uiSettings?.desktopScale);
+    setSavedDesktopScale(nextDesktopScale);
+    setSelectedDesktopScale(nextDesktopScale);
     setResult(undefined);
     onDirtyChange(false);
-  }, [pet.id, pet.uiSettings?.clickThroughOpacity, pet.uiSettings?.cursorFollowEnabled, onDirtyChange]);
+  }, [
+    pet.id,
+    pet.uiSettings?.clickThroughOpacity,
+    pet.uiSettings?.cursorFollowEnabled,
+    pet.uiSettings?.desktopScale,
+    onDirtyChange
+  ]);
+
+  const savedValues: QuickActionsSettingsValues = {
+    clickThroughOpacity: savedOpacity,
+    cursorFollowEnabled: savedCursorFollowEnabled,
+    desktopScale: savedDesktopScale
+  };
+  const markDirty = (nextValues: QuickActionsSettingsValues): void => {
+    setResult(undefined);
+    onDirtyChange(hasQuickActionsSettingsChanges(nextValues, savedValues));
+  };
 
   const saveQuickActions = async (): Promise<void> => {
     if (pet.id === "new-pet") {
@@ -58,7 +104,8 @@ export function QuickActionsPanel({
         theme: pet.uiSettings?.theme ?? "soft",
         customThemeId: pet.uiSettings?.customThemeId,
         clickThroughOpacity: selectedOpacity,
-        cursorFollowEnabled
+        cursorFollowEnabled,
+        desktopScale: selectedDesktopScale
       });
 
       if (!saveResult) {
@@ -74,6 +121,11 @@ export function QuickActionsPanel({
         const nextCursorFollowEnabled = saveResult.pet.uiSettings?.cursorFollowEnabled !== false;
         setSavedCursorFollowEnabled(nextCursorFollowEnabled);
         setCursorFollowEnabled(nextCursorFollowEnabled);
+        const nextDesktopScale = normalizePetDesktopScale(
+          saveResult.pet.uiSettings?.desktopScale
+        );
+        setSavedDesktopScale(nextDesktopScale);
+        setSelectedDesktopScale(nextDesktopScale);
         onDirtyChange(false);
         onSavedPet?.(saveResult.pet);
       }
@@ -93,6 +145,57 @@ export function QuickActionsPanel({
       </div>
 
       <section className="quickActionsPanel" aria-label="快捷操作设置">
+        <fieldset className="settingsField quickActionScaleField">
+          <legend>桌宠大小</legend>
+          <div className="quickActionFieldHeader">
+            <p>调整桌宠窗口和模型在桌面上的整体尺寸，保存后立即生效。</p>
+            <button
+              className="secondaryAction quickActionResetButton"
+              type="button"
+              disabled={selectedDesktopScale === defaultPetDesktopScale}
+              onClick={() => {
+                setSelectedDesktopScale(defaultPetDesktopScale);
+                markDirty({
+                  clickThroughOpacity: selectedOpacity,
+                  cursorFollowEnabled,
+                  desktopScale: defaultPetDesktopScale
+                });
+              }}
+            >
+              恢复 100%
+            </button>
+          </div>
+          <div className="desktopScaleRangeControl">
+            <span aria-hidden="true">70%</span>
+            <input
+              id="desktop-pet-scale"
+              type="range"
+              min={minPetDesktopScale * 100}
+              max={maxPetDesktopScale * 100}
+              step={petDesktopScaleStep * 100}
+              value={Math.round(selectedDesktopScale * 100)}
+              aria-label="桌宠大小"
+              aria-describedby="desktop-pet-scale-note"
+              aria-valuetext={`${Math.round(selectedDesktopScale * 100)}%`}
+              onChange={(event) => {
+                const nextDesktopScale = normalizePetDesktopScale(
+                  Number(event.target.value) / 100
+                );
+                setSelectedDesktopScale(nextDesktopScale);
+                markDirty({
+                  clickThroughOpacity: selectedOpacity,
+                  cursorFollowEnabled,
+                  desktopScale: nextDesktopScale
+                });
+              }}
+            />
+            <span aria-hidden="true">150%</span>
+            <strong aria-live="polite">{Math.round(selectedDesktopScale * 100)}%</strong>
+          </div>
+          <p className="settingsFieldNote" id="desktop-pet-scale-note">
+            可调范围 70%–150%，每档 5%；屏幕空间不足时会自动等比缩小。
+          </p>
+        </fieldset>
         <div className="settingsRowHeader">
           <div>
             <h3>点击穿透</h3>
@@ -112,10 +215,11 @@ export function QuickActionsPanel({
               onChange={(event) => {
                 const nextOpacity = normalizeClickThroughOpacity(Number(event.target.value) / 100);
                 setSelectedOpacity(nextOpacity);
-                setResult(undefined);
-                onDirtyChange(
-                  nextOpacity !== savedOpacity || cursorFollowEnabled !== savedCursorFollowEnabled
-                );
+                markDirty({
+                  clickThroughOpacity: nextOpacity,
+                  cursorFollowEnabled,
+                  desktopScale: selectedDesktopScale
+                });
               }}
             />
             <strong>{Math.round(selectedOpacity * 100)}%</strong>
@@ -136,8 +240,11 @@ export function QuickActionsPanel({
             onClick={() => {
               const nextValue = !cursorFollowEnabled;
               setCursorFollowEnabled(nextValue);
-              setResult(undefined);
-              onDirtyChange(nextValue !== savedCursorFollowEnabled || selectedOpacity !== savedOpacity);
+              markDirty({
+                clickThroughOpacity: selectedOpacity,
+                cursorFollowEnabled: nextValue,
+                desktopScale: selectedDesktopScale
+              });
             }}
           >
             <span aria-hidden="true" />

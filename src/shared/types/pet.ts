@@ -198,6 +198,7 @@ export interface PetUiSettings {
   customTheme?: PetCustomTheme;
   clickThroughOpacity?: number;
   cursorFollowEnabled?: boolean;
+  desktopScale?: number;
 }
 
 export interface PetDefinition {
@@ -281,6 +282,7 @@ export interface LocalPetUiSettingsDraft {
   customThemeId?: string;
   clickThroughOpacity?: number;
   cursorFollowEnabled?: boolean;
+  desktopScale?: number;
 }
 
 export interface LocalPetVoiceInputDraft {

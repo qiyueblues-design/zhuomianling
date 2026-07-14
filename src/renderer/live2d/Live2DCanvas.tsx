@@ -20,6 +20,7 @@ import {
   waitForHostSize,
   type AnimationFrameScheduler
 } from "./live2dCanvasLifecycle";
+import type { Live2DClientPoint } from "./live2dModelBounds";
 
 type Live2DModelRuntime = CubismLive2DModel | Cubism2Live2DModel;
 
@@ -42,6 +43,7 @@ interface Live2DCanvasProps {
   onModelHit?: () => void;
   onModelReady?: () => void;
   onModelError?: () => void;
+  onRightFaceAnchorChange?: (point: Live2DClientPoint | undefined) => void;
   onExpressionEventFinished?: (eventId: number) => void;
   subscribeLookAtPoint?: (callback: (point: Live2DLookAtPoint) => void) => () => void;
   lookAtEnabled?: boolean;
@@ -133,6 +135,7 @@ export function Live2DCanvas({
   onModelHit,
   onModelReady,
   onModelError,
+  onRightFaceAnchorChange,
   onExpressionEventFinished,
   subscribeLookAtPoint,
   lookAtEnabled = true
@@ -146,6 +149,7 @@ export function Live2DCanvas({
   const onModelHitRef = useRef(onModelHit);
   const onModelReadyRef = useRef(onModelReady);
   const onModelErrorRef = useRef(onModelError);
+  const onRightFaceAnchorChangeRef = useRef(onRightFaceAnchorChange);
   const onExpressionEventFinishedRef = useRef(onExpressionEventFinished);
   const subscribeLookAtPointRef = useRef(subscribeLookAtPoint);
   const lookAtEnabledRef = useRef(lookAtEnabled);
@@ -179,6 +183,11 @@ export function Live2DCanvas({
   useLayoutEffect(() => {
     explodeEventIdRef.current = explodeEventId;
   }, [explodeEventId]);
+
+  useLayoutEffect(() => {
+    onRightFaceAnchorChangeRef.current = onRightFaceAnchorChange;
+    onRightFaceAnchorChange?.(modelRef.current?.getRightFaceAnchorClientPoint());
+  }, [onRightFaceAnchorChange]);
 
   useEffect(() => {
     expressionMapRef.current = expressions;
@@ -556,6 +565,7 @@ export function Live2DCanvas({
     neutralResetFramesRef.current = neutralResetFrames;
 
     modelRef.current = null;
+    onRightFaceAnchorChangeRef.current?.(undefined);
     activePriorityRef.current = "low";
     lastExpressionAtRef.current = 0;
     window.clearTimeout(resetTimerRef.current);
@@ -585,6 +595,7 @@ export function Live2DCanvas({
             if (isCurrentLoad()) {
               setLoadErrorMessage(getLive2DLoadErrorMessage(error));
               setLoadState("error");
+              onRightFaceAnchorChangeRef.current?.(undefined);
               onModelErrorRef.current?.();
             }
           }
@@ -599,6 +610,7 @@ export function Live2DCanvas({
         modelRef.current = model;
         model.setCursorFollowEnabled(lookAtEnabledRef.current);
         resetPreviewRuntime(model, true);
+        onRightFaceAnchorChangeRef.current?.(model.getRightFaceAnchorClientPoint());
 
         if (neutralPreview || !autoIdle) {
           neutralResetFrames.schedule(() => {
@@ -634,6 +646,7 @@ export function Live2DCanvas({
           resizeFrame = window.requestAnimationFrame(() => {
             if (isCurrentLoad() && modelRef.current === model) {
               model.resize();
+              onRightFaceAnchorChangeRef.current?.(model.getRightFaceAnchorClientPoint());
             }
           });
         });
@@ -652,6 +665,7 @@ export function Live2DCanvas({
 
         setLoadErrorMessage(getLive2DLoadErrorMessage(error));
         setLoadState("error");
+        onRightFaceAnchorChangeRef.current?.(undefined);
         onModelErrorRef.current?.();
       });
 
@@ -671,6 +685,7 @@ export function Live2DCanvas({
       cleanupResize?.();
       if (modelRef.current === loadedModel) {
         modelRef.current = null;
+        onRightFaceAnchorChangeRef.current?.(undefined);
       }
       loadedModel?.destroy();
       window.clearTimeout(resetTimerRef.current);

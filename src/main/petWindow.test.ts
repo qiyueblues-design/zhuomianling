@@ -7,12 +7,21 @@ interface PendingLoad {
 }
 
 const electronMock = vi.hoisted(() => ({
+  workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+  matchingWorkArea: null as { x: number; y: number; width: number; height: number } | null,
+  matchingScaleFactor: 1,
+  displayMatchingCalls: [] as Array<{ x: number; y: number; width: number; height: number }>,
+  cursorPoint: { x: 100, y: 100 },
   instances: [] as Array<{
     destroyed: boolean;
     visible: boolean;
     loads: PendingLoad[];
     sent: Array<{ channel: string; payload?: unknown }>;
     destroyCalls: number;
+    bounds: { x: number; y: number; width: number; height: number };
+    setBoundsCalls: Array<{ x: number; y: number; width: number; height: number }>;
+    ignoreMouseEventsCalls: Array<{ ignore: boolean; forward?: boolean }>;
+    constructorOptions: Record<string, unknown>;
   }>
 }));
 
@@ -23,6 +32,10 @@ vi.mock("electron", () => {
     loads: PendingLoad[] = [];
     sent: Array<{ channel: string; payload?: unknown }> = [];
     destroyCalls = 0;
+    bounds: { x: number; y: number; width: number; height: number };
+    setBoundsCalls: Array<{ x: number; y: number; width: number; height: number }> = [];
+    ignoreMouseEventsCalls: Array<{ ignore: boolean; forward?: boolean }> = [];
+    constructorOptions: Record<string, unknown>;
     private readonly listeners = new Map<string, Set<() => void>>();
     readonly webContents = {
       send: (channel: string, payload?: unknown): void => {
@@ -32,7 +45,15 @@ vi.mock("electron", () => {
       on: vi.fn()
     };
 
-    constructor(_options: unknown) {
+    constructor(options: unknown) {
+      const bounds = options as { x: number; y: number; width: number; height: number };
+      this.constructorOptions = options as Record<string, unknown>;
+      this.bounds = {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height
+      };
       electronMock.instances.push(this);
     }
 
@@ -76,14 +97,19 @@ vi.mock("electron", () => {
     setResizable(): void {}
     setAlwaysOnTop(): void {}
     setVisibleOnAllWorkspaces(): void {}
-    setIgnoreMouseEvents(): void {}
+    setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean }): void {
+      this.ignoreMouseEventsCalls.push({ ignore, forward: options?.forward });
+    }
     getPosition(): [number, number] {
-      return [0, 0];
+      return [this.bounds.x, this.bounds.y];
     }
     getBounds(): { x: number; y: number; width: number; height: number } {
-      return { x: 0, y: 0, width: 380, height: 480 };
+      return { ...this.bounds };
     }
-    setBounds(): void {}
+    setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+      this.bounds = { ...bounds };
+      this.setBoundsCalls.push({ ...bounds });
+    }
 
     private emit(event: string): void {
       for (const listener of this.listeners.get(event) ?? []) {
@@ -98,18 +124,41 @@ vi.mock("electron", () => {
     BrowserWindow: FakeBrowserWindow,
     screen: {
       getPrimaryDisplay: () => ({
-        workArea: { x: 0, y: 0, width: 1920, height: 1080 }
+        workArea: { ...electronMock.workArea },
+        scaleFactor: 1
       }),
-      getCursorScreenPoint: () => ({ x: 100, y: 100 })
+      getDisplayMatching: (bounds: { x: number; y: number; width: number; height: number }) => {
+        electronMock.displayMatchingCalls.push({ ...bounds });
+        return {
+          workArea: { ...(electronMock.matchingWorkArea ?? electronMock.workArea) },
+          scaleFactor: electronMock.matchingScaleFactor
+        };
+      },
+      getCursorScreenPoint: () => ({ ...electronMock.cursorPoint })
     }
   };
 });
 
-function payload(id: string) {
+function payload(id: string, desktopScale = 1) {
   return {
     id,
     name: id,
-    modelPath: `pet-resource://local/${id}/live2d/model.model3.json`
+    modelPath: `pet-resource://local/${id}/live2d/model.model3.json`,
+    definition: {
+      id,
+      name: id,
+      description: "",
+      modelPath: `pet-resource://local/${id}/live2d/model.model3.json`,
+      personaPrompt: "",
+      capabilities: {
+        chat: true,
+        voiceInput: false,
+        voiceOutput: false,
+        subtitles: true
+      },
+      details: { role: "", personality: "", scenes: [], features: [] },
+      uiSettings: { theme: "soft" as const, desktopScale }
+    }
   };
 }
 
@@ -122,11 +171,209 @@ async function resolveNextLoad(instanceIndex = 0): Promise<void> {
 
 beforeEach(() => {
   electronMock.instances = [];
+  electronMock.workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  electronMock.matchingWorkArea = null;
+  electronMock.matchingScaleFactor = 1;
+  electronMock.displayMatchingCalls = [];
+  electronMock.cursorPoint = { x: 100, y: 100 };
   vi.resetModules();
   vi.useFakeTimers();
 });
 
 describe("pet window operation generations", () => {
+  it("creates a fixed non-resizable window at the saved desktop scale", async () => {
+    const { closePetWindow, showPetWindow } = await import("./petWindow");
+    const shown = showPetWindow(payload("pet-large", 1.5));
+    await resolveNextLoad();
+    await shown;
+
+    expect(electronMock.instances[0]?.bounds).toEqual({
+      x: 1322,
+      y: 332,
+      width: 570,
+      height: 720
+    });
+    expect(electronMock.instances[0]?.constructorOptions.resizable).toBe(false);
+    await closePetWindow({ playEffect: false });
+  });
+
+  it("keeps the bottom-center anchor and clamps a live scale update to the work area", async () => {
+    const { closePetWindow, showPetWindow, updateCurrentPetWindowPayload } = await import(
+      "./petWindow"
+    );
+    const shown = showPetWindow(payload("pet-a"));
+    await resolveNextLoad();
+    await shown;
+
+    updateCurrentPetWindowPayload(payload("pet-a", 1.5));
+
+    expect(electronMock.instances[0]?.bounds).toEqual({
+      x: 1350,
+      y: 332,
+      width: 570,
+      height: 720
+    });
+    await closePetWindow({ playEffect: false });
+  });
+
+  it("supports live enlarge, shrink and restore-to-100% updates without reopening", async () => {
+    const { closePetWindow, showPetWindow, updateCurrentPetWindowPayload } = await import(
+      "./petWindow"
+    );
+    const shown = showPetWindow(payload("pet-scale-cycle"));
+    await resolveNextLoad();
+    await shown;
+    const instance = electronMock.instances[0];
+
+    updateCurrentPetWindowPayload(payload("pet-scale-cycle", 1.5));
+    expect(instance?.bounds).toMatchObject({ width: 570, height: 720 });
+
+    updateCurrentPetWindowPayload(payload("pet-scale-cycle", 0.7));
+    expect(instance?.bounds).toMatchObject({ width: 266, height: 336 });
+
+    updateCurrentPetWindowPayload(payload("pet-scale-cycle", 1));
+    expect(instance?.bounds).toMatchObject({ width: 380, height: 480 });
+    expect(instance?.loads).toHaveLength(0);
+
+    await closePetWindow({ playEffect: false });
+  });
+
+  it.each([
+    {
+      edge: "left",
+      current: { x: -1910, y: 100, width: 380, height: 480 },
+      expected: { x: -1920, y: -140, width: 570, height: 720 }
+    },
+    {
+      edge: "right",
+      current: { x: -390, y: 100, width: 380, height: 480 },
+      expected: { x: -570, y: -140, width: 570, height: 720 }
+    },
+    {
+      edge: "top",
+      current: { x: -1300, y: -190, width: 380, height: 480 },
+      expected: { x: -1395, y: -200, width: 570, height: 720 }
+    },
+    {
+      edge: "bottom",
+      current: { x: -1300, y: 410, width: 380, height: 480 },
+      expected: { x: -1395, y: 160, width: 570, height: 720 }
+    }
+  ])("keeps a resized pet inside the $edge edge of an offset display", async ({ current, expected }) => {
+    const { calculateScaledPetWindowBounds } = await import("./petWindow");
+    const workArea = { x: -1920, y: -200, width: 1920, height: 1080 };
+
+    expect(calculateScaledPetWindowBounds(current, workArea, 1.5)).toEqual(expected);
+  });
+
+  it("uses the matching display's DIP work area across a different display scale factor", async () => {
+    const { closePetWindow, showPetWindow, updateCurrentPetWindowPayload } = await import(
+      "./petWindow"
+    );
+    const shown = showPetWindow(payload("pet-secondary-display"));
+    await resolveNextLoad();
+    await shown;
+    const instance = electronMock.instances[0];
+
+    if (!instance) {
+      throw new Error("Expected a pet window instance.");
+    }
+
+    instance.bounds = { x: -1000, y: 100, width: 380, height: 480 };
+    electronMock.matchingWorkArea = { x: -1280, y: 0, width: 1280, height: 720 };
+    electronMock.matchingScaleFactor = 1.5;
+    updateCurrentPetWindowPayload(payload("pet-secondary-display", 1.5));
+
+    expect(instance.bounds).toEqual({ x: -1095, y: 0, width: 570, height: 720 });
+    expect(electronMock.displayMatchingCalls.at(-1)).toEqual({
+      x: -1000,
+      y: 100,
+      width: 380,
+      height: 480
+    });
+
+    await closePetWindow({ playEffect: false });
+  });
+
+  it("preserves aspect ratio when the requested scale exceeds the display work area", async () => {
+    electronMock.workArea = { x: 20, y: 30, width: 600, height: 700 };
+    const { calculateScaledPetWindowBounds } = await import("./petWindow");
+
+    expect(calculateScaledPetWindowBounds(
+      { x: 120, y: 130, width: 380, height: 480 },
+      electronMock.workArea,
+      1.5
+    )).toEqual({
+      x: 33,
+      y: 30,
+      width: 554,
+      height: 700
+    });
+  });
+
+  it("drags with the scaled dimensions instead of snapping back to the base size", async () => {
+    const {
+      closePetWindow,
+      endPetWindowDrag,
+      movePetWindowDrag,
+      showPetWindow,
+      startPetWindowDrag
+    } = await import("./petWindow");
+    const shown = showPetWindow(payload("pet-drag", 1.5));
+    await resolveNextLoad();
+    await shown;
+
+    startPetWindowDrag({ x: 0, y: 0 });
+    electronMock.cursorPoint = { x: 150, y: 130 };
+    movePetWindowDrag({ x: 0, y: 0 });
+    endPetWindowDrag();
+
+    expect(electronMock.instances[0]?.bounds).toEqual({
+      x: 1372,
+      y: 362,
+      width: 570,
+      height: 720
+    });
+    await closePetWindow({ playEffect: false });
+  });
+
+  it("keeps click-through active, blocks dragging and still accepts a saved scale update", async () => {
+    const {
+      closePetWindow,
+      getPetWindowState,
+      movePetWindowDrag,
+      setPetWindowClickThrough,
+      showPetWindow,
+      startPetWindowDrag,
+      updateCurrentPetWindowPayload
+    } = await import("./petWindow");
+    const shown = showPetWindow(payload("pet-click-through", 1));
+    await resolveNextLoad();
+    await shown;
+    const instance = electronMock.instances[0];
+    const boundsBeforeDrag = { ...instance?.bounds };
+    const setBoundsCountBeforeDrag = instance?.setBoundsCalls.length ?? 0;
+
+    setPetWindowClickThrough(true);
+    startPetWindowDrag({ x: 100, y: 100 });
+    electronMock.cursorPoint = { x: 500, y: 500 };
+    movePetWindowDrag({ x: 500, y: 500 });
+
+    expect(instance?.bounds).toEqual(boundsBeforeDrag);
+    expect(instance?.setBoundsCalls).toHaveLength(setBoundsCountBeforeDrag);
+    expect(instance?.ignoreMouseEventsCalls.at(-1)).toEqual({ ignore: true, forward: true });
+
+    updateCurrentPetWindowPayload(payload("pet-click-through", 0.7));
+    expect(instance?.bounds).toMatchObject({ width: 266, height: 336 });
+    expect(getPetWindowState()).toMatchObject({
+      visible: true,
+      clickThrough: true,
+      petId: "pet-click-through"
+    });
+
+    await closePetWindow({ playEffect: false });
+  });
+
   it("does not let a delayed close destroy a newer pet", async () => {
     const { closePetWindow, getPetWindowState, showPetWindow } = await import("./petWindow");
     const firstShow = showPetWindow(payload("pet-a"));
@@ -148,7 +395,7 @@ describe("pet window operation generations", () => {
 
   it("keeps the last payload so the tray can restore a closed pet", async () => {
     const { closePetWindow, showExistingPetWindow, showPetWindow } = await import("./petWindow");
-    const firstShow = showPetWindow(payload("pet-a"));
+    const firstShow = showPetWindow(payload("pet-a", 1.5));
     await resolveNextLoad();
     await firstShow;
     await expect(closePetWindow({ playEffect: false })).resolves.toMatchObject({ visible: false });
@@ -156,6 +403,12 @@ describe("pet window operation generations", () => {
     const restored = showExistingPetWindow();
     await resolveNextLoad(1);
     await expect(restored).resolves.toMatchObject({ visible: true, petId: "pet-a" });
+    expect(electronMock.instances[1]?.bounds).toEqual({
+      x: 1322,
+      y: 332,
+      width: 570,
+      height: 720
+    });
 
     await closePetWindow({ playEffect: false });
   });
@@ -195,6 +448,27 @@ describe("pet window operation generations", () => {
     await closePetWindow({ playEffect: false });
   });
 
+  it("commits the replacement pet's saved scale only after its page loads", async () => {
+    const { closePetWindow, showPetWindow } = await import("./petWindow");
+    const firstShow = showPetWindow(payload("pet-small", 0.7));
+    await resolveNextLoad();
+    await firstShow;
+    const instance = electronMock.instances[0];
+    expect(instance?.bounds).toMatchObject({ width: 266, height: 336 });
+
+    const replacementShow = showPetWindow(payload("pet-large", 1.5));
+    await vi.waitFor(() => {
+      expect(instance?.loads.length).toBeGreaterThan(0);
+    });
+    expect(instance?.bounds).toMatchObject({ width: 266, height: 336 });
+
+    instance?.loads.shift()?.resolve();
+    await replacementShow;
+    expect(instance?.bounds).toMatchObject({ width: 570, height: 720 });
+
+    await closePetWindow({ playEffect: false });
+  });
+
   it("binds sensitive requests only after a pet load commits", async () => {
     const { closePetWindow, getBoundPetWindowPayload, showPetWindow } = await import("./petWindow");
     const firstShow = showPetWindow(payload("pet-a"));
@@ -230,7 +504,7 @@ describe("pet window operation generations", () => {
     await resolveNextLoad();
     await firstShow;
 
-    const replacementShow = showPetWindow(payload("pet-b"));
+    const replacementShow = showPetWindow(payload("pet-b", 1.5));
     await vi.waitFor(() => {
       expect(electronMock.instances[0]?.loads.length).toBeGreaterThan(0);
     });
@@ -238,6 +512,12 @@ describe("pet window operation generations", () => {
 
     await expect(replacementShow).rejects.toThrow("load failed");
     expect(getCurrentPetWindowPayload()?.id).toBe("pet-a");
+    expect(electronMock.instances[0]?.bounds).toEqual({
+      x: 1512,
+      y: 572,
+      width: 380,
+      height: 480
+    });
     await closePetWindow({ playEffect: false });
   });
 
