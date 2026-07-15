@@ -41,6 +41,7 @@ describe("旧版桌宠配置兼容", () => {
       voiceModelSettings: {
         referenceAudioPath: "reference.wav",
         referenceText: "",
+        modelVersion: "v2ProPlus",
         language: "zh",
         referenceLanguage: "zh",
         playMode: "sentence"
@@ -53,6 +54,26 @@ describe("旧版桌宠配置兼容", () => {
     });
     expect((original.voiceModelSettings as unknown as { referenceText?: string }).referenceText)
       .toBeUndefined();
+  });
+
+  it("保留有效声音模型版本并收敛无效旧值", () => {
+    const v4Pet = normalizeLegacyPetDefinition(legacyPet({
+      voiceModelSettings: {
+        enabled: false,
+        connected: false,
+        modelVersion: "v4"
+      }
+    }));
+    const invalidPet = normalizeLegacyPetDefinition(legacyPet({
+      voiceModelSettings: {
+        enabled: false,
+        connected: false,
+        modelVersion: "future"
+      }
+    }));
+
+    expect(v4Pet.voiceModelSettings?.modelVersion).toBe("v4");
+    expect(invalidPet.voiceModelSettings?.modelVersion).toBe("v2ProPlus");
   });
 
   it("保留旧配置中已经存在的有效用户设置", () => {

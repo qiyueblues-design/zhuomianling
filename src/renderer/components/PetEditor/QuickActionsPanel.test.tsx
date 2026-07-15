@@ -74,6 +74,17 @@ describe("QuickActionsPanel desktop scale", () => {
     expect(markup).toContain('aria-valuetext="135%"');
   });
 
+  it("groups the click-through explanation with its opacity control", () => {
+    const markup = renderToStaticMarkup(
+      <QuickActionsPanel pet={createPet()} onDirtyChange={vi.fn()} />
+    );
+
+    expect(markup).toContain("<legend>点击穿透</legend>");
+    expect(markup).toContain('for="click-through-opacity"');
+    expect(markup).toContain('id="click-through-opacity"');
+    expect(markup).not.toContain('class="settingsRowHeader"');
+  });
+
   it("marks changes to size, transparency, or cursor following as unsaved", () => {
     const saved: QuickActionsSettingsValues = {
       clickThroughOpacity: 0.45,

@@ -196,21 +196,23 @@ export function QuickActionsPanel({
             可调范围 70%–150%，每档 5%；屏幕空间不足时会自动等比缩小。
           </p>
         </fieldset>
-        <div className="settingsRowHeader">
-          <div>
-            <h3>点击穿透</h3>
+        <fieldset className="settingsField">
+          <legend>点击穿透</legend>
+          <div className="quickActionFieldHeader">
             <p>开启穿透时，聊天框会关闭，桌宠会保持可见但不遮挡后方文字。</p>
           </div>
-        </div>
-        <fieldset className="settingsField">
-          <legend>穿透后透明度</legend>
+          <label className="quickActionRangeLabel" htmlFor="click-through-opacity">
+            穿透后透明度
+          </label>
           <div className="rangeControl">
             <input
+              id="click-through-opacity"
               type="range"
               min={minClickThroughOpacity * 100}
               max={maxClickThroughOpacity * 100}
               step="5"
               value={Math.round(selectedOpacity * 100)}
+              aria-describedby="click-through-opacity-note"
               aria-valuetext={`${Math.round(selectedOpacity * 100)}%`}
               onChange={(event) => {
                 const nextOpacity = normalizeClickThroughOpacity(Number(event.target.value) / 100);
@@ -224,7 +226,9 @@ export function QuickActionsPanel({
             />
             <strong>{Math.round(selectedOpacity * 100)}%</strong>
           </div>
-          <p className="settingsFieldNote">数值越低，开启穿透后越容易看清桌宠后方的内容。</p>
+          <p className="settingsFieldNote" id="click-through-opacity-note">
+            数值越低，开启穿透后越容易看清桌宠后方的内容。
+          </p>
         </fieldset>
         <div className="settingsToggleRow">
           <div>

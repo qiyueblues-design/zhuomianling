@@ -349,6 +349,7 @@ idle.motion3.json    [预览]    key: idle       描述：待机动作
 你需要填写或选择：
 
 - GPT-SoVITS 本地路径
+- 模型版本（需要与训练权重对应）
 - SoVITS 模型
 - GPT 模型
 - 参考音频
@@ -369,6 +370,7 @@ idle.motion3.json    [预览]    key: idle       描述：待机动作
 连接失败时，优先检查：
 
 - GPT-SoVITS 本地路径是否正确
+- 模型版本是否与 GPT / SoVITS 权重对应
 - SoVITS 模型是否存在
 - GPT 模型是否存在
 - 参考音频是否存在

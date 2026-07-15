@@ -6,6 +6,7 @@ import {
   maxPetDesktopScale,
   minPetDesktopScale
 } from "../shared/validation/petUiSettings";
+import { isPetVoiceModelVersion } from "../shared/validation/petVoiceModel";
 import {
   assertMemoryClearRequest,
   assertMemoryCreateRequest,
@@ -430,9 +431,7 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     channel === "pet-config:save-persona" ||
     channel === "pet-config:save-expression-mappings" ||
     channel === "pet-config:save-event-settings" ||
-    channel === "pet-config:save-voice-input" ||
-    channel === "pet-config:test-voice-model-connection" ||
-    channel === "pet-config:save-voice-model"
+    channel === "pet-config:save-voice-input"
   ) {
     expectArgumentCount(channel, args, 1);
     validatePetDraft(channel, args[0]);
@@ -532,6 +531,19 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
       maxStringLength: 16_384,
       maxTotalStringLength: 262_144
     });
+    return;
+  }
+
+  if (
+    channel === "pet-config:test-voice-model-connection" ||
+    channel === "pet-config:save-voice-model"
+  ) {
+    expectArgumentCount(channel, args, 1);
+    const draft = assertRecord(channel, args[0]);
+    if (!isPetVoiceModelVersion(draft.modelVersion)) {
+      fail(channel, "modelVersion 不是受支持的 GPT-SoVITS 模型版本。");
+    }
+    validatePetDraft(channel, draft);
     return;
   }
 

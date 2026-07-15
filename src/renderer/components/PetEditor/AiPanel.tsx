@@ -69,6 +69,15 @@ function getProviderName(baseUrl: string): string {
   return findProviderByBaseUrl(baseUrl)?.name ?? "Custom OpenAI Compatible";
 }
 
+function getOutputCapabilityLabel(capability: AiOutputCapability): string {
+  if (capability.confidence === "fallback") {
+    return "尚未完成回复测试，将自动兼容";
+  }
+
+  const replyMode = capability.mode === "plain-text" ? "已使用通用回复模式" : "回复已适配";
+  return `${replyMode} · ${capability.streaming ? "支持流式" : "完整回复"}`;
+}
+
 export function AiPanel({
   pet,
   onDirtyChange
@@ -144,10 +153,8 @@ export function AiPanel({
       : undefined;
   }, [form.model, normalizedFormBaseUrl, outputResult?.capability, summary?.outputCapability]);
   const outputCapabilityLabel = activeOutputCapability
-    ? activeOutputCapability.confidence === "fallback"
-      ? "兼容模式 · 尚未确认结构化能力"
-      : `${activeOutputCapability.mode === "json-schema" ? "结构化回复" : activeOutputCapability.mode === "json-object" ? "JSON 回复" : "兼容文本"} · ${activeOutputCapability.streaming ? "支持流式" : "完整回复模式"}`
-    : "尚未测试当前模型的输出兼容性";
+    ? getOutputCapabilityLabel(activeOutputCapability)
+    : "尚未测试当前模型";
 
   useEffect(() => {
     let cancelled = false;
@@ -555,13 +562,17 @@ export function AiPanel({
 
       <div className="settingsHint">
         <PlugZap size={16} />
-        <span>输出兼容性：{outputCapabilityLabel}</span>
+        <span>AI 回复：{outputCapabilityLabel}</span>
       </div>
 
       {outputResult ? (
         <div className="settingsHint">
           <PlugZap size={16} />
-          <span>{outputResult.message}</span>
+          <span>
+            {outputResult.capability
+              ? `测试结果：${getOutputCapabilityLabel(outputResult.capability)}`
+              : outputResult.message}
+          </span>
         </div>
       ) : null}
 

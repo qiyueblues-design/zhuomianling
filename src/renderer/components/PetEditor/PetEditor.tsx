@@ -31,9 +31,11 @@ import type {
   PetDefinition,
   PetVoiceInferenceDevice,
   PetVoiceLanguage,
+  PetVoiceModelVersion,
   LocalPetVoiceModelDraft,
   LocalPetVoiceResourceKind
 } from "../../../shared/types/pet";
+import { defaultPetVoiceModelVersion } from "../../../shared/types/pet";
 import type {
   Live2DFolderScanResult,
   Live2DImportedSource,
@@ -75,6 +77,15 @@ const voiceLanguageOptions = [
   { value: "zh", label: "中文" },
   { value: "ja", label: "日语" },
   { value: "en", label: "英语" }
+];
+
+const voiceModelVersionOptions = [
+  { value: "v1", label: "V1" },
+  { value: "v2", label: "V2" },
+  { value: "v3", label: "V3" },
+  { value: "v4", label: "V4" },
+  { value: "v2Pro", label: "V2 Pro" },
+  { value: "v2ProPlus", label: "V2 Pro Plus" }
 ];
 
 export function PetEditor({
@@ -1012,6 +1023,7 @@ function VoicePanel({
     petId: pet.id,
     enabled: pet.voiceModelSettings?.enabled ?? pet.capabilities.voiceOutput,
     connected: pet.voiceModelSettings?.connected ?? false,
+    modelVersion: pet.voiceModelSettings?.modelVersion ?? defaultPetVoiceModelVersion,
     gptSoVitsRootPath: pet.voiceModelSettings?.gptSoVitsRootPath,
     sovitsModelPath: pet.voiceModelSettings?.sovitsModelPath,
     gptModelPath: pet.voiceModelSettings?.gptModelPath,
@@ -1299,6 +1311,18 @@ function VoicePanel({
         </label>
 
         <div className="voiceRuntimeGrid">
+          <label className="formField">
+            <span>模型版本</span>
+            <AppleSelect
+              value={draft.modelVersion}
+              disabled={!runtimeEditable}
+              ariaLabel="GPT-SoVITS 模型版本"
+              options={voiceModelVersionOptions}
+              onChange={(nextVersion) =>
+                updateVoiceDraft({ modelVersion: nextVersion as PetVoiceModelVersion })
+              }
+            />
+          </label>
           <label className="formField">
             <span>推理设备</span>
             <AppleSelect

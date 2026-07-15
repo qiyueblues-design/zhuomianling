@@ -83,6 +83,17 @@ describe("validateIpcArguments", () => {
     }])).toThrow(/desktopScale/);
   });
 
+  it("accepts only supported GPT-SoVITS model versions", () => {
+    expect(() => validateIpcArguments("pet-config:save-voice-model", [{
+      petId: "pet-a",
+      modelVersion: "v4"
+    }])).not.toThrow();
+    expect(() => validateIpcArguments("pet-config:test-voice-model-connection", [{
+      petId: "pet-a",
+      modelVersion: "v5"
+    }])).toThrow(/modelVersion/);
+  });
+
   it("accepts a bounded AI output probe and rejects oversized connection fields", () => {
     expect(() =>
       validateIpcArguments("ai-settings:test-output", [

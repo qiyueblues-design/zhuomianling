@@ -3,6 +3,7 @@ import type {
   PetVoiceLanguage,
   PetVoiceModelSettings
 } from "../types/pet";
+import { normalizePetVoiceModelVersion } from "./petVoiceModel";
 import { normalizePetDesktopScale } from "./petUiSettings";
 
 type UnknownRecord = Record<string, unknown>;
@@ -73,6 +74,7 @@ function normalizeVoiceModelSettings(value: unknown): PetVoiceModelSettings | un
     ...settings,
     enabled: booleanOrDefault(settings.enabled, false, "voiceModelSettings.enabled"),
     connected: booleanOrDefault(settings.connected, false, "voiceModelSettings.connected"),
+    modelVersion: normalizePetVoiceModelVersion(settings.modelVersion),
     gptSoVitsRootPath: stringOrDefault(
       settings.gptSoVitsRootPath,
       "",

@@ -2,6 +2,7 @@ import type {
   LocalPetVoiceModelDraft,
   PetVoiceModelSettings
 } from "../../../shared/types/pet";
+import { defaultPetVoiceModelVersion } from "../../../shared/types/pet";
 
 export interface VoiceReadiness {
   ready: boolean;
@@ -81,6 +82,7 @@ export function buildVoiceDraft(
     petId,
     enabled,
     connected,
+    modelVersion: settings.modelVersion ?? defaultPetVoiceModelVersion,
     gptSoVitsRootPath: settings.gptSoVitsRootPath,
     sovitsModelPath: settings.sovitsModelPath,
     gptModelPath: settings.gptModelPath,

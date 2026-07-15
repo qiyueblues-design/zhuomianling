@@ -411,6 +411,7 @@ describe("AI API key storage", () => {
     const entries = await fs.readdir(temporaryDirectory, { recursive: true });
 
     expect(result.ok).toBe(true);
+    expect(result.message).toBe("回复格式已适配 · 支持流式");
     expect(requestBody.messages).toEqual([
       {
         role: "system",

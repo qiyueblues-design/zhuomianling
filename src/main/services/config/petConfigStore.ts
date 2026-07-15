@@ -28,12 +28,14 @@ import type {
   PetEventSettingsMap,
   PetFeature,
   PetLine,
-  PetLineMap
+  PetLineMap,
+  PetVoiceModelVersion
 } from "../../../shared/types/pet";
 import type { MemorySettings } from "../../../shared/types/memory";
 import { normalizeMemorySettings } from "../../../shared/validation/memory";
 import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
 import { normalizePetDesktopScale } from "../../../shared/validation/petUiSettings";
+import { isPetVoiceModelVersion } from "../../../shared/validation/petVoiceModel";
 import { petResourceProtocol, toPetResourceUrl } from "./petResourceProtocol";
 import { validateLive2DFolder } from "./live2dImportService";
 import { resolveLegacyVoiceModelPaths } from "./legacyVoiceModelPath";
@@ -475,6 +477,14 @@ function normalizeVoiceInferenceDevice(
     : defaultVoiceInferenceDevice;
 }
 
+function requireVoiceModelVersion(value: unknown): PetVoiceModelVersion {
+  if (!isPetVoiceModelVersion(value)) {
+    throw new Error("请选择受支持的 GPT-SoVITS 模型版本。");
+  }
+
+  return value;
+}
+
 async function probeCudaWithPython(pythonExePath: string): Promise<CudaProbeResult> {
   const probeScript = [
     "import json",
@@ -556,23 +566,38 @@ async function writeGptSoVitsRuntimeConfig(
 
   const configDirectoryPath = await ensureSafePetSubdirectory(draft.petId, "voice");
   const configPath = path.join(configDirectoryPath, "gpt-sovits.generated.yaml");
-  const rootPath = toYamlPath(draft.gptSoVitsRootPath);
+  const content = buildGptSoVitsRuntimeConfigContent(draft, runtimeOptions);
 
-  const content = [
+  await writeTextFileAtomically(configPath, content);
+
+  return configPath;
+}
+
+export function buildGptSoVitsRuntimeConfigContent(
+  draft: Pick<
+    LocalPetVoiceModelDraft,
+    "gptSoVitsRootPath" | "gptModelPath" | "sovitsModelPath" | "modelVersion"
+  >,
+  runtimeOptions: Pick<ResolvedVoiceRuntimeOptions, "device" | "isHalf">
+): string {
+  if (!draft.gptSoVitsRootPath || !draft.gptModelPath || !draft.sovitsModelPath) {
+    throw new Error("请先填写 GPT-SoVITS 本地路径，并选择 SoVITS / GPT 模型。");
+  }
+
+  const rootPath = toYamlPath(draft.gptSoVitsRootPath);
+  const modelVersion = requireVoiceModelVersion(draft.modelVersion);
+
+  return [
     "custom:",
     `  bert_base_path: ${rootPath}/GPT_SoVITS/pretrained_models/chinese-roberta-wwm-ext-large`,
     `  cnhuhbert_base_path: ${rootPath}/GPT_SoVITS/pretrained_models/chinese-hubert-base`,
     `  device: ${runtimeOptions.device}`,
     `  is_half: ${runtimeOptions.isHalf ? "true" : "false"}`,
     `  t2s_weights_path: ${toYamlPath(draft.gptModelPath)}`,
-    "  version: v2ProPlus",
+    `  version: ${modelVersion}`,
     `  vits_weights_path: ${toYamlPath(draft.sovitsModelPath)}`,
     ""
   ].join("\n");
-
-  await writeTextFileAtomically(configPath, content);
-
-  return configPath;
 }
 
 async function launchGptSoVitsApiIfNeeded(draft: LocalPetVoiceModelDraft): Promise<void> {
@@ -2166,6 +2191,15 @@ export async function pickLocalPetVoiceModelFile(
 export async function testLocalPetVoiceModelConnection(
   draft: LocalPetVoiceModelDraft
 ): Promise<LocalPetVoiceModelConnectionResult> {
+  try {
+    requireVoiceModelVersion(draft.modelVersion);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "声音模型版本无效。"
+    };
+  }
+
   if (!draft.referenceText.trim()) {
     return {
       ok: false,
@@ -2234,6 +2268,17 @@ export async function saveLocalPetVoiceModel(
 
   assertSafePetDirectory(petId);
 
+  let modelVersion: PetVoiceModelVersion;
+
+  try {
+    modelVersion = requireVoiceModelVersion(draft.modelVersion);
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "声音模型版本无效。"
+    };
+  }
+
   if (draft.enabled || draft.connected) {
     if (!draft.referenceText.trim()) {
       return {
@@ -2272,6 +2317,7 @@ export async function saveLocalPetVoiceModel(
     voiceModelSettings: {
       enabled: draft.enabled,
       connected: draft.connected,
+      modelVersion,
       gptSoVitsRootPath: draft.gptSoVitsRootPath,
       sovitsModelPath: draft.sovitsModelPath,
       gptModelPath: draft.gptModelPath,

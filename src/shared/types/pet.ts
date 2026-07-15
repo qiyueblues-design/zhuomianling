@@ -168,9 +168,23 @@ export interface PetVoiceInputSettings {
   continuousConversationEnabled: boolean;
 }
 
+export const petVoiceModelVersions = [
+  "v1",
+  "v2",
+  "v3",
+  "v4",
+  "v2Pro",
+  "v2ProPlus"
+] as const;
+
+export type PetVoiceModelVersion = (typeof petVoiceModelVersions)[number];
+
+export const defaultPetVoiceModelVersion: PetVoiceModelVersion = "v2ProPlus";
+
 export interface PetVoiceModelSettings {
   enabled: boolean;
   connected: boolean;
+  modelVersion?: PetVoiceModelVersion;
   gptSoVitsRootPath?: string;
   sovitsModelPath?: string;
   gptModelPath?: string;
@@ -303,6 +317,7 @@ export interface LocalPetVoiceModelDraft {
   petId: string;
   enabled: boolean;
   connected: boolean;
+  modelVersion: PetVoiceModelVersion;
   gptSoVitsRootPath?: string;
   sovitsModelPath?: string;
   gptModelPath?: string;

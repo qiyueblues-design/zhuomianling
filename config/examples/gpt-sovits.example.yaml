@@ -3,7 +3,8 @@
 
 custom:
   t2s_weights_path: path/to/your/model.ckpt
-  version: v2Pro
+  # Supported values: v1, v2, v3, v4, v2Pro, v2ProPlus
+  version: v2ProPlus
   vits_weights_path: path/to/your/model.pth
 
 api:

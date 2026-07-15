@@ -599,6 +599,7 @@ describe("GPT-SoVITS resource validation", () => {
       petId,
       enabled: true,
       connected: false,
+      modelVersion: "v2ProPlus",
       gptSoVitsRootPath: voiceRootPath,
       sovitsModelPath,
       gptModelPath,
@@ -623,6 +624,25 @@ describe("GPT-SoVITS resource validation", () => {
     });
     expect(result.message).not.toContain("HISTORICAL_INFERENCE_PROGRESS");
     expect(result.message).not.toContain("最近日志");
+  });
+
+  it("writes the selected model version into the managed runtime config", async () => {
+    const { buildGptSoVitsRuntimeConfigContent } = await import("./petConfigStore");
+    const content = buildGptSoVitsRuntimeConfigContent(
+      {
+        gptSoVitsRootPath: "D:\\GPT-SoVITS",
+        sovitsModelPath: "D:\\weights\\voice.pth",
+        gptModelPath: "D:\\weights\\voice.ckpt",
+        modelVersion: "v4"
+      },
+      {
+        device: "cpu",
+        isHalf: false
+      }
+    );
+
+    expect(content).toContain("  version: v4\n");
+    expect(content).not.toContain("version: v2ProPlus");
   });
 });
 

@@ -565,15 +565,11 @@ export async function testAiConnection(draft: AiConnectionDraft): Promise<AiConn
 
 function getCapabilityMessage(capability: AiOutputCapability): string {
   if (capability.confidence === "fallback") {
-    return "聊天能力探测未完成，将使用兼容模式。";
+    return "回复测试未完成，将自动使用兼容模式。";
   }
   const modeLabel =
-    capability.mode === "json-schema"
-      ? "结构化回复"
-      : capability.mode === "json-object"
-        ? "JSON 回复"
-        : "兼容文本";
-  return `${modeLabel} · ${capability.streaming ? "支持流式" : "完整回复模式"}`;
+    capability.mode === "plain-text" ? "已使用通用回复模式" : "回复格式已适配";
+  return `${modeLabel} · ${capability.streaming ? "支持流式" : "完整回复"}`;
 }
 
 export async function testAiOutputCapability(

@@ -62,6 +62,14 @@
   transform: none;
 }
 
+.quickActionRangeLabel {
+  display: block;
+  margin-top: 10px;
+  color: #344255;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .desktopScaleRangeControl {
   display: grid;
   grid-template-columns: auto minmax(120px, 1fr) auto 58px;

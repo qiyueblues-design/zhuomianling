@@ -62,6 +62,7 @@ describe("桌宠详情声音配置兼容", () => {
       petId: "pet",
       enabled: true,
       connected: false,
+      modelVersion: "v2ProPlus",
       referenceText: "测试文本",
       language: "zh"
     });
