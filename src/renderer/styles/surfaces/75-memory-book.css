@@ -46,7 +46,6 @@
 .memoryBookIdentity,
 .memoryToolButton,
 .memoryViewControls button,
-.memoryPagination button,
 .memoryInlineActions,
 .memoryBookFooter button {
   display: inline-flex;
@@ -258,8 +257,7 @@
 .memoryReadingHeader h1 { margin: 2px 0 4px; font: 720 clamp(25px, 3vw, 38px)/1.1 Georgia, "Microsoft YaHei", serif; letter-spacing: -0.03em; outline: 0; }
 .memoryReadingHeader p { margin: 0; color: var(--ui-muted); }
 .memoryReadingTitle { display: flex; align-items: center; gap: 12px; }
-.memoryHeaderReturnButton,
-.memoryCoverReturnButton {
+.memoryHeaderReturnButton {
   display: grid;
   width: 40px;
   min-width: 40px;
@@ -273,12 +271,9 @@
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 0 0 3px rgba(24,36,66,0.22), 0 4px 10px rgba(30,43,74,0.24);
   transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
 }
-.memoryHeaderReturnButton:hover,
-.memoryCoverReturnButton:hover { filter: brightness(1.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), inset 0 0 0 3px rgba(24,36,66,0.18), 0 6px 14px rgba(30,43,74,0.3); }
-.memoryHeaderReturnButton:active,
-.memoryCoverReturnButton:active { transform: translateY(1px); }
-.memoryHeaderReturnButton:focus-visible,
-.memoryCoverReturnButton:focus-visible { outline: 3px solid color-mix(in srgb, var(--ui-accent) 58%, white); outline-offset: 3px; }
+.memoryHeaderReturnButton:hover { filter: brightness(1.1); box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), inset 0 0 0 3px rgba(24,36,66,0.18), 0 6px 14px rgba(30,43,74,0.3); }
+.memoryHeaderReturnButton:active { transform: translateY(1px); }
+.memoryHeaderReturnButton:focus-visible { outline: 3px solid color-mix(in srgb, var(--ui-accent) 58%, white); outline-offset: 3px; }
 .memoryViewControls { display: flex; align-items: center; padding: 3px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-glass); }
 .memoryViewControls button { min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; color: var(--ui-muted); background: transparent; }
 .memoryViewControls button.active { color: var(--ui-ink); background: var(--ui-glass-strong); box-shadow: 0 3px 10px rgba(28,39,54,0.08); }
@@ -291,8 +286,51 @@
 .memoryPaperPage > footer { padding-top: 18px; color: var(--memory-muted); text-align: center; font: 500 12px/1 Georgia, serif; }
 
 .memoryList { display: grid; gap: 12px; width: min(850px, 100%); margin: 0 auto; }
-.memoryPageStage { position: relative; transition: opacity 220ms ease, filter 220ms ease, transform 220ms ease; }
-.memoryPageStage.isLoading { opacity: 0.68; filter: saturate(0.82); transform: scale(0.997); }
+.memoryPageStage { position: relative; }
+.memoryPageStage.listMode { width: min(940px, 100%); margin-inline: auto; }
+.memoryPageTurnButton {
+  position: absolute;
+  z-index: 12;
+  top: calc(50% - 22px);
+  display: grid;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #edf1f8;
+  background: transparent;
+  transform: none;
+  isolation: isolate;
+}
+.memoryPageTurnButton::before {
+  position: absolute;
+  z-index: -1;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(218, 225, 238, 0.58);
+  border-radius: 50%;
+  content: "";
+  background: linear-gradient(145deg, #6076a9, #354a78);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 5px 12px rgba(24, 35, 62, 0.28);
+  transition: filter 160ms ease, box-shadow 160ms ease;
+}
+.memoryPageTurnButton.previous { left: 2px; }
+.memoryPageTurnButton.next { right: 2px; }
+.memoryPageTurnButton:hover:not(:disabled)::before {
+  filter: brightness(1.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 7px 15px rgba(24, 35, 62, 0.34);
+}
+.memoryPageTurnButton:active:not(:disabled) { transform: none; }
+.memoryPageTurnButton:active:not(:disabled)::before {
+  filter: brightness(0.96);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 3px 8px rgba(24, 35, 62, 0.24);
+}
+.memoryPageTurnButton:focus-visible { outline: 3px solid color-mix(in srgb, var(--ui-accent) 58%, white); outline-offset: -2px; }
+.memoryPageTurnButton:disabled { color: rgba(237, 241, 248, 0.48); cursor: not-allowed; }
+.memoryPageTurnButton:disabled::before { opacity: 0.5; box-shadow: none; }
 .memoryPageLoadingOverlay {
   position: absolute;
   z-index: 10;
@@ -326,10 +364,6 @@
 .memoryCard > footer { display: flex; min-height: 42px; align-items: center; justify-content: space-between; padding: 0 8px 0 15px; border-top: 1px solid var(--memory-paper-line); color: var(--memory-muted); font-size: 11px; }
 .memoryCard > footer > div { display: flex; }
 .memoryCard .memoryIconButton { width: 36px; min-width: 36px; height: 36px; }
-
-.memoryPagination { display: flex; align-items: center; justify-content: center; gap: 18px; margin-top: 22px; }
-.memoryPagination button { min-height: 44px; padding: 0 14px; border: 1px solid var(--ui-line-strong); border-radius: 12px; color: var(--ui-ink); background: var(--ui-glass-strong); }
-.memoryPagination span { min-width: 70px; color: var(--ui-muted); text-align: center; font-size: 13px; }
 
 .memoryCenteredState { display: grid; min-height: 360px; place-items: center; align-content: center; gap: 9px; padding: 32px; color: var(--ui-muted); text-align: center; }
 .memoryCenteredState h2, .memoryCenteredState p { margin: 0; }
@@ -1035,8 +1069,7 @@
 }
 
 .memoryToolButton:active,
-.memoryBackButton:active,
-.memoryPagination button:active:not(:disabled) { transform: translateY(1px); }
+.memoryBackButton:active { transform: translateY(1px); }
 
 .memoryBookmarks {
   top: 62px;
@@ -1227,13 +1260,6 @@
 .memoryBookCorner.bottomLeft { bottom: 13px; left: 9px; border-width: 0 0 4px 4px; border-radius: 0 0 0 12px; }
 .memoryBookCorner.bottomRight { right: 9px; bottom: 13px; border-width: 0 4px 4px 0; border-radius: 0 0 12px; }
 
-.memoryCoverReturnButton {
-  position: absolute;
-  z-index: 8;
-  top: 27px;
-  left: 29px;
-}
-
 .memoryPaperPage {
   position: relative;
   z-index: 2;
@@ -1279,8 +1305,6 @@
   font-weight: 700;
   letter-spacing: 0.08em;
 }
-
-.memoryPaperPage:first-of-type .memoryPageImprint { padding-left: clamp(12px, 3vw, 40px); }
 
 .memoryPaperPage:nth-of-type(even) .memoryPageImprint { justify-content: flex-end; }
 .memoryPaperPage > div {
@@ -1375,12 +1399,6 @@
 
 .memoryBlankPage::after { width: 96px; height: 96px; border-style: dashed; }
 .memoryBlankPage svg, .memoryBlankPage span { position: relative; z-index: 1; }
-
-.memoryPagination button {
-  border-color: rgba(48, 63, 95, 0.16);
-  border-radius: 10px;
-  background: rgba(245, 247, 251, 0.72);
-}
 
 .memoryList {
   gap: 9px;
@@ -1539,8 +1557,7 @@
   .memorySearch,
   .memorySelectTrigger,
   .memoryToolButton,
-  .memoryDateFilters input,
-  .memoryPagination button { background: rgba(36, 45, 63, 0.82); }
+  .memoryDateFilters input { background: rgba(36, 45, 63, 0.82); }
 
   .memoryPaperPage {
     background:
@@ -1575,7 +1592,6 @@
   .memoryReadingHeader h1::before { width: 16px; margin-right: 8px; }
   .memorySpread { border-radius: 15px; }
   .memoryPaperPage { min-height: 0; padding: 31px 17px 19px; }
-  .memoryPaperPage:first-of-type .memoryPageImprint { padding-left: 47px; }
   .memoryBookCorner { width: 24px; height: 24px; }
   .memoryOnboardingOverlay { padding: 14px; }
   .memoryOnboardingFront { max-height: calc(100dvh - 28px); padding: 27px 20px 22px; border-radius: 20px; }
@@ -1588,9 +1604,7 @@
   .memorySpreadAura,
   .memoryLoadingBook > span { animation: none !important; }
   .memoryHeaderReturnButton,
-  .memoryCoverReturnButton { transition: none; }
-  .memoryPageStage { transition: none; }
-  .memoryPageStage.isLoading { opacity: 1; filter: none; transform: none; }
+  .memoryPageTurnButton::before { transition: none; }
   .memoryPageLoadingOverlay,
   .memoryDelayedLoading { animation: none; }
   .memorySelectTrigger > svg { transition: none; }
@@ -1606,9 +1620,7 @@
 .memoryReadingArea.noMotion .memorySpreadAura,
 .memoryReadingArea.noMotion .memoryLoadingBook > span { animation: none; }
 .memoryReadingArea.noMotion .memoryHeaderReturnButton,
-.memoryReadingArea.noMotion .memoryCoverReturnButton { transition: none; }
-.memoryReadingArea.noMotion .memoryPageStage { transition: none; }
-.memoryReadingArea.noMotion .memoryPageStage.isLoading { opacity: 1; filter: none; transform: none; }
+.memoryReadingArea.noMotion .memoryPageTurnButton::before { transition: none; }
 .memoryReadingArea.noMotion .memoryPageLoadingOverlay,
 .memoryReadingArea.noMotion .memoryDelayedLoading { animation: none; }
 .memoryOnboardingOverlay.noMotion,

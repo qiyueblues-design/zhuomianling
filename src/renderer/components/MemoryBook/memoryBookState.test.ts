@@ -8,6 +8,7 @@ import {
   getMemoryBookRestoreScrollTop,
   MEMORY_CHAPTER_META,
   memoryErrorMessage,
+  retreatMemoryBookPage,
   resetMemoryBookPagination
 } from "./memoryBookState";
 
@@ -61,6 +62,32 @@ describe("memory book route state", () => {
     expect(state.pageIndex).toBe(100);
     expect(state.cursors).toHaveLength(101);
     expect(state.cursors[100]).toBe("cursor-100");
+  });
+
+  it("uses the left page control to go back, then returns the first page to the contents", () => {
+    const secondPage = {
+      ...createMemoryBookRouteState(),
+      section: "reading" as const,
+      chapter: "preferences_habits" as const,
+      cursors: [undefined, "next"],
+      pageIndex: 1,
+      scrollTop: 240
+    };
+
+    const firstPage = retreatMemoryBookPage(secondPage);
+    expect(firstPage).toMatchObject({
+      section: "reading",
+      chapter: "preferences_habits",
+      pageIndex: 0
+    });
+
+    expect(retreatMemoryBookPage(firstPage)).toMatchObject({
+      section: "cover",
+      chapter: "all",
+      cursors: [undefined],
+      pageIndex: 0,
+      scrollTop: 0
+    });
   });
 
   it("never restores a scrolled cover that can hide the return navigation", () => {

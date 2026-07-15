@@ -66,6 +66,18 @@ export function advanceMemoryBookPage(
   return { ...state, cursors, pageIndex: state.pageIndex + 1 };
 }
 
+export function retreatMemoryBookPage(state: MemoryBookRouteState): MemoryBookRouteState {
+  if (state.pageIndex > 0) {
+    return { ...state, pageIndex: state.pageIndex - 1 };
+  }
+
+  return resetMemoryBookPagination(state, {
+    section: "cover",
+    chapter: "all",
+    scrollTop: 0
+  });
+}
+
 export function getMemoryBookRestoreScrollTop(state: MemoryBookRouteState): number {
   return state.section === "reading" ? Math.max(0, state.scrollTop) : 0;
 }

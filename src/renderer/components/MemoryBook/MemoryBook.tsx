@@ -54,6 +54,7 @@ import {
   getMemoryBookRequestPageSizes,
   getMemoryBookRestoreScrollTop,
   memoryErrorMessage,
+  retreatMemoryBookPage,
   resetMemoryBookPagination
 } from "./memoryBookState";
 import type { MemoryBookChapterFilter, MemoryBookRouteState } from "./memoryBookState";
@@ -668,9 +669,15 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
   }, [nextCursor, pageLoading]);
 
   const goPrevious = useCallback((): void => {
-    if (pageLoading) return;
-    setRoute((current) => ({ ...current, pageIndex: Math.max(0, current.pageIndex - 1) }));
-  }, [pageLoading]);
+    const returningToCover = route.pageIndex === 0;
+    setRoute((current) => retreatMemoryBookPage(current));
+    if (returningToCover) {
+      scrollRef.current?.scrollTo({
+        top: 0,
+        behavior: route.animationsEnabled ? "smooth" : "auto"
+      });
+    }
+  }, [route.animationsEnabled, route.pageIndex]);
 
   const jumpToEnd = useCallback(async (): Promise<void> => {
     if (!api || pageLoading) return;
@@ -981,6 +988,30 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
   const pageNumber = route.pageIndex + 1;
   const firstPaperRecords = records.slice(0, singlePage ? records.length : 3);
   const secondPaperRecords = singlePage ? [] : records.slice(3);
+  const previousPageLabel = route.pageIndex === 0 ? "回到目录" : "上一页";
+  const pageTurnControls = (
+    <>
+      <button
+        className="memoryPageTurnButton previous"
+        type="button"
+        title={previousPageLabel}
+        aria-label={previousPageLabel}
+        onClick={goPrevious}
+      >
+        <ChevronLeft size={16} strokeWidth={2.2} />
+      </button>
+      <button
+        className="memoryPageTurnButton next"
+        type="button"
+        title="下一页"
+        aria-label="下一页"
+        disabled={!nextCursor || pageLoading}
+        onClick={goNext}
+      >
+        <ChevronRight size={16} strokeWidth={2.2} />
+      </button>
+    </>
+  );
 
   return (
     <section className="memoryBookShell" ref={scrollRef} aria-label={`${pet.name} 的记忆书`} onScroll={(event) => {
@@ -1065,13 +1096,18 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
           {(status?.indexState === "pending" || status?.provider.state === "index-dirty") ? <div className="memoryProviderNotice warning"><RefreshCw size={18} /><span><strong>派生索引需要维护</strong>账本内容仍可读；重建只会从账本生成索引。</span><button type="button" onClick={() => void runStatusAction("rebuild")}>重建索引</button></div> : null}
 
           {showPageLoading && !records.length && !hasResolvedPage ? <div className="memoryCenteredState compact memoryDelayedLoading" role="status"><BookOpen size={25} /><span>正在翻页…</span></div> : null}
-          {!records.length && !error && (hasResolvedPage || !pageLoading) ? <div className={pageLoading ? "memoryPageStage isLoading" : "memoryPageStage"} aria-busy={pageLoading}><div className="memoryCenteredState memoryEmpty"><BookOpen size={34} /><h2>{debouncedQuery ? "没有找到相符记忆" : "这一页还是空白"}</h2><p>{debouncedQuery ? "试试更短的关键词，或清除章节与时间筛选。" : "手动记录一件值得记住的事，之后也可以继续编辑。"}</p><button className="primaryAction" type="button" onClick={() => setEditor({ mode: "create", chapter: initialChapter(route.chapter) })}><Plus size={17} />添加记忆</button></div>{showPageLoading ? <div className="memoryPageLoadingOverlay" role="status"><span><BookOpen size={18} />正在翻页…</span></div> : null}</div> : null}
+          {!records.length && !error && (hasResolvedPage || !pageLoading) ? (
+            <div className={`${pageLoading ? "memoryPageStage isLoading" : "memoryPageStage"} ${route.displayMode === "list" ? "listMode" : "bookMode"}`} aria-busy={pageLoading}>
+              <div className="memoryCenteredState memoryEmpty"><BookOpen size={34} /><h2>{debouncedQuery ? "没有找到相符记忆" : "这一页还是空白"}</h2><p>{debouncedQuery ? "试试更短的关键词，或清除章节与时间筛选。" : "手动记录一件值得记住的事，之后也可以继续编辑。"}</p><button className="primaryAction" type="button" onClick={() => setEditor({ mode: "create", chapter: initialChapter(route.chapter) })}><Plus size={17} />添加记忆</button></div>
+              {pageTurnControls}
+              {showPageLoading ? <div className="memoryPageLoadingOverlay" role="status"><span><BookOpen size={18} />正在翻页…</span></div> : null}
+            </div>
+          ) : null}
 
           {records.length ? (
-            <div className={pageLoading ? "memoryPageStage isLoading" : "memoryPageStage"} aria-busy={pageLoading}>
+            <div className={`${pageLoading ? "memoryPageStage isLoading" : "memoryPageStage"} ${route.displayMode === "list" ? "listMode" : "bookMode"}`} aria-busy={pageLoading}>
             {route.displayMode === "book" ? <div className="memorySpread">
               <span className="memorySpreadAura" aria-hidden="true" />
-              <button className="memoryCoverReturnButton" type="button" title="回到封面" aria-label="回到封面" onClick={returnToCover}><ChevronLeft size={21} strokeWidth={2.2} /></button>
               <span className="memoryBookCrest" aria-hidden="true"><Sparkles size={20} /></span>
               <span className="memoryBookCorner topRight" aria-hidden="true" />
               <span className="memoryBookCorner bottomLeft" aria-hidden="true" />
@@ -1087,11 +1123,10 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
                 <footer><span>{pageNumber * 2}</span></footer>
               </section> : null}
             </div> : <div className="memoryList" aria-label="记忆列表">{records.map((memory) => <MemoryCard key={memory.id} memory={memory} onRead={() => setReadingMemory(memory)} onEdit={() => setEditor({ mode: "edit", memory })} onForget={() => void forgetMemory(memory)} onToggleImportant={() => void toggleImportant(memory)} />)}</div>}
+            {pageTurnControls}
             {showPageLoading ? <div className="memoryPageLoadingOverlay" role="status"><span><BookOpen size={18} />正在翻页…</span></div> : null}
             </div>
           ) : null}
-
-          <nav className="memoryPagination" aria-label="记忆翻页"><button type="button" disabled={route.pageIndex === 0 || pageLoading} onClick={goPrevious}><ChevronLeft size={18} />上一页</button><span>第 {pageNumber} 页</span><button type="button" disabled={!nextCursor || pageLoading} onClick={goNext}>下一页<ChevronRight size={18} /></button></nav>
         </div>
       ) : null}
 
