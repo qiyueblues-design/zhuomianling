@@ -11,6 +11,9 @@ interface SubtitleProps {
   anchor?: Live2DClientPoint;
 }
 
+const defaultBubbleMaxWidth = 150;
+const defaultBubbleMinWidth = 118;
+
 const fallbackAnchor: Live2DClientPoint = {
   clientX: 204,
   clientY: 184
@@ -31,14 +34,15 @@ export function Subtitle({ state, anchor }: SubtitleProps): JSX.Element | null {
       const rect = bubble.getBoundingClientRect();
       const nextPosition = calculateSubtitleBubblePosition({
         anchor: anchor ?? fallbackAnchor,
-        bubbleWidth: rect.width,
         bubbleHeight: rect.height,
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight
       });
 
       setPosition((currentPosition) =>
-        currentPosition?.left === nextPosition.left && currentPosition.top === nextPosition.top
+        currentPosition?.left === nextPosition.left &&
+        currentPosition.top === nextPosition.top &&
+        currentPosition.availableWidth === nextPosition.availableWidth
           ? currentPosition
           : nextPosition
       );
@@ -64,7 +68,6 @@ export function Subtitle({ state, anchor }: SubtitleProps): JSX.Element | null {
   const viewportHeight = typeof window === "undefined" ? 430 : window.innerHeight;
   const initialPosition = calculateSubtitleBubblePosition({
     anchor: anchor ?? fallbackAnchor,
-    bubbleWidth: state.maxWidth ?? 150,
     bubbleHeight: 60,
     viewportWidth,
     viewportHeight
@@ -73,10 +76,13 @@ export function Subtitle({ state, anchor }: SubtitleProps): JSX.Element | null {
     left: position?.left ?? initialPosition.left,
     top: position?.top ?? initialPosition.top
   };
-
-  if (state.maxWidth) {
-    style.maxWidth = `min(${state.maxWidth}px, calc(100vw - 16px))`;
-  }
+  const availableWidth = position?.availableWidth ?? initialPosition.availableWidth;
+  const bubbleMaxWidth = Math.max(
+    1,
+    Math.min(state.maxWidth ?? defaultBubbleMaxWidth, availableWidth)
+  );
+  style.maxWidth = `${bubbleMaxWidth}px`;
+  style.minWidth = `${Math.min(defaultBubbleMinWidth, bubbleMaxWidth)}px`;
 
   return (
     <div

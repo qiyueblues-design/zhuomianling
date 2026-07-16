@@ -137,8 +137,8 @@ describe("Live2D visible model bounds", () => {
       { left: 10, top: 20, width: 200, height: 100 }
     );
 
-    expect(point?.clientX).toBeCloseTo(194, 8);
-    expect(point?.clientY).toBeCloseTo(38, 8);
+    expect(point?.clientX).toBeCloseTo(166, 8);
+    expect(point?.clientY).toBeCloseTo(36, 8);
   });
 
   it("projects the Cubism 2 right-face point from Y-down model space", () => {
@@ -149,8 +149,8 @@ describe("Live2D visible model bounds", () => {
       { left: 10, top: 20, width: 200, height: 100 }
     );
 
-    expect(point?.clientX).toBeCloseTo(194, 8);
-    expect(point?.clientY).toBeCloseTo(102, 8);
+    expect(point?.clientX).toBeCloseTo(166, 8);
+    expect(point?.clientY).toBeCloseTo(104, 8);
   });
 
   it.each([0.7, 1, 1.5])("tracks a %s desktop-scale matrix", (scale) => {
@@ -161,8 +161,8 @@ describe("Live2D visible model bounds", () => {
       { left: 0, top: 0, width: 300, height: 400 }
     );
 
-    expect(point?.clientX).toBeCloseTo(150 + 126 * scale, 8);
-    expect(point?.clientY).toBeCloseTo(200 - 128 * scale, 8);
+    expect(point?.clientX).toBeCloseTo(150 + 84 * scale, 8);
+    expect(point?.clientY).toBeCloseTo(200 - 136 * scale, 8);
   });
 
   it("rejects zero-size viewports and invalid homogeneous matrices", () => {

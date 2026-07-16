@@ -6,24 +6,22 @@ describe("subtitle right-face anchoring", () => {
     expect(
       calculateSubtitleBubblePosition({
         anchor: { clientX: 120, clientY: 90 },
-        bubbleWidth: 100,
         bubbleHeight: 40,
         viewportWidth: 300,
         viewportHeight: 200
       })
-    ).toEqual({ left: 134, top: 72 });
+    ).toEqual({ left: 132, top: 72, availableWidth: 160 });
   });
 
-  it("keeps the bubble inside the right edge", () => {
+  it("keeps the arrow tip anchored and narrows the bubble at the right edge", () => {
     expect(
       calculateSubtitleBubblePosition({
-        anchor: { clientX: 280, clientY: 90 },
-        bubbleWidth: 100,
+        anchor: { clientX: 250, clientY: 90 },
         bubbleHeight: 40,
         viewportWidth: 300,
         viewportHeight: 200
       })
-    ).toEqual({ left: 192, top: 72 });
+    ).toEqual({ left: 262, top: 72, availableWidth: 30 });
   });
 
   it.each([
@@ -33,7 +31,6 @@ describe("subtitle right-face anchoring", () => {
     expect(
       calculateSubtitleBubblePosition({
         anchor: { clientX: 120, clientY },
-        bubbleWidth: 100,
         bubbleHeight: 40,
         viewportWidth: 300,
         viewportHeight: 200

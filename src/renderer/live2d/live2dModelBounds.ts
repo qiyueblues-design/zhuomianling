@@ -28,8 +28,8 @@ export interface Live2DDrawableGeometry {
 }
 
 const minimumVisibleDrawableOpacity = 0.001;
-const rightFaceAnchorXRatio = 0.92;
-const rightFaceAnchorYRatio = 0.18;
+const rightFaceAnchorXRatio = 0.78;
+const rightFaceAnchorYRatio = 0.16;
 
 export function measureLive2DVertexBounds(
   vertexSets: Iterable<ArrayLike<number>>,
