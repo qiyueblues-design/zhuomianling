@@ -116,14 +116,66 @@ export type PetUiTheme = BuiltInPetUiTheme | "custom";
 export type PetExpressionSelectionMode = "semantic" | "random";
 export type PetExpressionRandomScope = PetExpressionSourceKind | "all";
 
+export const petChatDecorationSlots = [
+  "header-left",
+  "header-right",
+  "frame-top-right",
+  "body-watermark"
+] as const;
+
+export const petChatDecorationIcons = [
+  "audio-waveform", "binary", "blocks", "box", "circle",
+  "circle-dashed", "circuit-board", "citrus", "cpu", "feather",
+  "flower-2", "gamepad-2", "guitar", "heart", "joystick", "leaf", "minus",
+  "music-2", "notebook-pen", "scan-line", "sparkles",
+  "square", "star", "zap"
+] as const;
+
+export type PetChatDecorationSlot = (typeof petChatDecorationSlots)[number];
+export type PetChatDecorationIcon = (typeof petChatDecorationIcons)[number];
+export type PetChatDecorations = Partial<Record<PetChatDecorationSlot, PetChatDecorationIcon>>;
+
+export const petRadialMenuActionKinds = [
+  "passThrough",
+  "touch",
+  "chat",
+  "danger"
+] as const;
+
+export type PetRadialMenuActionKind = (typeof petRadialMenuActionKinds)[number];
+
+export interface PetCustomThemeRadialMenuAction {
+  surface: string;
+  text: string;
+  border?: string;
+}
+
+export interface PetCustomThemeRadialMenu {
+  radius?: number;
+  surface: string;
+  text: string;
+  border: string;
+  shadow?: string;
+  activeBorder?: string;
+  center: PetCustomThemeRadialMenuAction;
+  actions: Record<PetRadialMenuActionKind, PetCustomThemeRadialMenuAction>;
+}
+
 export interface PetCustomThemeTokens {
   background: string;
   surface: string;
   petSurface?: string;
+  headerSurface?: string;
+  headerText?: string;
+  inputSurface?: string;
+  userSurface?: string;
   text: string;
   mutedText: string;
   accent: string;
   accentStrong?: string;
+  decorationPrimary?: string;
+  decorationSecondary?: string;
+  watermarkColor?: string;
   border: string;
   danger?: string;
   shadow?: string;
@@ -138,12 +190,8 @@ export interface PetCustomTheme {
   author?: string;
   importedAt?: string;
   tokens: PetCustomThemeTokens;
-}
-
-export interface PetCustomThemeListResult {
-  ok: boolean;
-  message: string;
-  themes: PetCustomTheme[];
+  chatDecorations?: PetChatDecorations;
+  radialMenu?: PetCustomThemeRadialMenu;
 }
 
 export interface PetCustomThemeImportResult {
@@ -206,13 +254,18 @@ export interface PetLive2DSettings {
   expressionCount: number;
 }
 
+export interface PetDesktopPosition {
+  x: number;
+  y: number;
+}
+
 export interface PetUiSettings {
   theme: PetUiTheme;
-  customThemeId?: string;
   customTheme?: PetCustomTheme;
   clickThroughOpacity?: number;
   cursorFollowEnabled?: boolean;
   desktopScale?: number;
+  desktopPosition?: PetDesktopPosition;
 }
 
 export interface PetDefinition {
@@ -293,7 +346,7 @@ export interface LocalPetEventSettingsDraft {
 export interface LocalPetUiSettingsDraft {
   petId: string;
   theme: PetUiTheme;
-  customThemeId?: string;
+  customTheme?: PetCustomTheme;
   clickThroughOpacity?: number;
   cursorFollowEnabled?: boolean;
   desktopScale?: number;

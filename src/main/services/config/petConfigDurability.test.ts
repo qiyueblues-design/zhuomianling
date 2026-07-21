@@ -189,6 +189,144 @@ describe("pet config durable persistence", () => {
     });
   });
 
+  it("stores an imported custom theme only inside the selected pet definition", async () => {
+    await writePetFixture();
+    const themePath = path.join(temporaryDirectory, "mint-plaid.json");
+    await fs.writeFile(
+      themePath,
+      JSON.stringify({
+        id: "mint-plaid",
+        name: "薄荷格纹",
+        description: "当前桌宠的主题",
+        version: 1,
+        tokens: {
+          background: "#f3fbf8",
+          surface: "rgba(255, 250, 240, 0.92)",
+          headerSurface: "linear-gradient(135deg, #fff, #e4f4c8)",
+          headerText: "#36552c",
+          inputSurface: "#fbfff6",
+          userSurface: "linear-gradient(145deg, #7fa84c, #5f8736)",
+          text: "#273047",
+          mutedText: "#6d7f89",
+          accent: "#0f7281",
+          decorationPrimary: "#73a136",
+          decorationSecondary: "#8eae62",
+          watermarkColor: "rgba(111, 152, 64, 0.10)",
+          border: "rgba(102, 137, 135, 0.34)"
+        },
+        chatDecorations: {
+          "header-left": "citrus",
+          "header-right": "flower-2",
+          "frame-top-right": "leaf",
+          "body-watermark": "flower-2"
+        },
+        radialMenu: {
+          radius: 15,
+          surface: "#ffffff",
+          text: "#36552c",
+          border: "#668987",
+          center: { surface: "#f3fbf8", text: "#36552c" },
+          actions: {
+            chat: { surface: "#eff8d7", text: "#577838" }
+          }
+        }
+      }),
+      "utf8"
+    );
+    testState.openDialogResult = { canceled: false, filePaths: [themePath] };
+    const { importLocalUiTheme, saveLocalPetUiSettings } = await import("./petConfigStore");
+
+    const imported = await importLocalUiTheme();
+    expect(imported.ok).toBe(true);
+    expect(imported.theme?.id).toBe("mint-plaid");
+    await saveLocalPetUiSettings({
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: imported.theme
+    });
+
+    const stored = JSON.parse(await fs.readFile(getPetConfigPath(), "utf8"));
+    expect(stored.uiSettings).toMatchObject({
+      theme: "custom",
+      customTheme: {
+        id: "mint-plaid",
+        name: "薄荷格纹",
+        tokens: {
+          accent: "#0f7281",
+          headerSurface: "linear-gradient(135deg, #fff, #e4f4c8)",
+          userSurface: "linear-gradient(145deg, #7fa84c, #5f8736)",
+          watermarkColor: "rgba(111, 152, 64, 0.10)"
+        },
+        radialMenu: {
+          radius: 15,
+          actions: {
+            chat: { surface: "#eff8d7", text: "#577838" }
+          }
+        },
+        chatDecorations: {
+          "header-left": "citrus",
+          "header-right": "flower-2",
+          "frame-top-right": "leaf",
+          "body-watermark": "flower-2"
+        }
+      }
+    });
+    await expect(fs.access(path.join(temporaryDirectory, "themes"))).rejects.toThrow();
+  });
+
+  it("drops the pet-local custom theme when a built-in theme is saved", async () => {
+    await writePetFixture();
+    const { saveLocalPetUiSettings } = await import("./petConfigStore");
+    await saveLocalPetUiSettings({
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        id: "mint-plaid",
+        name: "薄荷格纹",
+        description: "当前桌宠的主题",
+        version: 1,
+        tokens: {
+          background: "#f3fbf8",
+          surface: "#ffffff",
+          text: "#273047",
+          mutedText: "#6d7f89",
+          accent: "#0f7281",
+          border: "#668987"
+        }
+      }
+    });
+    await saveLocalPetUiSettings({ petId: "pet-a", theme: "minimal" });
+
+    const stored = JSON.parse(await fs.readFile(getPetConfigPath(), "utf8"));
+    expect(stored.uiSettings.theme).toBe("minimal");
+    expect(stored.uiSettings).not.toHaveProperty("customTheme");
+  });
+
+  it("durably reloads a partially off-screen desktop position and preserves it in later UI saves", async () => {
+    await writePetFixture();
+    const { saveLocalPetDesktopPosition, saveLocalPetUiSettings } = await import(
+      "./petConfigStore"
+    );
+    await saveLocalPetDesktopPosition("pet-a", { x: -820, y: 1000 });
+    await saveLocalPetUiSettings({
+      petId: "pet-a",
+      theme: "journal",
+      clickThroughOpacity: 0.5,
+      cursorFollowEnabled: true,
+      desktopScale: 1.25
+    });
+
+    vi.resetModules();
+    const { getLocalPetDefinition } = await import("./petConfigStore");
+    const reloadedPet = await getLocalPetDefinition("pet-a");
+
+    expect(reloadedPet?.uiSettings).toMatchObject({
+      theme: "journal",
+      desktopScale: 1.25,
+      desktopPosition: { x: -820, y: 1000 }
+    });
+  });
+
   it("restores the most recent valid backup without replacing it with damaged content", async () => {
     await writePetFixture();
     const { listLocalPets, restoreLocalPetConfigBackup, saveLocalPetPersona } = await import(

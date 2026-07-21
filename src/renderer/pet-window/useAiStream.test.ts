@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { PetDefinition } from "../../shared/types/pet";
 import type { SpeechFrontendSettings } from "../services/speech/speechSettings";
 import {
+  buildInterruptedReplyText,
   createAiStreamSettingsSnapshot,
+  enqueueSafeStreamingVoiceChunk,
   reconcileTypewriterText,
   selectFinalVoiceText,
-  selectSafeAiStreamPresentation
+  selectSafeAiStreamPresentation,
+  selectStreamingVoiceText
 } from "./useAiStream";
 
 const voiceSettings: SpeechFrontendSettings = {
@@ -79,6 +82,30 @@ describe("safe AI stream presentation", () => {
     expect(selectFinalVoiceText("回退正文", undefined, false)).toBe("回退正文");
   });
 
+  it("streams reply directly only when chat and voice use the same language", () => {
+    const event = { content: "聊天正文。", voiceText: "语音正文。" };
+
+    expect(selectStreamingVoiceText(event, true)).toBe("聊天正文。");
+    expect(selectStreamingVoiceText(event, false)).toBe("语音正文。");
+    expect(selectStreamingVoiceText({ content: "聊天正文。" }, false)).toBe("");
+  });
+
+  it("enqueues a safe streaming field during chunk handling before finalization", () => {
+    const calls: Array<[string, number | undefined]> = [];
+
+    enqueueSafeStreamingVoiceChunk(
+      { content: "第一句。后续仍在生成", voiceText: "第一句。后续仍在生成" },
+      { enabled: true, useReplyAsVoiceText: true, requestId: 7 },
+      {
+        enqueueStreamingText: (text, requestId) => {
+          calls.push([text, requestId]);
+        }
+      }
+    );
+
+    expect(calls).toEqual([["第一句。后续仍在生成", 7]]);
+  });
+
   it("refuses to send internal or structured artifacts to TTS", () => {
     expect(selectFinalVoiceText("安全正文", "<think>内部推理</think>", false)).toBeUndefined();
     expect(selectFinalVoiceText("安全正文", "<reasoning>内部推理</reasoning>", false))
@@ -87,5 +114,12 @@ describe("safe AI stream presentation", () => {
       .toBeUndefined();
     expect(selectFinalVoiceText("安全正文", '{"reply":"错误外壳"}', false)).toBeUndefined();
     expect(selectFinalVoiceText("```json\n内容\n```", undefined, true)).toBeUndefined();
+  });
+
+  it("preserves a committed safe prefix when generation is interrupted", () => {
+    expect(buildInterruptedReplyText("已经说出的安全内容。", "回复生成中断")).toBe(
+      "已经说出的安全内容。\n（回复生成中断）"
+    );
+    expect(buildInterruptedReplyText("", "回复已取消")).toBe("回复已取消。");
   });
 });

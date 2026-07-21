@@ -102,7 +102,7 @@ export function QuickActionsPanel({
       const saveResult = await window.desktopPet?.petConfig.saveUiSettings({
         petId: pet.id,
         theme: pet.uiSettings?.theme ?? "soft",
-        customThemeId: pet.uiSettings?.customThemeId,
+        customTheme: pet.uiSettings?.customTheme,
         clickThroughOpacity: selectedOpacity,
         cursorFollowEnabled,
         desktopScale: selectedDesktopScale

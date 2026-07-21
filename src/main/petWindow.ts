@@ -1,6 +1,6 @@
 import { BrowserWindow, screen } from "electron";
 import path from "node:path";
-import type { PetDefinition, PetLineEvent } from "../shared/types/pet";
+import type { PetDefinition, PetDesktopPosition, PetLineEvent } from "../shared/types/pet";
 import type {
   DesktopPetPayload,
   PetWindowDragPoint,
@@ -11,7 +11,11 @@ import type {
 import type { PetExpressionSourceItem } from "../shared/types/pet";
 import type { WebContents } from "electron";
 import { hardenWindowNavigation } from "./windowSecurity";
-import { normalizePetDesktopScale } from "../shared/validation/petUiSettings";
+import {
+  normalizePetDesktopPosition,
+  normalizePetDesktopScale
+} from "../shared/validation/petUiSettings";
+import { saveLocalPetDesktopPosition } from "./services/config/petConfigStore";
 
 let petWindow: BrowserWindow | null = null;
 let currentPet: DesktopPetPayload | null = null;
@@ -41,10 +45,15 @@ let dragStart:
 let pendingSourcePreview: PetWindowSourcePreviewEvent | undefined;
 let activeSourcePreview: PetWindowSourcePreviewEvent | undefined;
 let sourcePreviewSequence = 0;
+let displayListenersRegistered = false;
+let resetPositionOnNextCreate = false;
+let pendingDefaultPositionWindow: BrowserWindow | undefined;
 const stateListeners = new Set<(state: PetWindowState) => void>();
 const petWindowWidth = 380;
 const petWindowHeight = 480;
 const petWindowEdgeMargin = 28;
+const petWindowMinimumVisibleWidth = 80;
+const petWindowMinimumVisibleHeight = 80;
 const closeEffectDurationMs = 3300;
 const cursorTrackingIntervalMs = 50;
 type ClosePetWindowOptions = {
@@ -82,6 +91,28 @@ function clampCoordinate(value: number, minimum: number, maximum: number): numbe
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
 
+function clampPetWindowBoundsToWorkArea(
+  bounds: WindowRectangle,
+  workArea: WindowRectangle
+): WindowRectangle {
+  const minimumVisibleWidth = Math.min(bounds.width, petWindowMinimumVisibleWidth);
+  const minimumVisibleHeight = Math.min(bounds.height, petWindowMinimumVisibleHeight);
+
+  return {
+    ...bounds,
+    x: clampCoordinate(
+      bounds.x,
+      workArea.x - bounds.width + minimumVisibleWidth,
+      workArea.x + workArea.width - minimumVisibleWidth
+    ),
+    y: clampCoordinate(
+      bounds.y,
+      workArea.y - bounds.height + minimumVisibleHeight,
+      workArea.y + workArea.height - minimumVisibleHeight
+    )
+  };
+}
+
 export function calculateScaledPetWindowBounds(
   currentBounds: WindowRectangle,
   workArea: WindowRectangle,
@@ -93,26 +124,46 @@ export function calculateScaledPetWindowBounds(
   const desiredX = Math.round(anchorCenterX - size.width / 2);
   const desiredY = Math.round(anchorBottomY - size.height);
 
-  return {
-    x: clampCoordinate(desiredX, workArea.x, workArea.x + workArea.width - size.width),
-    y: clampCoordinate(desiredY, workArea.y, workArea.y + workArea.height - size.height),
+  return clampPetWindowBoundsToWorkArea({
+    x: desiredX,
+    y: desiredY,
     width: size.width,
     height: size.height
-  };
+  }, workArea);
 }
 
-function getInitialPetWindowBounds(payload: DesktopPetPayload): WindowRectangle {
-  const workArea = screen.getPrimaryDisplay().workArea;
+function getInitialPetWindowBounds(
+  payload: DesktopPetPayload,
+  useDefaultPosition = false
+): WindowRectangle {
+  const desktopScale = getDesktopScale(payload);
+  const savedPosition = useDefaultPosition
+    ? undefined
+    : normalizePetDesktopPosition(payload.definition?.uiSettings?.desktopPosition);
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const provisionalSize = getScaledPetWindowSize(desktopScale, primaryWorkArea);
+  const workArea = savedPosition
+    ? screen.getDisplayMatching({
+        x: savedPosition.x,
+        y: savedPosition.y,
+        width: provisionalSize.width,
+        height: provisionalSize.height
+      }).workArea
+    : primaryWorkArea;
   const size = getScaledPetWindowSize(getDesktopScale(payload), workArea);
-  const desiredX = Math.round(workArea.x + workArea.width - size.width - petWindowEdgeMargin);
-  const desiredY = Math.round(workArea.y + workArea.height - size.height - petWindowEdgeMargin);
+  const desiredX = savedPosition?.x ?? Math.round(
+    workArea.x + workArea.width - size.width - petWindowEdgeMargin
+  );
+  const desiredY = savedPosition?.y ?? Math.round(
+    workArea.y + workArea.height - size.height - petWindowEdgeMargin
+  );
 
-  return {
-    x: clampCoordinate(desiredX, workArea.x, workArea.x + workArea.width - size.width),
-    y: clampCoordinate(desiredY, workArea.y, workArea.y + workArea.height - size.height),
+  return clampPetWindowBoundsToWorkArea({
+    x: desiredX,
+    y: desiredY,
     width: size.width,
     height: size.height
-  };
+  }, workArea);
 }
 
 function getCurrentDragPoint(fallback: PetWindowDragPoint): PetWindowDragPoint {
@@ -190,6 +241,42 @@ function applyPetWindowState(): void {
   });
 }
 
+function updateCurrentPetDesktopPosition(position: PetDesktopPosition): void {
+  const definition = currentPet?.definition;
+
+  if (!currentPet || !definition) {
+    return;
+  }
+
+  currentPet = {
+    ...currentPet,
+    definition: {
+      ...definition,
+      uiSettings: {
+        theme: definition.uiSettings?.theme ?? "soft",
+        ...definition.uiSettings,
+        desktopPosition: position
+      }
+    }
+  };
+}
+
+async function persistCurrentPetWindowPosition(bounds: WindowRectangle): Promise<void> {
+  const payload = currentPet;
+
+  if (!payload) {
+    return;
+  }
+
+  const desktopPosition = { x: bounds.x, y: bounds.y };
+  updateCurrentPetDesktopPosition(desktopPosition);
+  await saveLocalPetDesktopPosition(payload.id, desktopPosition);
+}
+
+function persistCurrentPetWindowPositionInBackground(bounds: WindowRectangle): void {
+  void persistCurrentPetWindowPosition(bounds).catch(() => undefined);
+}
+
 function enforcePetWindowSize(payload: DesktopPetPayload | null | undefined = currentPet): void {
   if (!petWindow || petWindow.isDestroyed()) {
     return;
@@ -213,6 +300,18 @@ function enforcePetWindowSize(payload: DesktopPetPayload | null | undefined = cu
   }
 
   petWindow.setBounds(nextBounds, false);
+  persistCurrentPetWindowPositionInBackground(nextBounds);
+}
+
+function registerDisplayRecoveryListeners(): void {
+  if (displayListenersRegistered) {
+    return;
+  }
+
+  displayListenersRegistered = true;
+  const recoverPetWindow = (): void => enforcePetWindowSize(currentPet);
+  screen.on("display-removed", recoverPetWindow);
+  screen.on("display-metrics-changed", recoverPetWindow);
 }
 
 function snapshot(): PetWindowState {
@@ -278,8 +377,10 @@ export function onPetWindowStateChanged(listener: (state: PetWindowState) => voi
 }
 
 function createPetWindow(payload: DesktopPetPayload): BrowserWindow {
+  registerDisplayRecoveryListeners();
   const preloadPath = path.join(__dirname, "../preload/pet.js");
-  const initialBounds = getInitialPetWindowBounds(payload);
+  const useDefaultPosition = resetPositionOnNextCreate;
+  const initialBounds = getInitialPetWindowBounds(payload, useDefaultPosition);
 
   const createdWindow = new BrowserWindow({
     width: initialBounds.width,
@@ -304,6 +405,8 @@ function createPetWindow(payload: DesktopPetPayload): BrowserWindow {
       navigateOnDragDrop: false
     }
   });
+  resetPositionOnNextCreate = false;
+  pendingDefaultPositionWindow = useDefaultPosition ? createdWindow : undefined;
   hardenWindowNavigation(createdWindow);
 
   createdWindow.on("closed", () => {
@@ -314,7 +417,11 @@ function createPetWindow(payload: DesktopPetPayload): BrowserWindow {
     if (pendingPetWindowLoad?.window === createdWindow) {
       pendingPetWindowLoad = undefined;
     }
+    if (pendingDefaultPositionWindow === createdWindow) {
+      pendingDefaultPositionWindow = undefined;
+    }
     stopCursorTracking();
+    resetPositionOnNextCreate = true;
     petWindow = null;
     clickThrough = false;
     clickThroughControlInteractive = false;
@@ -387,6 +494,10 @@ export async function showPetWindow(payload: DesktopPetPayload): Promise<PetWind
   }
   applyPetWindowState();
   enforcePetWindowSize(committedPayload);
+  if (pendingDefaultPositionWindow === targetWindow) {
+    pendingDefaultPositionWindow = undefined;
+    persistCurrentPetWindowPositionInBackground(targetWindow.getBounds());
+  }
   targetWindow.show();
   targetWindow.focus();
   startCursorTracking();
@@ -678,6 +789,26 @@ export function movePetWindowDrag(point: PetWindowDragPoint): void {
   emitCursorMoved();
 }
 
-export function endPetWindowDrag(): void {
+export async function endPetWindowDrag(): Promise<void> {
+  if (!petWindow || petWindow.isDestroyed() || !dragStart) {
+    dragStart = null;
+    return;
+  }
+
   dragStart = null;
+  const bounds = petWindow.getBounds();
+  const workArea = screen.getDisplayMatching(bounds).workArea;
+  const nextBounds = clampPetWindowBoundsToWorkArea(bounds, workArea);
+
+  if (
+    bounds.x !== nextBounds.x ||
+    bounds.y !== nextBounds.y ||
+    bounds.width !== nextBounds.width ||
+    bounds.height !== nextBounds.height
+  ) {
+    petWindow.setBounds(nextBounds, false);
+    emitCursorMoved();
+  }
+
+  await persistCurrentPetWindowPosition(nextBounds);
 }

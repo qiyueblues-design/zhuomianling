@@ -1,5 +1,10 @@
 import { assertValidPetId } from "../shared/validation/petId";
 import { MEMORY_LIMITS } from "../shared/types/memory";
+import {
+  petChatDecorationIcons,
+  petChatDecorationSlots,
+  petRadialMenuActionKinds
+} from "../shared/types/pet";
 import { startupRendererStages } from "../shared/types/startup";
 import {
   isPetDesktopScale,
@@ -56,7 +61,6 @@ export const validatedIpcChannels = new Set([
   "app-window:startup-timing",
   "pet-config:list-local",
   "pet-config:restore-backup",
-  "pet-config:list-ui-themes",
   "pet-config:import-ui-theme",
   "pet-config:save-basic-info",
   "pet-config:save-persona",
@@ -357,6 +361,122 @@ function validatePetDraft(channel: string, value: unknown, maxStringLength = 200
   });
 }
 
+function validateCustomTheme(channel: string, value: unknown): void {
+  const theme = assertRecord(channel, value, "customTheme");
+  assertAllowedKeys(channel, theme, [
+    "id",
+    "name",
+    "description",
+    "version",
+    "author",
+    "importedAt",
+    "tokens",
+    "chatDecorations",
+    "radialMenu"
+  ]);
+  assertString(channel, theme.id, "customTheme.id", 40);
+  assertString(channel, theme.name, "customTheme.name", 32);
+  assertString(channel, theme.description, "customTheme.description", 72, { allowEmpty: true });
+  if (typeof theme.version !== "number" || !Number.isFinite(theme.version)) {
+    fail(channel, "customTheme.version 必须是有限数值。");
+  }
+  assertOptionalString(channel, theme.author, "customTheme.author", 32);
+  assertOptionalString(channel, theme.importedAt, "customTheme.importedAt", 64);
+
+  const tokens = assertRecord(channel, theme.tokens, "customTheme.tokens");
+  const tokenKeys = [
+    "background",
+    "surface",
+    "petSurface",
+    "headerSurface",
+    "headerText",
+    "inputSurface",
+    "userSurface",
+    "text",
+    "mutedText",
+    "accent",
+    "accentStrong",
+    "decorationPrimary",
+    "decorationSecondary",
+    "watermarkColor",
+    "border",
+    "danger",
+    "shadow",
+    "radius"
+  ] as const;
+  assertAllowedKeys(channel, tokens, tokenKeys);
+  for (const key of tokenKeys) {
+    if (key === "radius") continue;
+    if (tokens[key] !== undefined) {
+      assertString(channel, tokens[key], `customTheme.tokens.${key}`, 180);
+    }
+  }
+  if (
+    tokens.radius !== undefined &&
+    (typeof tokens.radius !== "number" || !Number.isFinite(tokens.radius))
+  ) {
+    fail(channel, "customTheme.tokens.radius 必须是有限数值。");
+  }
+
+  if (theme.chatDecorations !== undefined) {
+    const decorations = assertRecord(channel, theme.chatDecorations, "customTheme.chatDecorations");
+    assertAllowedKeys(channel, decorations, petChatDecorationSlots);
+    for (const [slot, icon] of Object.entries(decorations)) {
+      if (typeof icon !== "string" || !petChatDecorationIcons.includes(icon as never)) {
+        fail(channel, `customTheme.chatDecorations.${slot} 图标无效。`);
+      }
+    }
+  }
+
+  if (theme.radialMenu !== undefined) {
+    const radialMenu = assertRecord(channel, theme.radialMenu, "customTheme.radialMenu");
+    assertAllowedKeys(channel, radialMenu, [
+      "radius",
+      "surface",
+      "text",
+      "border",
+      "shadow",
+      "activeBorder",
+      "center",
+      "actions"
+    ]);
+    for (const key of ["surface", "text", "border", "shadow", "activeBorder"] as const) {
+      if (radialMenu[key] !== undefined) {
+        assertString(channel, radialMenu[key], `customTheme.radialMenu.${key}`, 180);
+      }
+    }
+    if (
+      radialMenu.radius !== undefined &&
+      (typeof radialMenu.radius !== "number" || !Number.isFinite(radialMenu.radius))
+    ) {
+      fail(channel, "customTheme.radialMenu.radius 必须是有限数值。");
+    }
+
+    const validateAction = (value: unknown, field: string): void => {
+      const action = assertRecord(channel, value, field);
+      assertAllowedKeys(channel, action, ["surface", "text", "border"]);
+      for (const key of ["surface", "text", "border"] as const) {
+        if (action[key] !== undefined) {
+          assertString(channel, action[key], `${field}.${key}`, 180);
+        }
+      }
+    };
+
+    if (radialMenu.center !== undefined) {
+      validateAction(radialMenu.center, "customTheme.radialMenu.center");
+    }
+    if (radialMenu.actions !== undefined) {
+      const actions = assertRecord(channel, radialMenu.actions, "customTheme.radialMenu.actions");
+      assertAllowedKeys(channel, actions, petRadialMenuActionKinds);
+      for (const kind of petRadialMenuActionKinds) {
+        if (actions[kind] !== undefined) {
+          validateAction(actions[kind], `customTheme.radialMenu.actions.${kind}`);
+        }
+      }
+    }
+  }
+}
+
 function validateAiChat(channel: string, value: unknown, requireRequestId: boolean): void {
   const request = assertRecord(channel, value);
   assertPetId(channel, request.petId);
@@ -389,7 +509,6 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     "app:get-version",
     "app-window:is-shown",
     "pet-config:list-local",
-    "pet-config:list-ui-themes",
     "pet-config:import-ui-theme",
     "pet-config:disconnect-voice-model",
     "live2d-import:select-folder",
@@ -417,6 +536,24 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
   if (channel === "pet-config:save-ui-settings") {
     expectArgumentCount(channel, args, 1);
     const draft = assertRecord(channel, args[0]);
+    assertAllowedKeys(channel, draft, [
+      "petId",
+      "theme",
+      "customTheme",
+      "clickThroughOpacity",
+      "cursorFollowEnabled",
+      "desktopScale"
+    ]);
+    if (!["soft", "rock", "pixel", "journal", "cyber", "minimal", "custom"].includes(
+      draft.theme as string
+    )) {
+      fail(channel, "theme 无效。");
+    }
+    if (draft.theme === "custom") {
+      validateCustomTheme(channel, draft.customTheme);
+    } else if (draft.customTheme !== undefined) {
+      fail(channel, "系统主题不能携带 customTheme。");
+    }
     if (draft.desktopScale !== undefined && !isPetDesktopScale(draft.desktopScale)) {
       fail(
         channel,
@@ -735,6 +872,9 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     const request = assertRecord(channel, args[0]);
     assertPetId(channel, request.petId);
     assertRequestId(channel, request.requestId);
+    assertOptionalString(channel, request.sessionId, "sessionId", 128, {
+      pattern: requestIdPattern
+    });
     assertString(channel, request.text, "text", 20_000);
     assertSafePayload(channel, request, { maxStringLength: 20_000, maxTotalStringLength: 21_000 });
     return;
@@ -752,7 +892,10 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     if (request.requestId !== undefined) {
       assertRequestId(channel, request.requestId);
     }
-    assertSafePayload(channel, request, { maxStringLength: 128, maxTotalStringLength: 256 });
+    assertOptionalString(channel, request.sessionId, "sessionId", 128, {
+      pattern: requestIdPattern
+    });
+    assertSafePayload(channel, request, { maxStringLength: 128, maxTotalStringLength: 384 });
     return;
   }
 

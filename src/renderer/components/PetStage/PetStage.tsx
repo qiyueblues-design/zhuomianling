@@ -44,9 +44,18 @@ function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties |
   return {
     "--custom-theme-background": tokens.background,
     "--custom-theme-surface": tokens.surface,
+    "--custom-theme-pet-surface": tokens.petSurface ?? tokens.surface,
+    "--custom-theme-header-surface": tokens.headerSurface ?? tokens.surface,
+    "--custom-theme-header-text": tokens.headerText ?? tokens.text,
+    "--custom-theme-input-surface": tokens.inputSurface ?? tokens.surface,
+    "--custom-theme-user-surface": tokens.userSurface ?? tokens.petSurface ?? tokens.surface,
     "--custom-theme-text": tokens.text,
     "--custom-theme-muted": tokens.mutedText,
     "--custom-theme-accent": tokens.accent,
+    "--custom-theme-accent-strong": tokens.accentStrong ?? tokens.accent,
+    "--custom-theme-decoration-primary": tokens.decorationPrimary ?? tokens.accent,
+    "--custom-theme-decoration-secondary": tokens.decorationSecondary ?? tokens.accentStrong ?? tokens.accent,
+    "--custom-theme-watermark": tokens.watermarkColor ?? `color-mix(in srgb, ${tokens.accent} 9%, transparent)`,
     "--custom-theme-border": tokens.border,
     "--custom-theme-shadow": tokens.shadow ?? "none",
     "--custom-theme-radius": `${tokens.radius ?? 14}px`

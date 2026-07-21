@@ -62,44 +62,6 @@ export function buildVoiceTextPrompt(voiceLanguage: PetVoiceLanguage): string {
   ].join("\n");
 }
 
-export function splitVoiceTextIntoSegments(text: string): string[] {
-  const normalized = text.replace(/\s+/g, " ").trim();
-
-  if (!normalized) {
-    return [];
-  }
-
-  const segments: string[] = [];
-  let current = "";
-
-  for (const character of Array.from(normalized)) {
-    current += character;
-
-    const shouldSplit =
-      /[。！？!?]/.test(character) ||
-      (current.length >= 36 && /[、，,；;]/.test(character)) ||
-      current.length >= 80;
-
-    if (shouldSplit) {
-      const segment = current.trim();
-
-      if (segment) {
-        segments.push(segment);
-      }
-
-      current = "";
-    }
-  }
-
-  const lastSegment = current.trim();
-
-  if (lastSegment) {
-    segments.push(lastSegment);
-  }
-
-  return segments;
-}
-
 export function inferExpressionFromAiReply(text: string): PetExpressionKey {
   const normalizedText = text.toLowerCase();
 

@@ -31,7 +31,6 @@ import type {
   LocalPetVoiceResourceKind,
   LocalPetSaveResult,
   PetCustomThemeImportResult,
-  PetCustomThemeListResult,
   PetDefinition
 } from "../shared/types/pet";
 import type {
@@ -101,8 +100,6 @@ const desktopPetApi = {
     listLocal: () => ipcRenderer.invoke("pet-config:list-local") as Promise<LocalPetListResult>,
     restoreBackup: (petId: string) =>
       ipcRenderer.invoke("pet-config:restore-backup", petId) as Promise<LocalPetSaveResult>,
-    listUiThemes: () =>
-      ipcRenderer.invoke("pet-config:list-ui-themes") as Promise<PetCustomThemeListResult>,
     importUiTheme: () =>
       ipcRenderer.invoke("pet-config:import-ui-theme") as Promise<PetCustomThemeImportResult>,
     saveBasicInfo: (draft: LocalPetBasicInfoDraft) =>

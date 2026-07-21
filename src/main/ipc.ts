@@ -86,7 +86,6 @@ import {
   deleteLocalPet,
   getLocalPetDefinition,
   importLocalUiTheme,
-  listLocalUiThemes,
   listLocalPets,
   scanLocalPetsForRecovery,
   saveLocalPetAvatarCrop,
@@ -255,8 +254,6 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
 
     return result;
   });
-
-  handle("pet-config:list-ui-themes", "main", () => listLocalUiThemes());
 
   handle("pet-config:import-ui-theme", "main", () => importLocalUiTheme());
 

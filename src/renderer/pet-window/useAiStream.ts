@@ -57,6 +57,7 @@ interface AiStreamContext {
   voiceReplyEnabled: boolean;
   syncTextWithVoice: boolean;
   useReplyAsVoiceText: boolean;
+  latestSafeReply: string;
 }
 
 interface TypewriterPresentation {
@@ -137,6 +138,32 @@ export function selectFinalVoiceText(
   return selected;
 }
 
+export function selectStreamingVoiceText(
+  event: Pick<AiChatStreamEvent, "content" | "voiceText">,
+  useReplyAsVoiceText: boolean
+): string {
+  return (useReplyAsVoiceText ? event.content : event.voiceText) ?? "";
+}
+
+export function enqueueSafeStreamingVoiceChunk(
+  event: Pick<AiChatStreamEvent, "content" | "voiceText">,
+  options: {
+    enabled: boolean;
+    useReplyAsVoiceText: boolean;
+    requestId: number;
+  },
+  voiceReply: Pick<UseVoiceReplyQueueResult, "enqueueStreamingText">
+): void {
+  if (!options.enabled) {
+    return;
+  }
+
+  voiceReply.enqueueStreamingText(
+    selectStreamingVoiceText(event, options.useReplyAsVoiceText),
+    options.requestId
+  );
+}
+
 export function reconcileTypewriterText(
   currentFullText: string,
   displayedCharacters: number,
@@ -147,6 +174,16 @@ export function reconcileTypewriterText(
     .join("");
 
   return nextFullText.startsWith(displayedPrefix) ? nextFullText : currentFullText;
+}
+
+export function buildInterruptedReplyText(
+  safeReply: string,
+  interruptionLabel: "回复生成中断" | "回复已取消"
+): string {
+  const normalizedReply = safeReply.trim();
+  return normalizedReply
+    ? `${normalizedReply}\n（${interruptionLabel}）`
+    : `${interruptionLabel}。`;
 }
 
 export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
@@ -393,18 +430,23 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
 
   const failReply = (context: AiStreamContext, errorText: string): void => {
     const currentOptions = optionsRef.current;
+    const preserveCommittedReply =
+      currentOptions.voiceReply.hasCommittedSpeech() && Boolean(context.latestSafeReply.trim());
+    const presentationText = preserveCommittedReply
+      ? buildInterruptedReplyText(context.latestSafeReply, "回复生成中断")
+      : errorText;
     currentOptions.voiceReply.stop();
     clearTypewriter();
     setMessages((current) =>
       current.map((message) =>
         message.id === context.pendingMessageId
-          ? { id: context.pendingMessageId, role: "pet", text: errorText, status: "error" }
+          ? { id: context.pendingMessageId, role: "pet", text: presentationText, status: "error" }
           : message
       )
     );
     currentOptions.triggerExpression("panic", "high", 3600);
     currentOptions.subtitle.show({
-      text: errorText,
+      text: preserveCommittedReply ? "回复生成中断。" : errorText,
       mode: "typewriter",
       tone: currentOptions.petDefinition?.subtitleStyle?.tone,
       maxWidth: currentOptions.petDefinition?.subtitleStyle?.maxWidth
@@ -418,6 +460,11 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     const requestId = streamRequestIdRef.current;
     const streamId = streamIdRef.current;
     const context = streamContextRef.current;
+    const preserveCommittedReply = Boolean(
+      context &&
+        optionsRef.current.voiceReply.hasCommittedSpeech() &&
+        context.latestSafeReply.trim()
+    );
     streamRequestIdRef.current = undefined;
     streamIdRef.current = undefined;
     streamContextRef.current = undefined;
@@ -443,7 +490,13 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
         setMessages((current) =>
           current.map((message) =>
             message.id === context.pendingMessageId
-              ? { ...message, text: "回复已取消。", status: "error" }
+              ? {
+                  ...message,
+                  text: preserveCommittedReply
+                    ? buildInterruptedReplyText(context.latestSafeReply, "回复已取消")
+                    : "回复已取消。",
+                  status: "error"
+                }
               : message
           )
         );
@@ -472,11 +525,21 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
 
       if (event.type === "chunk") {
         const { replyText } = selectSafeAiStreamPresentation(event);
+        context.latestSafeReply = replyText;
         if (context.syncTextWithVoice) {
           optionsRef.current.voiceReply.updateSynchronizedContent(replyText);
         } else {
           showStreamingReply(context.pendingMessageId, replyText);
         }
+        enqueueSafeStreamingVoiceChunk(
+          event,
+          {
+            enabled: context.voiceReplyEnabled,
+            useReplyAsVoiceText: context.useReplyAsVoiceText,
+            requestId: context.voiceReplyRequestId
+          },
+          optionsRef.current.voiceReply
+        );
         return;
       }
 
@@ -551,6 +614,7 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
       pendingMessageId,
       isVoiceTriggered,
       voiceReplyRequestId,
+      latestSafeReply: "",
       ...settingsSnapshot
     };
     streamRequestIdRef.current = requestId;

@@ -4,7 +4,7 @@ import type {
   PetVoiceModelSettings
 } from "../types/pet";
 import { normalizePetVoiceModelVersion } from "./petVoiceModel";
-import { normalizePetDesktopScale } from "./petUiSettings";
+import { normalizePetDesktopPosition, normalizePetDesktopScale } from "./petUiSettings";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -172,7 +172,8 @@ export function normalizeLegacyPetDefinition(pet: PetDefinition): PetDefinition 
         true,
         "uiSettings.cursorFollowEnabled"
       ),
-      desktopScale: normalizePetDesktopScale(uiSettings.desktopScale)
+      desktopScale: normalizePetDesktopScale(uiSettings.desktopScale),
+      desktopPosition: normalizePetDesktopPosition(uiSettings.desktopPosition)
     } as PetDefinition["uiSettings"],
     subtitleStyle: {
       ...subtitleStyle,

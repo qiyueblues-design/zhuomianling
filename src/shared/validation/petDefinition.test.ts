@@ -81,7 +81,12 @@ describe("旧版桌宠配置兼容", () => {
       modelPath: "pet-resource://local/legacy-pet/live2d/model.model3.json",
       capabilities: { chat: true, voiceOutput: true, subtitles: false },
       details: { role: "助手", personality: "安静", scenes: [], features: [] },
-      uiSettings: { theme: "journal", cursorFollowEnabled: false, desktopScale: 1.25 }
+      uiSettings: {
+        theme: "journal",
+        cursorFollowEnabled: false,
+        desktopScale: 1.25,
+        desktopPosition: { x: -830.4, y: 940.6 }
+      }
     }));
 
     expect(normalized.modelPath).toContain("model.model3.json");
@@ -90,7 +95,8 @@ describe("旧版桌宠配置兼容", () => {
     expect(normalized.uiSettings).toMatchObject({
       theme: "journal",
       cursorFollowEnabled: false,
-      desktopScale: 1.25
+      desktopScale: 1.25,
+      desktopPosition: { x: -830, y: 941 }
     });
   });
 
@@ -107,6 +113,15 @@ describe("旧版桌宠配置兼容", () => {
     expect(normalizeLegacyPetDefinition(legacyPet({
       uiSettings: { theme: "soft", desktopScale: "invalid" }
     })).uiSettings?.desktopScale).toBe(1);
+  });
+
+  it("丢弃无效或过大的历史桌面位置", () => {
+    expect(normalizeLegacyPetDefinition(legacyPet({
+      uiSettings: { theme: "soft", desktopPosition: { x: Number.NaN, y: 100 } }
+    })).uiSettings?.desktopPosition).toBeUndefined();
+    expect(normalizeLegacyPetDefinition(legacyPet({
+      uiSettings: { theme: "soft", desktopPosition: { x: 10_000_001, y: 100 } }
+    })).uiSettings?.desktopPosition).toBeUndefined();
   });
 
   it("把已有但类型错误的关键结构交给损坏配置流程处理", () => {

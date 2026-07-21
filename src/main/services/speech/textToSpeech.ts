@@ -53,6 +53,7 @@ interface TextToSpeechRequestEntry {
   key: string;
   requestId: string;
   petId: string;
+  sessionId?: string;
   controller: AbortController;
   active: boolean;
   timeout?: NodeJS.Timeout;
@@ -60,13 +61,37 @@ interface TextToSpeechRequestEntry {
 
 interface TextToSpeechOwnerState {
   requests: Map<string, TextToSpeechRequestEntry>;
+  snapshots: Map<string, TextToSpeechConfigSnapshot>;
   ownerGoneListener: () => void;
+}
+
+interface TextToSpeechConfigSnapshot {
+  petId: string;
+  sessionId: string;
+  config: Promise<Required<GptSoVitsPetConfig>>;
 }
 
 const textToSpeechOwners = new WeakMap<WebContents, TextToSpeechOwnerState>();
 
 function getTextToSpeechRequestKey(petId: string, requestId: string): string {
   return JSON.stringify([petId, requestId]);
+}
+
+function getTextToSpeechSnapshotKey(petId: string, sessionId: string): string {
+  return JSON.stringify([petId, sessionId]);
+}
+
+function releaseTextToSpeechOwnerStateIfEmpty(
+  target: WebContents,
+  ownerState: TextToSpeechOwnerState
+): void {
+  if (ownerState.requests.size > 0 || ownerState.snapshots.size > 0) {
+    return;
+  }
+
+  target.removeListener("render-process-gone", ownerState.ownerGoneListener);
+  target.removeListener("destroyed", ownerState.ownerGoneListener);
+  textToSpeechOwners.delete(target);
 }
 
 function getAbortResponse(signal: AbortSignal, requestId: string): TextToSpeechResponse {
@@ -95,10 +120,8 @@ function detachTextToSpeechEntry(
   const ownerState = textToSpeechOwners.get(entry.target);
   ownerState?.requests.delete(entry.key);
 
-  if (ownerState && ownerState.requests.size === 0) {
-    entry.target.removeListener("render-process-gone", ownerState.ownerGoneListener);
-    entry.target.removeListener("destroyed", ownerState.ownerGoneListener);
-    textToSpeechOwners.delete(entry.target);
+  if (ownerState) {
+    releaseTextToSpeechOwnerStateIfEmpty(entry.target, ownerState);
   }
 
   if (abortReason && !entry.controller.signal.aborted) {
@@ -117,10 +140,13 @@ function getOrCreateTextToSpeechOwnerState(target: WebContents): TextToSpeechOwn
 
   const ownerState: TextToSpeechOwnerState = {
     requests: new Map(),
+    snapshots: new Map(),
     ownerGoneListener: () => {
       for (const entry of [...ownerState.requests.values()]) {
         detachTextToSpeechEntry(entry, "owner-destroyed");
       }
+      ownerState.snapshots.clear();
+      releaseTextToSpeechOwnerStateIfEmpty(target, ownerState);
     }
   };
   textToSpeechOwners.set(target, ownerState);
@@ -149,6 +175,7 @@ function createTextToSpeechEntry(
     key: requestKey,
     requestId: request.requestId,
     petId: request.petId,
+    sessionId: request.sessionId,
     controller: new AbortController(),
     active: true
   };
@@ -250,6 +277,38 @@ async function readTextToSpeechConfig(): Promise<GptSoVitsConfig> {
   };
 }
 
+async function resolvePetVoiceConfig(petId: string): Promise<Required<GptSoVitsPetConfig>> {
+  return (
+    (await readLocalPetVoiceConfig(petId)) ??
+    normalizePetConfig(petId, await readTextToSpeechConfig())
+  );
+}
+
+function getPetVoiceConfigForRequest(
+  target: WebContents,
+  request: TextToSpeechRequest
+): Promise<Required<GptSoVitsPetConfig>> {
+  const sessionId = request.sessionId?.trim();
+  if (!sessionId) {
+    return resolvePetVoiceConfig(request.petId);
+  }
+
+  const ownerState = getOrCreateTextToSpeechOwnerState(target);
+  const key = getTextToSpeechSnapshotKey(request.petId, sessionId);
+  const existing = ownerState.snapshots.get(key);
+  if (existing) {
+    return existing.config;
+  }
+
+  const snapshot: TextToSpeechConfigSnapshot = {
+    petId: request.petId,
+    sessionId,
+    config: resolvePetVoiceConfig(request.petId)
+  };
+  ownerState.snapshots.set(key, snapshot);
+  return snapshot.config;
+}
+
 function normalizePetConfig(
   petId: string,
   config: GptSoVitsConfig
@@ -327,7 +386,11 @@ function toVoiceConfigurationMessage(error: unknown): string {
 
 async function synthesizeText(
   request: TextToSpeechRequest,
-  options?: { abortWarmup?: boolean; signal?: AbortSignal }
+  options?: {
+    abortWarmup?: boolean;
+    signal?: AbortSignal;
+    petConfig?: Promise<Required<GptSoVitsPetConfig>>;
+  }
 ): Promise<TextToSpeechResponse> {
   const text = request.text.trim();
   const petId = request.petId.trim();
@@ -365,9 +428,7 @@ async function synthesizeText(
   let petConfig: Required<GptSoVitsPetConfig>;
 
   try {
-    petConfig =
-      (await readLocalPetVoiceConfig(petId)) ??
-      normalizePetConfig(petId, await readTextToSpeechConfig());
+    petConfig = await (options?.petConfig ?? resolvePetVoiceConfig(petId));
   } catch (error) {
     if (options?.signal?.aborted) {
       return getAbortResponse(options.signal, requestId);
@@ -506,7 +567,8 @@ export async function speakText(
 
   try {
     return await synthesizeText(request, {
-      signal: entry.controller.signal
+      signal: entry.controller.signal,
+      petConfig: getPetVoiceConfigForRequest(target, request)
     });
   } finally {
     detachTextToSpeechEntry(entry);
@@ -569,9 +631,25 @@ export function stopSpeechPlayback(
     if (request.requestId && entry.requestId !== request.requestId) {
       continue;
     }
+    if (request.sessionId && entry.sessionId !== request.sessionId) {
+      continue;
+    }
 
     affectedPetIds.add(entry.petId);
     canceled += Number(detachTextToSpeechEntry(entry, "renderer"));
+  }
+
+  if (ownerState && (!request.requestId || request.sessionId)) {
+    for (const [key, snapshot] of [...ownerState.snapshots]) {
+      if (request.petId && snapshot.petId !== request.petId) {
+        continue;
+      }
+      if (request.sessionId && snapshot.sessionId !== request.sessionId) {
+        continue;
+      }
+      ownerState.snapshots.delete(key);
+    }
+    releaseTextToSpeechOwnerStateIfEmpty(target, ownerState);
   }
 
   if (request.petId) {

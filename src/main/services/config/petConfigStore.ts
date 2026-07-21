@@ -22,19 +22,30 @@ import type {
   LocalPetSaveResult,
   PetCustomTheme,
   PetCustomThemeImportResult,
-  PetCustomThemeListResult,
+  PetCustomThemeRadialMenu,
+  PetCustomThemeRadialMenuAction,
   PetCustomThemeTokens,
+  PetChatDecorations,
   PetDefinition,
+  PetDesktopPosition,
   PetEventSettingsMap,
   PetFeature,
   PetLine,
   PetLineMap,
   PetVoiceModelVersion
 } from "../../../shared/types/pet";
+import {
+  petChatDecorationIcons,
+  petChatDecorationSlots,
+  petRadialMenuActionKinds
+} from "../../../shared/types/pet";
 import type { MemorySettings } from "../../../shared/types/memory";
 import { normalizeMemorySettings } from "../../../shared/validation/memory";
 import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
-import { normalizePetDesktopScale } from "../../../shared/validation/petUiSettings";
+import {
+  normalizePetDesktopPosition,
+  normalizePetDesktopScale
+} from "../../../shared/validation/petUiSettings";
 import { isPetVoiceModelVersion } from "../../../shared/validation/petVoiceModel";
 import { petResourceProtocol, toPetResourceUrl } from "./petResourceProtocol";
 import { validateLive2DFolder } from "./live2dImportService";
@@ -70,8 +81,6 @@ import {
   isValidPetId
 } from "../../../shared/validation/petId";
 
-const localThemesDirectoryName = "themes";
-const localThemeFileName = "theme.json";
 const live2dDirectoryName = "live2d";
 const avatarDraftPetIdPattern = /^draft-[a-z0-9]+$/;
 const interruptedPetDeletionPattern = /^\.deleting-([A-Za-z][A-Za-z0-9_-]{0,63})-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/;
@@ -345,25 +354,6 @@ async function migrateLegacyVoiceInputCredentials(
   }
 }
 
-function getThemesRootPath(): string {
-  return path.resolve(app.getPath("userData"), localThemesDirectoryName);
-}
-
-function getThemeDirectoryPath(themeId: string): string {
-  if (!themeIdPattern.test(themeId) || builtInThemeIds.has(themeId)) {
-    throw new Error("Invalid theme directory.");
-  }
-
-  const themesRootPath = getThemesRootPath();
-  const themeDirectoryPath = path.resolve(themesRootPath, themeId);
-  assertContainedPath(themesRootPath, themeDirectoryPath, "Invalid theme directory.");
-  return themeDirectoryPath;
-}
-
-function getThemeConfigPath(themeId: string): string {
-  return path.join(getThemeDirectoryPath(themeId), localThemeFileName);
-}
-
 async function ensureRealDirectoryContained(
   rootPath: string,
   targetDirectoryPath: string,
@@ -384,16 +374,6 @@ async function ensureRealDirectoryContained(
   if (path.resolve(realRootPath) !== path.resolve(realTargetPath)) {
     assertContainedPath(realRootPath, realTargetPath, message);
   }
-}
-
-async function writeThemeConfig(theme: PetCustomTheme): Promise<void> {
-  const themeDirectoryPath = assertSafeThemeDirectory(theme.id);
-  await ensureRealDirectoryContained(
-    getThemesRootPath(),
-    themeDirectoryPath,
-    "Theme directory escaped the local themes root."
-  );
-  await writeJsonFileAtomically(getThemeConfigPath(theme.id), theme);
 }
 
 function getGptSoVitsLogPath(petId: string): string {
@@ -1220,26 +1200,67 @@ function assertSafePetDirectory(petId: string): string {
   return getPetDirectoryPath(assertValidPetId(petId));
 }
 
-function assertSafeThemeDirectory(themeId: string): string {
-  return getThemeDirectoryPath(themeId);
-}
-
 const defaultCustomThemeTokens: PetCustomThemeTokens = {
   background: "#eef6ff",
   surface: "rgba(255, 255, 255, 0.92)",
   petSurface: "rgba(255, 255, 255, 0.82)",
+  headerSurface: "#2684ff",
+  headerText: "#ffffff",
+  inputSurface: "rgba(255, 255, 255, 0.92)",
+  userSurface: "#2684ff",
   text: "#17202a",
   mutedText: "#607080",
   accent: "#2684ff",
   accentStrong: "#ff7ab8",
+  decorationPrimary: "#2684ff",
+  decorationSecondary: "#ff7ab8",
+  watermarkColor: "rgba(38, 132, 255, 0.09)",
   border: "rgba(38, 132, 255, 0.28)",
   danger: "#ef4444",
   shadow: "0 18px 44px rgba(38, 50, 65, 0.18)",
   radius: 14
 };
 
+const defaultCustomThemeRadialMenu: PetCustomThemeRadialMenu = {
+  radius: 15,
+  surface: "rgba(255, 255, 255, 0.92)",
+  text: "#344255",
+  border: "rgba(38, 132, 255, 0.24)",
+  shadow: "0 8px 16px rgba(38, 50, 65, 0.12)",
+  activeBorder: "#2684ff",
+  center: {
+    surface: "#eef6ff",
+    text: "#1766c2",
+    border: "rgba(38, 132, 255, 0.28)"
+  },
+  actions: {
+    passThrough: { surface: "#edf9f6", text: "#287968", border: "rgba(40, 121, 104, 0.24)" },
+    touch: { surface: "#fff9e8", text: "#8a6b22", border: "rgba(138, 107, 34, 0.22)" },
+    chat: { surface: "#edf5ff", text: "#2768a8", border: "rgba(39, 104, 168, 0.24)" },
+    danger: { surface: "#fff3f5", text: "#a64861", border: "rgba(166, 72, 97, 0.26)" }
+  }
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeChatDecorations(value: unknown): PetChatDecorations | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error("主题聊天框装饰格式不正确。");
+
+  const allowedSlots = new Set<string>(petChatDecorationSlots);
+  const allowedIcons = new Set<string>(petChatDecorationIcons);
+  const decorations: PetChatDecorations = {};
+
+  for (const [slot, icon] of Object.entries(value)) {
+    if (!allowedSlots.has(slot) || typeof icon !== "string" || !allowedIcons.has(icon)) {
+      throw new Error("主题包含不支持的聊天框装饰。");
+    }
+    decorations[slot as keyof PetChatDecorations] = icon as PetChatDecorations[keyof PetChatDecorations];
+  }
+
+  return Object.keys(decorations).length ? decorations : undefined;
 }
 
 function sanitizeThemeId(value: unknown, fallbackName: string): string {
@@ -1277,7 +1298,7 @@ function isSafeCssValue(value: string, maxLength = 180): boolean {
 
 function normalizeThemeToken(
   tokens: Record<string, unknown>,
-  key: keyof PetCustomThemeTokens,
+  key: string,
   fallback: string
 ): string {
   const value = tokens[key];
@@ -1329,25 +1350,59 @@ function normalizeCustomTheme(rawTheme: unknown, fallbackName: string): PetCusto
       background: normalizeThemeToken(rawTokens, "background", defaultCustomThemeTokens.background),
       surface: normalizeThemeToken(rawTokens, "surface", defaultCustomThemeTokens.surface),
       petSurface: normalizeThemeToken(rawTokens, "petSurface", defaultCustomThemeTokens.petSurface ?? defaultCustomThemeTokens.surface),
+      headerSurface: normalizeThemeToken(rawTokens, "headerSurface", defaultCustomThemeTokens.headerSurface ?? defaultCustomThemeTokens.accent),
+      headerText: normalizeThemeToken(rawTokens, "headerText", defaultCustomThemeTokens.headerText ?? defaultCustomThemeTokens.surface),
+      inputSurface: normalizeThemeToken(rawTokens, "inputSurface", defaultCustomThemeTokens.inputSurface ?? defaultCustomThemeTokens.surface),
+      userSurface: normalizeThemeToken(rawTokens, "userSurface", defaultCustomThemeTokens.userSurface ?? defaultCustomThemeTokens.accent),
       text: normalizeThemeToken(rawTokens, "text", defaultCustomThemeTokens.text),
       mutedText: normalizeThemeToken(rawTokens, "mutedText", defaultCustomThemeTokens.mutedText),
       accent: normalizeThemeToken(rawTokens, "accent", defaultCustomThemeTokens.accent),
       accentStrong: normalizeThemeToken(rawTokens, "accentStrong", defaultCustomThemeTokens.accentStrong ?? defaultCustomThemeTokens.accent),
+      decorationPrimary: normalizeThemeToken(rawTokens, "decorationPrimary", defaultCustomThemeTokens.decorationPrimary ?? defaultCustomThemeTokens.accent),
+      decorationSecondary: normalizeThemeToken(rawTokens, "decorationSecondary", defaultCustomThemeTokens.decorationSecondary ?? defaultCustomThemeTokens.accentStrong ?? defaultCustomThemeTokens.accent),
+      watermarkColor: normalizeThemeToken(rawTokens, "watermarkColor", defaultCustomThemeTokens.watermarkColor ?? "rgba(38, 132, 255, 0.09)"),
       border: normalizeThemeToken(rawTokens, "border", defaultCustomThemeTokens.border),
       danger: normalizeThemeToken(rawTokens, "danger", defaultCustomThemeTokens.danger ?? "#ef4444"),
       shadow: normalizeThemeToken(rawTokens, "shadow", defaultCustomThemeTokens.shadow ?? "none"),
       radius: normalizeThemeRadius(rawTokens.radius)
-    }
+    },
+    chatDecorations: normalizeChatDecorations(rawTheme.chatDecorations),
+    radialMenu: normalizeCustomThemeRadialMenu(rawTheme.radialMenu)
   };
 }
 
-async function readLocalUiTheme(themeId: string): Promise<PetCustomTheme | undefined> {
-  try {
-    const content = (await fs.readFile(getThemeConfigPath(themeId), "utf8")).replace(/^\uFEFF/, "");
-    return normalizeCustomTheme(JSON.parse(content), themeId);
-  } catch {
-    return undefined;
-  }
+function normalizeCustomThemeRadialAction(
+  rawAction: unknown,
+  fallback: PetCustomThemeRadialMenuAction
+): PetCustomThemeRadialMenuAction {
+  const action = isRecord(rawAction) ? rawAction : {};
+
+  return {
+    surface: normalizeThemeToken(action, "surface", fallback.surface),
+    text: normalizeThemeToken(action, "text", fallback.text),
+    border: normalizeThemeToken(action, "border", fallback.border ?? fallback.surface)
+  };
+}
+
+function normalizeCustomThemeRadialMenu(value: unknown): PetCustomThemeRadialMenu {
+  const menu = isRecord(value) ? value : {};
+  const actions = isRecord(menu.actions) ? menu.actions : {};
+
+  return {
+    radius: normalizeThemeRadius(menu.radius),
+    surface: normalizeThemeToken(menu, "surface", defaultCustomThemeRadialMenu.surface),
+    text: normalizeThemeToken(menu, "text", defaultCustomThemeRadialMenu.text),
+    border: normalizeThemeToken(menu, "border", defaultCustomThemeRadialMenu.border),
+    shadow: normalizeThemeToken(menu, "shadow", defaultCustomThemeRadialMenu.shadow ?? "none"),
+    activeBorder: normalizeThemeToken(menu, "activeBorder", defaultCustomThemeRadialMenu.activeBorder ?? defaultCustomThemeRadialMenu.border),
+    center: normalizeCustomThemeRadialAction(menu.center, defaultCustomThemeRadialMenu.center),
+    actions: Object.fromEntries(
+      petRadialMenuActionKinds.map((kind) => [
+        kind,
+        normalizeCustomThemeRadialAction(actions[kind], defaultCustomThemeRadialMenu.actions[kind])
+      ])
+    ) as PetCustomThemeRadialMenu["actions"]
+  };
 }
 
 export interface LocalPetRecoveryScanResult {
@@ -1418,6 +1473,38 @@ export async function getLocalPetDefinition(petId: string): Promise<PetDefinitio
   return withPetWriteLock(validPetId, () =>
     readPetConfigUnlocked(getPetConfigPath(validPetId))
   );
+}
+
+export async function saveLocalPetDesktopPosition(
+  petId: string,
+  positionValue: PetDesktopPosition
+): Promise<PetDefinition | undefined> {
+  const validPetId = assertValidPetId(petId);
+  const desktopPosition = normalizePetDesktopPosition(positionValue);
+
+  if (!desktopPosition) {
+    throw new Error("桌宠窗口位置无效。");
+  }
+
+  return withPetWriteLock(validPetId, async () => {
+    const pet = await readPetConfigUnlocked(getPetConfigPath(validPetId), { forMutation: true });
+
+    if (!pet) {
+      return undefined;
+    }
+
+    const nextPet: PetDefinition = {
+      ...pet,
+      uiSettings: {
+        ...pet.uiSettings,
+        theme: pet.uiSettings?.theme ?? "soft",
+        desktopPosition
+      },
+      isLocal: true
+    };
+    await writePetConfigUnlocked(validPetId, nextPet);
+    return nextPet;
+  });
 }
 
 export async function saveLocalPetMemorySettings(
@@ -1496,50 +1583,6 @@ export async function cleanupInterruptedPetDeletions(
   return deletedPetIds;
 }
 
-export async function listLocalUiThemes(): Promise<PetCustomThemeListResult> {
-  try {
-    const entries = await fs.readdir(getThemesRootPath(), { withFileTypes: true });
-    const themes = await Promise.all(
-      entries
-        .filter(
-          (entry) =>
-            entry.isDirectory() &&
-            themeIdPattern.test(entry.name) &&
-            !builtInThemeIds.has(entry.name)
-        )
-        .map((entry) => readLocalUiTheme(entry.name))
-    );
-    const validThemes = themes
-      .filter((theme): theme is PetCustomTheme => Boolean(theme))
-      .sort((first, second) => {
-        const firstTime = Date.parse(first.importedAt ?? "");
-        const secondTime = Date.parse(second.importedAt ?? "");
-
-        return (Number.isFinite(secondTime) ? secondTime : 0) - (Number.isFinite(firstTime) ? firstTime : 0);
-      });
-
-    return {
-      ok: true,
-      message: "已读取本地主题。",
-      themes: validThemes
-    };
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return {
-        ok: true,
-        message: "还没有导入本地主题。",
-        themes: []
-      };
-    }
-
-    return {
-      ok: false,
-      message: "读取本地主题失败。",
-      themes: []
-    };
-  }
-}
-
 export async function importLocalUiTheme(): Promise<PetCustomThemeImportResult> {
   const result = await dialog.showOpenDialog({
     title: "导入主题风格",
@@ -1576,11 +1619,9 @@ export async function importLocalUiTheme(): Promise<PetCustomThemeImportResult> 
       ...normalizeCustomTheme(JSON.parse(content), path.basename(filePath, path.extname(filePath))),
       importedAt: new Date().toISOString()
     };
-    await writeThemeConfig(theme);
-
     return {
       ok: true,
-      message: `已导入主题「${theme.name}」。`,
+      message: `已读取主题「${theme.name}」，保存后仅应用于当前桌宠。`,
       theme
     };
   } catch (error: unknown) {
@@ -1978,10 +2019,9 @@ export async function saveLocalPetUiSettings(
     };
   }
 
-  const customTheme =
-    draft.theme === "custom" && draft.customThemeId
-      ? await readLocalUiTheme(draft.customThemeId)
-      : undefined;
+  const customTheme = draft.theme === "custom" && draft.customTheme
+    ? normalizeCustomTheme(draft.customTheme, draft.customTheme.name)
+    : undefined;
 
   if (draft.theme === "custom" && !customTheme) {
     return {
@@ -2005,6 +2045,7 @@ export async function saveLocalPetUiSettings(
   const desktopScale = normalizePetDesktopScale(
     draft.desktopScale ?? pet.uiSettings?.desktopScale
   );
+  const desktopPosition = normalizePetDesktopPosition(pet.uiSettings?.desktopPosition);
 
   const nextPet: PetDefinition = {
     ...pet,
@@ -2012,17 +2053,18 @@ export async function saveLocalPetUiSettings(
       draft.theme === "custom" && customTheme
         ? {
             theme: "custom",
-            customThemeId: customTheme.id,
             customTheme,
             clickThroughOpacity,
             cursorFollowEnabled,
-            desktopScale
+            desktopScale,
+            desktopPosition
           }
         : {
             theme: draft.theme,
             clickThroughOpacity,
             cursorFollowEnabled,
-            desktopScale
+            desktopScale,
+            desktopPosition
           },
     isLocal: true
   };

@@ -45,11 +45,13 @@ export interface TextToSpeechRequest {
   petId: string;
   text: string;
   requestId: string;
+  sessionId?: string;
 }
 
 export interface TextToSpeechStopRequest {
   petId?: string;
   requestId?: string;
+  sessionId?: string;
 }
 
 export interface TextToSpeechStopResponse {

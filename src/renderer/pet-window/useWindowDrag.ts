@@ -15,6 +15,13 @@ interface ChatPanelPosition {
   bottom: number;
 }
 
+interface ChatPanelAppearanceMetrics {
+  viewportWidth: number;
+  panelWidth: number;
+  modelCanvasLeft: number;
+  modelCanvasWidth: number;
+}
+
 export interface UseWindowDragResult {
   chatPanelPosition: ChatPanelPosition;
   consumeModelDragMoved: () => boolean;
@@ -32,6 +39,44 @@ const expandedChatPanelHeight = 214;
 const collapsedChatPanelHeight = 112;
 const modelDragThreshold = 4;
 const modelDragFeedbackThreshold = 36;
+
+export function calculateChatPanelAppearancePosition({
+  viewportWidth,
+  panelWidth,
+  modelCanvasLeft,
+  modelCanvasWidth
+}: ChatPanelAppearanceMetrics): ChatPanelPosition {
+  const safeViewportWidth = Math.max(0, viewportWidth);
+  const safePanelWidth = Math.min(Math.max(0, panelWidth), safeViewportWidth);
+  const safeModelCanvasWidth = Math.max(0, modelCanvasWidth);
+  const desiredLeft = safePanelWidth <= safeModelCanvasWidth
+    ? modelCanvasLeft + (safeModelCanvasWidth - safePanelWidth) / 2
+    : modelCanvasLeft;
+  const maxLeft = Math.max(
+    safeViewportWidth - safePanelWidth - chatPanelEdgePadding,
+    chatPanelEdgePadding
+  );
+
+  return {
+    left: Math.min(Math.max(desiredLeft, chatPanelEdgePadding), maxLeft),
+    bottom: chatPanelEdgePadding
+  };
+}
+
+function getChatPanelAppearancePosition(): ChatPanelPosition {
+  const chatPanel = document.querySelector<HTMLElement>(".petChatPanel");
+  const modelCanvas = document.querySelector<HTMLElement>(".live2dHost");
+  const panelWidth = chatPanel?.getBoundingClientRect().width
+    ?? Math.min(chatPanelWidth, Math.max(0, window.innerWidth - 18));
+  const modelCanvasBounds = modelCanvas?.getBoundingClientRect();
+
+  return calculateChatPanelAppearancePosition({
+    viewportWidth: window.innerWidth,
+    panelWidth,
+    modelCanvasLeft: modelCanvasBounds?.left ?? 0,
+    modelCanvasWidth: modelCanvasBounds?.width ?? window.innerWidth
+  });
+}
 
 function clampChatPanelPosition(
   position: ChatPanelPosition,
@@ -82,6 +127,8 @@ export function useWindowDrag({
       }
     | null
   >(null);
+  const chatPanelWasDraggedRef = useRef(false);
+  const chatWasOpenRef = useRef(false);
   const pendingPetWindowDragPointRef = useRef<PetWindowDragPoint | undefined>();
   const petWindowDragFrameRef = useRef<number | undefined>();
   const dragGenerationRef = useRef(0);
@@ -138,12 +185,41 @@ export function useWindowDrag({
     petWindowDragFrameRef.current = window.requestAnimationFrame(flushPetWindowDrag);
   };
 
+  useLayoutEffect(() => {
+    if (!chatOpen) {
+      chatWasOpenRef.current = false;
+      chatPanelWasDraggedRef.current = false;
+      return;
+    }
+
+    if (!chatWasOpenRef.current) {
+      chatWasOpenRef.current = true;
+      chatPanelWasDraggedRef.current = false;
+      setChatPanelPosition(getChatPanelAppearancePosition());
+      return;
+    }
+
+    setChatPanelPosition((position) => clampChatPanelPosition(position, chatCollapsed));
+  }, [chatCollapsed, chatOpen]);
+
   useEffect(() => {
     if (!chatOpen) {
       return;
     }
 
-    setChatPanelPosition((position) => clampChatPanelPosition(position, chatCollapsed));
+    const handleResize = (): void => {
+      setChatPanelPosition((position) =>
+        chatPanelWasDraggedRef.current
+          ? clampChatPanelPosition(position, chatCollapsed)
+          : getChatPanelAppearancePosition()
+      );
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   }, [chatCollapsed, chatOpen]);
 
   useEffect(() => {
@@ -268,6 +344,7 @@ export function useWindowDrag({
       return;
     }
 
+    chatPanelWasDraggedRef.current = true;
     chatPanelDragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,

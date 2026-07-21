@@ -53,6 +53,34 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("accepts only bounded TTS reply session identifiers", () => {
+    expect(() =>
+      validateIpcArguments("text-to-speech:speak", [
+        {
+          petId: "pet-a",
+          requestId: "voice-1-1",
+          sessionId: "voice-session-1",
+          text: "第一句"
+        }
+      ])
+    ).not.toThrow();
+    expect(() =>
+      validateIpcArguments("text-to-speech:speak", [
+        {
+          petId: "pet-a",
+          requestId: "voice-1-1",
+          sessionId: "../other-session",
+          text: "第一句"
+        }
+      ])
+    ).toThrow(/sessionId/);
+    expect(() =>
+      validateIpcArguments("text-to-speech:stop", [
+        { petId: "pet-a", sessionId: "x".repeat(129) }
+      ])
+    ).toThrow(/sessionId/);
+  });
+
   it("accepts only bounded finite desktop scale settings", () => {
     const validDraft = {
       petId: "pet-a",
@@ -81,6 +109,90 @@ describe("validateIpcArguments", () => {
       ...validDraft,
       desktopScale: Number.NaN
     }])).toThrow(/desktopScale/);
+  });
+
+  it("accepts only a bounded pet-local custom theme on custom theme saves", () => {
+    const customTheme = {
+      id: "mint-plaid",
+      name: "薄荷格纹",
+      description: "当前桌宠的主题",
+      version: 1,
+      tokens: {
+        background: "#f3fbf8",
+        surface: "#ffffff",
+        headerSurface: "linear-gradient(135deg, #fff, #e4f4c8)",
+        headerText: "#36552c",
+        inputSurface: "#fbfff6",
+        userSurface: "linear-gradient(145deg, #7fa84c, #5f8736)",
+        text: "#273047",
+        mutedText: "#6d7f89",
+        accent: "#0f7281",
+        decorationPrimary: "#73a136",
+        decorationSecondary: "#8eae62",
+        watermarkColor: "rgba(111, 152, 64, 0.10)",
+        border: "#668987"
+      },
+      chatDecorations: {
+        "header-left": "citrus",
+        "header-right": "flower-2"
+      },
+      radialMenu: {
+        radius: 15,
+        surface: "#ffffff",
+        text: "#36552c",
+        border: "#668987",
+        center: { surface: "#f3fbf8", text: "#36552c" },
+        actions: {
+          chat: { surface: "#eff8d7", text: "#577838" }
+        }
+      }
+    };
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme
+    }])).not.toThrow();
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom"
+    }])).toThrow(/customTheme/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "soft",
+      customTheme
+    }])).toThrow(/系统主题/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        tokens: { ...customTheme.tokens, background: "x".repeat(181) }
+      }
+    }])).toThrow(/180/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        chatDecorations: { "header-left": "remote-image" }
+      }
+    }])).toThrow(/图标无效/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        chatDecorations: { "footer-left": "leaf" }
+      }
+    }])).toThrow(/不允许字段/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        radialMenu: { ...customTheme.radialMenu, unknown: "#fff" }
+      }
+    }])).toThrow(/不允许字段/);
   });
 
   it("accepts only supported GPT-SoVITS model versions", () => {

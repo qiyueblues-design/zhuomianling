@@ -358,6 +358,265 @@ textarea {
   padding: 8px;
 }
 
+.petChatDecorations {
+  display: contents;
+  pointer-events: none;
+}
+
+.petChatDecoration {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  color: var(--chat-decoration-primary);
+  pointer-events: none;
+  user-select: none;
+}
+
+.petChatDecoration svg {
+  width: 100%;
+  height: 100%;
+}
+
+.petChatDecoration.header-left {
+  z-index: 4;
+  top: 15px;
+  left: 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.petChatDecoration.header-right {
+  z-index: 4;
+  top: 15px;
+  right: 63px;
+  width: 13px;
+  height: 13px;
+  color: var(--chat-decoration-secondary);
+}
+
+.petChatDecoration.frame-top-right {
+  z-index: 5;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--chat-decoration-border);
+  border-radius: 10px;
+  background: var(--chat-decoration-surface);
+  box-shadow: var(--chat-decoration-shadow);
+}
+
+.petChatDecoration.frame-top-right {
+  top: -8px;
+  right: -7px;
+  transform: rotate(8deg);
+}
+
+.petChatDecoration.body-watermark {
+  z-index: 0;
+  top: 50%;
+  left: 50%;
+  width: 76px;
+  height: 76px;
+  color: var(--chat-decoration-watermark);
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+
+.petChatPanel[data-chat-decorated="true"] .petChatDragZone {
+  padding-left: 20px;
+}
+
+.petChatPanel > .petChatHeader,
+.petChatPanel > .petChatMessages,
+.petChatPanel > .petChatInputRow {
+  position: relative;
+  z-index: 2;
+}
+
+.petChatPanel.collapsed .petChatDecoration.header-left,
+.petChatPanel.collapsed .petChatDecoration.header-right,
+.petChatPanel.collapsed .petChatDecoration.body-watermark {
+  display: none;
+}
+
+.theme-soft {
+  --chat-decoration-primary: #d76d9e;
+  --chat-decoration-secondary: #4fa8a5;
+  --chat-decoration-watermark: rgba(215, 109, 158, 0.1);
+  --chat-decoration-border: rgba(255, 255, 255, 0.82);
+  --chat-decoration-surface: rgba(250, 253, 255, 0.9);
+  --chat-decoration-shadow: 0 7px 16px rgba(72, 103, 130, 0.15);
+}
+
+.theme-rock {
+  --chat-decoration-primary: #ffe666;
+  --chat-decoration-secondary: #ff395c;
+  --chat-decoration-watermark: rgba(255, 230, 102, 0.11);
+  --chat-decoration-border: rgba(255, 230, 102, 0.68);
+  --chat-decoration-surface: rgba(23, 23, 27, 0.96);
+  --chat-decoration-shadow: 0 6px 14px rgba(0, 0, 0, 0.32);
+}
+
+.theme-rock .petChatDecoration.frame-top-right {
+  border-radius: 5px;
+}
+
+.theme-pixel {
+  --chat-decoration-primary: #f43f5e;
+  --chat-decoration-secondary: #2563eb;
+  --chat-decoration-watermark: rgba(37, 99, 235, 0.09);
+  --chat-decoration-border: rgba(17, 24, 39, 0.72);
+  --chat-decoration-surface: #fff;
+  --chat-decoration-shadow: 3px 3px 0 rgba(17, 24, 39, 0.72);
+}
+
+.theme-pixel .petChatDecoration.frame-top-right {
+  border-radius: 0;
+}
+
+.theme-journal {
+  --chat-decoration-primary: #8b5e3c;
+  --chat-decoration-secondary: #d78aa0;
+  --chat-decoration-watermark: rgba(139, 94, 60, 0.08);
+  --chat-decoration-border: rgba(130, 92, 54, 0.28);
+  --chat-decoration-surface: rgba(255, 250, 240, 0.96);
+  --chat-decoration-shadow: 0 6px 14px rgba(130, 92, 54, 0.16);
+}
+
+.theme-cyber {
+  --chat-decoration-primary: #22d3ee;
+  --chat-decoration-secondary: #d946ef;
+  --chat-decoration-watermark: rgba(34, 211, 238, 0.1);
+  --chat-decoration-border: rgba(34, 211, 238, 0.66);
+  --chat-decoration-surface: rgba(8, 13, 27, 0.96);
+  --chat-decoration-shadow: 0 0 12px rgba(34, 211, 238, 0.24);
+}
+
+.theme-cyber .petChatDecoration.frame-top-right {
+  border-radius: 4px;
+}
+
+.theme-minimal {
+  --chat-decoration-primary: #111827;
+  --chat-decoration-secondary: #4b5563;
+  --chat-decoration-watermark: rgba(17, 24, 39, 0.045);
+  --chat-decoration-border: rgba(17, 24, 39, 0.42);
+  --chat-decoration-surface: #fff;
+  --chat-decoration-shadow: none;
+}
+
+.theme-custom {
+  --chat-decoration-primary: var(--custom-theme-decoration-primary);
+  --chat-decoration-secondary: var(--custom-theme-decoration-secondary);
+  --chat-decoration-watermark: var(--custom-theme-watermark);
+  --chat-decoration-border: var(--custom-theme-border);
+  --chat-decoration-surface: var(--custom-theme-surface);
+  --chat-decoration-shadow: var(--custom-theme-shadow);
+}
+
+.theme-custom .petChatDecoration.frame-top-right {
+  top: -13px;
+  right: -9px;
+  width: 32px;
+  height: 32px;
+  border-color: color-mix(in srgb, var(--chat-decoration-primary) 32%, white);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.98), transparent 36%),
+    var(--chat-decoration-surface);
+  color: var(--chat-decoration-primary);
+  transform: rotate(10deg);
+  box-shadow:
+    0 7px 16px color-mix(in srgb, var(--chat-decoration-primary) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.theme-custom .petChatDecoration.frame-top-right svg {
+  width: 20px;
+  height: 20px;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.7));
+}
+
+.theme-custom .petChatDecoration.body-watermark {
+  width: 72px;
+  height: 72px;
+  transform: translate(-50%, -50%) rotate(-7deg);
+}
+
+.theme-custom .petChatDecoration[data-icon="citrus"] {
+  overflow: visible;
+  border: 1px solid rgba(104, 141, 44, 0.34);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(252, 255, 205, 0.98) 0 12%, transparent 13%),
+    repeating-conic-gradient(
+      from 8deg,
+      #dff28a 0deg 25deg,
+      #c4df58 26deg 42deg,
+      #d8eb77 43deg 58deg
+    );
+  box-shadow:
+    inset 0 0 0 2px rgba(244, 255, 176, 0.72),
+    inset 0 0 0 4px rgba(116, 151, 44, 0.26),
+    0 5px 11px rgba(91, 121, 41, 0.16);
+}
+
+.theme-custom .petChatDecoration[data-icon="citrus"] svg {
+  display: none;
+}
+
+.theme-custom .petChatDecoration[data-icon="citrus"]::before {
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  width: 9px;
+  height: 6px;
+  border-radius: 100% 0 100% 0;
+  background: linear-gradient(135deg, #b6d85f, #6c9637);
+  content: "";
+  transform: rotate(-24deg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+.theme-custom .petChatDecoration.header-left[data-icon="citrus"] {
+  z-index: 4;
+  top: 12px;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  border-color: rgba(255, 255, 255, 0.58);
+  box-shadow:
+    inset 0 0 0 2px rgba(244, 255, 176, 0.68),
+    inset 0 0 0 4px rgba(116, 151, 44, 0.22);
+}
+
+.theme-custom .petChatDecoration.frame-top-right[data-icon="citrus"] {
+  top: -10px;
+  right: -7px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transform: rotate(6deg);
+}
+
+.theme-custom .petChatDecoration.body-watermark[data-icon="citrus"] {
+  opacity: 0.14;
+  box-shadow: inset 0 0 0 2px rgba(244, 255, 176, 0.56);
+}
+
+.theme-custom .petChatDecoration.header-right[data-icon="flower-2"] {
+  top: 13px;
+  right: 62px;
+  width: 15px;
+  height: 15px;
+  color: #d6a955;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.76));
+}
+
+.theme-minimal .petChatDecoration.frame-top-right {
+  width: 20px;
+  height: 20px;
+  border-radius: 0;
+}
+
 .petChatHeader {
   display: flex;
   height: 27px;
@@ -378,8 +637,11 @@ textarea {
 }
 
 .petChatDragZone {
+  display: inline-flex;
   flex: 1;
   min-width: 0;
+  align-items: center;
+  gap: 5px;
   cursor: grab;
 }
 
@@ -411,6 +673,8 @@ textarea {
 
 .petChatMessages {
   display: grid;
+  position: relative;
+  isolation: isolate;
   min-height: 0;
   max-height: none;
   gap: 6px;
@@ -429,6 +693,8 @@ textarea {
 }
 
 .petChatMessage {
+  position: relative;
+  z-index: 1;
   max-width: 88%;
   margin: 0;
   border-radius: 12px;
@@ -778,7 +1044,7 @@ textarea {
   --theme-panel-border: var(--custom-theme-border);
   --theme-panel-bg: var(--custom-theme-surface);
   --theme-panel-text: var(--custom-theme-text);
-  --theme-user-bg: var(--custom-theme-accent);
+  --theme-user-bg: var(--custom-theme-user-surface);
   --theme-pet-bg: var(--custom-theme-pet-surface);
   --theme-menu-bg: var(--custom-theme-surface);
   --theme-danger-bg: var(--custom-theme-danger);
@@ -799,10 +1065,19 @@ textarea {
 .theme-pixel .petChatHeader,
 .theme-journal .petChatHeader,
 .theme-cyber .petChatHeader,
-.theme-minimal .petChatHeader,
-.theme-custom .petChatHeader {
+.theme-minimal .petChatHeader {
   background: var(--theme-accent);
   color: var(--theme-panel-bg);
+}
+
+.theme-custom .petChatHeader {
+  border-color: color-mix(in srgb, var(--theme-panel-border) 72%, white);
+  background: var(--custom-theme-header-surface);
+  color: var(--custom-theme-header-text);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 6px 14px color-mix(in srgb, var(--theme-accent) 10%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
 .theme-pixel .petChatMessage.pet,
@@ -827,10 +1102,21 @@ textarea {
 .theme-pixel .petChatInputRow,
 .theme-journal .petChatInputRow,
 .theme-cyber .petChatInputRow,
-.theme-minimal .petChatInputRow,
-.theme-custom .petChatInputRow {
+.theme-minimal .petChatInputRow {
   border-color: var(--theme-panel-border);
   background: var(--theme-panel-bg);
+}
+
+.theme-custom .petChatInputRow {
+  border-color: var(--theme-panel-border);
+  background: var(--custom-theme-input-surface);
+}
+
+.theme-custom .petChatMessage.user {
+  color: var(--theme-panel-text);
+  box-shadow:
+    0 8px 16px color-mix(in srgb, var(--theme-accent) 13%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .theme-pixel .petChatInputRow textarea,
@@ -1308,42 +1594,68 @@ textarea {
 
 .petRadialMenu.variant-custom .petRadialButton,
 .petRadialMenu.variant-custom .petRadialCenterButton {
-  border-color: var(--custom-theme-border);
-  border-radius: 999px;
-  background: var(--custom-theme-surface);
-  color: var(--custom-theme-text);
+  border: 1px solid var(--custom-menu-border);
+  border-radius: var(--custom-menu-radius);
+  background: var(--custom-menu-surface);
+  color: var(--custom-menu-text);
   text-shadow: none;
-  box-shadow: var(--custom-theme-shadow);
+  box-shadow: var(--custom-menu-shadow);
 }
 
 .petRadialMenu.variant-custom .petRadialButton span {
-  background: color-mix(in srgb, var(--custom-theme-accent) 18%, transparent);
-  color: var(--custom-theme-text);
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
 }
 
-.petRadialMenu.variant-custom .petRadialCenterButton,
-.petRadialMenu.variant-custom .petRadialButton.chat,
+.petRadialMenu.variant-custom .petRadialButton {
+  width: 48px;
+  height: 42px;
+  grid-template-rows: 15px 12px;
+  gap: 1px;
+  padding: 5px 5px 4px;
+}
+
+.petRadialMenu.variant-custom .petRadialCenterButton {
+  width: 34px;
+  height: 34px;
+  border-color: var(--custom-menu-center-border);
+  border-radius: calc(var(--custom-menu-radius) - 3px);
+  background: var(--custom-menu-center-surface);
+  color: var(--custom-menu-center-text);
+}
+
+.petRadialMenu.variant-custom .petRadialButton.chat {
+  border-color: var(--custom-menu-chat-border);
+  background: var(--custom-menu-chat-surface);
+  color: var(--custom-menu-chat-text);
+}
+
 .petRadialMenu.variant-custom .petRadialButton.passThrough {
-  background: var(--custom-theme-accent);
-  color: var(--custom-theme-surface);
+  border-color: var(--custom-menu-pass-through-border);
+  background: var(--custom-menu-pass-through-surface);
+  color: var(--custom-menu-pass-through-text);
 }
 
 .petRadialMenu.variant-custom .petRadialButton.touch {
-  background: var(--custom-theme-pet-surface);
+  border-color: var(--custom-menu-touch-border);
+  background: var(--custom-menu-touch-surface);
+  color: var(--custom-menu-touch-text);
 }
 
 .petRadialMenu.variant-custom .petRadialButton.danger {
-  background: var(--custom-theme-danger);
-  color: var(--custom-theme-surface);
+  border-color: var(--custom-menu-danger-border);
+  background: var(--custom-menu-danger-surface);
+  color: var(--custom-menu-danger-text);
 }
 
 .petRadialMenu.variant-custom .petRadialButton.active,
 .petRadialMenu.variant-custom .petRadialButton:hover,
 .petRadialMenu.variant-custom .petRadialCenterButton:hover {
-  outline-color: color-mix(in srgb, var(--custom-theme-accent-strong) 72%, white);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--custom-theme-accent) 18%, transparent),
-    var(--custom-theme-shadow);
+  border-color: var(--custom-menu-active-border);
+  filter: none;
+  box-shadow: var(--custom-menu-shadow);
 }
 
 @keyframes radialButtonIn {

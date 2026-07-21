@@ -85,6 +85,106 @@ afterEach(async () => {
 });
 
 describe("text-to-speech request lifecycle", () => {
+  it("locks one voice configuration snapshot for every segment in a reply session", async () => {
+    const secondReferenceAudioPath = path.join(temporaryDirectory, "reference-2.wav");
+    await fs.writeFile(secondReferenceAudioPath, "fixture-audio-2", "utf8");
+    const fetchMock = vi.fn(async () =>
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "Content-Type": "audio/wav" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { speakText, stopSpeechPlayback } = await import("./textToSpeech");
+    const owner = new FakeWebContents();
+    const target = asWebContents(owner);
+
+    await speakText(target, {
+      petId: "pet-a",
+      requestId: "snapshot-segment-1",
+      sessionId: "voice-session-1",
+      text: "第一句"
+    });
+
+    const petConfigPath = path.join(temporaryDirectory, "pets", "pet-a", "pet.local.json");
+    await fs.writeFile(
+      petConfigPath,
+      JSON.stringify({
+        voiceModelSettings: {
+          enabled: true,
+          connected: true,
+          referenceAudioPath: secondReferenceAudioPath,
+          referenceText: "新的参考文本",
+          referenceLanguage: "zh",
+          language: "zh"
+        }
+      }),
+      "utf8"
+    );
+
+    await speakText(target, {
+      petId: "pet-a",
+      requestId: "snapshot-segment-2",
+      sessionId: "voice-session-1",
+      text: "第二句"
+    });
+    stopSpeechPlayback(target, { petId: "pet-a", sessionId: "voice-session-1" });
+    await speakText(target, {
+      petId: "pet-a",
+      requestId: "snapshot-next-reply",
+      sessionId: "voice-session-2",
+      text: "下一轮"
+    });
+
+    const requestBodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body)) as { ref_audio_path: string; prompt_text: string }
+    );
+    expect(requestBodies[0]).toMatchObject({
+      ref_audio_path: referenceAudioPath,
+      prompt_text: "参考文本"
+    });
+    expect(requestBodies[1]).toMatchObject({
+      ref_audio_path: referenceAudioPath,
+      prompt_text: "参考文本"
+    });
+    expect(requestBodies[2]).toMatchObject({
+      ref_audio_path: secondReferenceAudioPath,
+      prompt_text: "新的参考文本"
+    });
+    stopSpeechPlayback(target, { petId: "pet-a" });
+  });
+
+  it("a delayed stop for an old session does not cancel the next reply session", async () => {
+    const fetchMock = createAbortablePendingFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const { speakText, stopSpeechPlayback } = await import("./textToSpeech");
+    const owner = new FakeWebContents();
+    const target = asWebContents(owner);
+    const nextReply = speakText(target, {
+      petId: "pet-a",
+      requestId: "new-segment",
+      sessionId: "voice-session-new",
+      text: "新回复"
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(
+      stopSpeechPlayback(target, {
+        petId: "pet-a",
+        sessionId: "voice-session-old"
+      }).canceled
+    ).toBe(0);
+    expect((fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal).aborted).toBe(false);
+
+    expect(
+      stopSpeechPlayback(target, {
+        petId: "pet-a",
+        sessionId: "voice-session-new"
+      }).canceled
+    ).toBe(1);
+    await expect(nextReply).resolves.toMatchObject({ code: "CANCELED" });
+  });
+
   it("旧配置缺少参考文本时返回可操作提示而不是抛出 TypeError", async () => {
     const petDirectory = path.join(temporaryDirectory, "pets", "pet-a");
     await fs.writeFile(

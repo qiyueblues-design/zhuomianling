@@ -24,6 +24,7 @@ import type { PetExpressionEvent } from "../live2d/Live2DCanvas";
 import { Live2DCanvas } from "../live2d/Live2DCanvas";
 import type { Live2DClientPoint } from "../live2d/live2dModelBounds";
 import { useSubtitle } from "../services/subtitle/subtitleStore";
+import { ChatThemeDecorations } from "./ChatThemeDecorations";
 import {
   createPetWindowStateFromPayload,
   fallbackState,
@@ -73,19 +74,49 @@ function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties |
   }
 
   const { tokens } = theme;
+  const radialMenu = theme.radialMenu;
+  const menuAction = (kind: "passThrough" | "touch" | "chat" | "danger") => radialMenu?.actions[kind];
 
   return {
     "--custom-theme-background": tokens.background,
     "--custom-theme-surface": tokens.surface,
     "--custom-theme-pet-surface": tokens.petSurface ?? tokens.surface,
+    "--custom-theme-header-surface": tokens.headerSurface ?? tokens.surface,
+    "--custom-theme-header-text": tokens.headerText ?? tokens.text,
+    "--custom-theme-input-surface": tokens.inputSurface ?? tokens.surface,
+    "--custom-theme-user-surface": tokens.userSurface ?? tokens.petSurface ?? tokens.surface,
     "--custom-theme-text": tokens.text,
     "--custom-theme-muted": tokens.mutedText,
     "--custom-theme-accent": tokens.accent,
     "--custom-theme-accent-strong": tokens.accentStrong ?? tokens.accent,
+    "--custom-theme-decoration-primary": tokens.decorationPrimary ?? tokens.accent,
+    "--custom-theme-decoration-secondary": tokens.decorationSecondary ?? tokens.accentStrong ?? tokens.accent,
+    "--custom-theme-watermark": tokens.watermarkColor ?? `color-mix(in srgb, ${tokens.accent} 9%, transparent)`,
     "--custom-theme-border": tokens.border,
     "--custom-theme-danger": tokens.danger ?? "#ef4444",
     "--custom-theme-shadow": tokens.shadow ?? "none",
-    "--custom-theme-radius": `${tokens.radius ?? 14}px`
+    "--custom-theme-radius": `${tokens.radius ?? 14}px`,
+    "--custom-menu-radius": `${radialMenu?.radius ?? 15}px`,
+    "--custom-menu-surface": radialMenu?.surface ?? tokens.surface,
+    "--custom-menu-text": radialMenu?.text ?? tokens.text,
+    "--custom-menu-border": radialMenu?.border ?? tokens.border,
+    "--custom-menu-shadow": radialMenu?.shadow ?? tokens.shadow ?? "none",
+    "--custom-menu-active-border": radialMenu?.activeBorder ?? tokens.accentStrong ?? tokens.accent,
+    "--custom-menu-center-surface": radialMenu?.center.surface ?? tokens.surface,
+    "--custom-menu-center-text": radialMenu?.center.text ?? tokens.text,
+    "--custom-menu-center-border": radialMenu?.center.border ?? tokens.border,
+    "--custom-menu-pass-through-surface": menuAction("passThrough")?.surface ?? tokens.petSurface ?? tokens.surface,
+    "--custom-menu-pass-through-text": menuAction("passThrough")?.text ?? tokens.text,
+    "--custom-menu-pass-through-border": menuAction("passThrough")?.border ?? tokens.border,
+    "--custom-menu-touch-surface": menuAction("touch")?.surface ?? tokens.petSurface ?? tokens.surface,
+    "--custom-menu-touch-text": menuAction("touch")?.text ?? tokens.text,
+    "--custom-menu-touch-border": menuAction("touch")?.border ?? tokens.border,
+    "--custom-menu-chat-surface": menuAction("chat")?.surface ?? tokens.petSurface ?? tokens.surface,
+    "--custom-menu-chat-text": menuAction("chat")?.text ?? tokens.text,
+    "--custom-menu-chat-border": menuAction("chat")?.border ?? tokens.border,
+    "--custom-menu-danger-surface": menuAction("danger")?.surface ?? tokens.danger ?? "#ef4444",
+    "--custom-menu-danger-text": menuAction("danger")?.text ?? tokens.surface,
+    "--custom-menu-danger-border": menuAction("danger")?.border ?? tokens.danger ?? "#ef4444"
   } as CSSProperties;
 }
 
@@ -98,7 +129,8 @@ export function PetWindow(): JSX.Element {
   const clickThroughOpacity = getClickThroughOpacity(petDefinition?.uiSettings?.clickThroughOpacity);
   const cursorFollowEnabled = petDefinition?.uiSettings?.cursorFollowEnabled !== false;
   const desktopScale = normalizePetDesktopScale(petDefinition?.uiSettings?.desktopScale);
-  const customThemeStyle = getCustomThemeStyle(petDefinition?.uiSettings?.customTheme);
+  const customTheme = petDefinition?.uiSettings?.customTheme;
+  const customThemeStyle = getCustomThemeStyle(customTheme);
   const subtitle = useSubtitle();
   const clickThroughButtonRef = useRef<HTMLButtonElement>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
@@ -924,11 +956,21 @@ export function PetWindow(): JSX.Element {
         <section
           className={chatCollapsed ? "petChatPanel collapsed" : "petChatPanel"}
           aria-label="对话窗口"
+          data-chat-decorated={
+            uiTheme !== "custom" || customTheme?.chatDecorations?.["header-left"]
+              ? "true"
+              : undefined
+          }
           style={{
             left: chatPanelPosition.left,
             bottom: chatPanelPosition.bottom
           }}
         >
+          <ChatThemeDecorations
+            theme={uiTheme}
+            customTheme={customTheme}
+            slots={["header-left", "header-right", "frame-top-right"]}
+          />
           {!chatCollapsed ? (
             <>
               <div className="petChatHeader">
@@ -967,6 +1009,11 @@ export function PetWindow(): JSX.Element {
                 </span>
               </div>
               <div className="petChatMessages" ref={chatMessagesRef}>
+                <ChatThemeDecorations
+                  theme={uiTheme}
+                  customTheme={customTheme}
+                  slots={["body-watermark"]}
+                />
                 {messages.map((message) => (
                   <p
                     className={["petChatMessage", message.role, message.status]

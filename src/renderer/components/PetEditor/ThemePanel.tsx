@@ -1,4 +1,4 @@
-import { FileJson, Upload, X } from "lucide-react";
+import { AlertTriangle, FileJson, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -39,10 +39,17 @@ function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties |
     "--custom-theme-background": tokens.background,
     "--custom-theme-surface": tokens.surface,
     "--custom-theme-pet-surface": tokens.petSurface ?? tokens.surface,
+    "--custom-theme-header-surface": tokens.headerSurface ?? tokens.surface,
+    "--custom-theme-header-text": tokens.headerText ?? tokens.text,
+    "--custom-theme-input-surface": tokens.inputSurface ?? tokens.surface,
+    "--custom-theme-user-surface": tokens.userSurface ?? tokens.petSurface ?? tokens.surface,
     "--custom-theme-text": tokens.text,
     "--custom-theme-muted": tokens.mutedText,
     "--custom-theme-accent": tokens.accent,
     "--custom-theme-accent-strong": tokens.accentStrong ?? tokens.accent,
+    "--custom-theme-decoration-primary": tokens.decorationPrimary ?? tokens.accent,
+    "--custom-theme-decoration-secondary": tokens.decorationSecondary ?? tokens.accentStrong ?? tokens.accent,
+    "--custom-theme-watermark": tokens.watermarkColor ?? `color-mix(in srgb, ${tokens.accent} 9%, transparent)`,
     "--custom-theme-border": tokens.border,
     "--custom-theme-danger": tokens.danger ?? "#ef4444",
     "--custom-theme-shadow": tokens.shadow ?? "none",
@@ -52,11 +59,14 @@ function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties |
 
 function isSameTheme(
   theme: PetUiTheme,
-  customThemeId: string | undefined,
+  customTheme: PetCustomTheme | undefined,
   savedTheme: PetUiTheme,
-  savedCustomThemeId: string | undefined
+  savedCustomTheme: PetCustomTheme | undefined
 ): boolean {
-  return theme === savedTheme && (theme !== "custom" || customThemeId === savedCustomThemeId);
+  return (
+    theme === savedTheme &&
+    (theme !== "custom" || JSON.stringify(customTheme) === JSON.stringify(savedCustomTheme))
+  );
 }
 
 function ThemeImportDialog({
@@ -79,7 +89,7 @@ function ThemeImportDialog({
           </span>
           <div>
             <h3>导入主题风格</h3>
-            <p>选择一个主题 JSON，导入后会出现在主题列表最前面。</p>
+            <p>选择一个主题 JSON，保存后只属于当前桌宠。</p>
           </div>
           <button className="iconButton" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
             <X size={17} />
@@ -94,7 +104,7 @@ function ThemeImportDialog({
             </span>
             <div>
               <strong>选择主题 JSON</strong>
-              <span>导入后会添加到主题列表，选中后再保存。</span>
+              <span>读取后会替换当前桌宠的自定义主题，点击保存后生效。</span>
             </div>
             <button className="primaryAction" type="button" disabled={importing} onClick={onImport}>
               <Upload size={17} />
@@ -114,6 +124,43 @@ function ThemeImportDialog({
   );
 }
 
+function ThemeDeleteDialog({
+  theme,
+  onConfirm,
+  onClose
+}: {
+  theme: PetCustomTheme;
+  onConfirm: () => void;
+  onClose: () => void;
+}): JSX.Element {
+  return createPortal(
+    <div className="themeImportOverlay" role="dialog" aria-modal="true" aria-labelledby="theme-delete-title">
+      <div className="themeImportDialog themeDeleteDialog">
+        <div className="themeImportHeader">
+          <span className="themeImportIcon danger" aria-hidden="true">
+            <AlertTriangle size={20} />
+          </span>
+          <div>
+            <h3 id="theme-delete-title">删除导入主题？</h3>
+            <p>“{theme.name}”会从当前桌宠的未保存配置中移除，并切换为软糖风。</p>
+          </div>
+          <button className="iconButton" type="button" title="关闭" aria-label="关闭" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </div>
+        <div className="themeDeleteActions">
+          <button className="secondaryAction" type="button" onClick={onClose}>取消</button>
+          <button className="primaryAction themeDeleteConfirm" type="button" onClick={onConfirm}>
+            <Trash2 size={16} />
+            删除主题
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 export function ThemePanel({
   pet,
   onSavedPet,
@@ -124,70 +171,67 @@ export function ThemePanel({
   onDirtyChange: (dirty: boolean) => void;
 }): JSX.Element {
   const currentTheme = pet.uiSettings?.theme ?? "soft";
-  const currentCustomThemeId = pet.uiSettings?.customThemeId;
+  const currentCustomTheme = pet.uiSettings?.customTheme;
   const [savedTheme, setSavedTheme] = useState<PetUiTheme>(currentTheme);
-  const [savedCustomThemeId, setSavedCustomThemeId] = useState<string | undefined>(currentCustomThemeId);
+  const [savedCustomTheme, setSavedCustomTheme] = useState<PetCustomTheme | undefined>(currentCustomTheme);
   const [selectedTheme, setSelectedTheme] = useState<PetUiTheme>(currentTheme);
-  const [selectedCustomThemeId, setSelectedCustomThemeId] = useState<string | undefined>(currentCustomThemeId);
-  const [customThemes, setCustomThemes] = useState<PetCustomTheme[]>([]);
+  const [selectedCustomTheme, setSelectedCustomTheme] = useState<PetCustomTheme | undefined>(currentCustomTheme);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [importingTheme, setImportingTheme] = useState(false);
   const [importResult, setImportResult] = useState<PetCustomThemeImportResult | undefined>();
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<LocalPetSaveResult | undefined>();
 
-  const refreshCustomThemes = async (): Promise<PetCustomTheme[]> => {
-    const themeResult = await window.desktopPet?.petConfig.listUiThemes();
-    const themes = themeResult?.ok ? themeResult.themes : [];
-    setCustomThemes(themes);
-
-    return themes;
-  };
-
-  useEffect(() => {
-    void refreshCustomThemes();
-  }, []);
-
   useEffect(() => {
     const nextTheme = pet.uiSettings?.theme ?? "soft";
-    const nextCustomThemeId = pet.uiSettings?.customThemeId;
+    const nextCustomTheme = pet.uiSettings?.customTheme;
     setSavedTheme(nextTheme);
-    setSavedCustomThemeId(nextCustomThemeId);
+    setSavedCustomTheme(nextCustomTheme);
     setSelectedTheme(nextTheme);
-    setSelectedCustomThemeId(nextCustomThemeId);
+    setSelectedCustomTheme(nextCustomTheme);
     setResult(undefined);
     onDirtyChange(false);
-  }, [pet.id, pet.uiSettings?.theme, pet.uiSettings?.customThemeId, onDirtyChange]);
+  }, [pet.id, pet.uiSettings?.theme, pet.uiSettings?.customTheme, onDirtyChange]);
 
   const themeOptions = useMemo<ThemeCardOption[]>(
     () => [
-      ...customThemes.map((theme) => ({
-        kind: "custom" as const,
-        id: theme.id,
-        name: theme.name,
-        description: theme.description,
-        theme
-      })),
+      ...(selectedCustomTheme
+        ? [{
+            kind: "custom" as const,
+            id: selectedCustomTheme.id,
+            name: selectedCustomTheme.name,
+            description: selectedCustomTheme.description,
+            theme: selectedCustomTheme
+          }]
+        : []),
       ...uiThemeOptions.map((theme) => ({
         kind: "builtIn" as const,
         ...theme
       }))
     ],
-    [customThemes]
+    [selectedCustomTheme]
   );
 
   const selectBuiltInTheme = (theme: BuiltInPetUiTheme): void => {
     setSelectedTheme(theme);
-    setSelectedCustomThemeId(undefined);
     setResult(undefined);
-    onDirtyChange(!isSameTheme(theme, undefined, savedTheme, savedCustomThemeId));
+    onDirtyChange(!isSameTheme(theme, selectedCustomTheme, savedTheme, savedCustomTheme));
   };
 
-  const selectCustomTheme = (themeId: string): void => {
+  const selectCustomTheme = (): void => {
     setSelectedTheme("custom");
-    setSelectedCustomThemeId(themeId);
     setResult(undefined);
-    onDirtyChange(!isSameTheme("custom", themeId, savedTheme, savedCustomThemeId));
+    onDirtyChange(!isSameTheme("custom", selectedCustomTheme, savedTheme, savedCustomTheme));
+  };
+
+  const deleteCustomTheme = (): void => {
+    setSelectedCustomTheme(undefined);
+    setSelectedTheme("soft");
+    setResult(undefined);
+    setImportResult(undefined);
+    setDeleteConfirmOpen(false);
+    onDirtyChange(!isSameTheme("soft", undefined, savedTheme, savedCustomTheme));
   };
 
   const importUiTheme = async (): Promise<void> => {
@@ -204,8 +248,10 @@ export function ThemePanel({
       setImportResult(nextResult);
 
       if (nextResult.ok && nextResult.theme) {
-        await refreshCustomThemes();
-        selectCustomTheme(nextResult.theme.id);
+        setSelectedCustomTheme(nextResult.theme);
+        setSelectedTheme("custom");
+        setResult(undefined);
+        onDirtyChange(!isSameTheme("custom", nextResult.theme, savedTheme, savedCustomTheme));
       }
     } finally {
       setImportingTheme(false);
@@ -228,7 +274,7 @@ export function ThemePanel({
       const saveResult = await window.desktopPet?.petConfig.saveUiSettings({
         petId: pet.id,
         theme: selectedTheme,
-        customThemeId: selectedTheme === "custom" ? selectedCustomThemeId : undefined
+        customTheme: selectedTheme === "custom" ? selectedCustomTheme : undefined
       });
 
       if (!saveResult) {
@@ -239,11 +285,11 @@ export function ThemePanel({
 
       if (saveResult.ok && saveResult.pet) {
         const nextTheme = saveResult.pet.uiSettings?.theme ?? selectedTheme;
-        const nextCustomThemeId = saveResult.pet.uiSettings?.customThemeId;
+        const nextCustomTheme = saveResult.pet.uiSettings?.customTheme;
         setSavedTheme(nextTheme);
-        setSavedCustomThemeId(nextCustomThemeId);
+        setSavedCustomTheme(nextCustomTheme);
         setSelectedTheme(nextTheme);
-        setSelectedCustomThemeId(nextCustomThemeId);
+        setSelectedCustomTheme(nextCustomTheme);
         onDirtyChange(false);
         onSavedPet?.(saveResult.pet);
       }
@@ -263,7 +309,7 @@ export function ThemePanel({
           <Upload size={17} />
           导入主题风格
         </button>
-        <span className="localBadge">按模型保存</span>
+        <span className="localBadge">按桌宠保存</span>
       </div>
 
       <section className="uiThemeSection" aria-label="主题风格">
@@ -271,52 +317,67 @@ export function ThemePanel({
           {themeOptions.map((theme) => {
             const selected =
               theme.kind === "custom"
-                ? selectedTheme === "custom" && selectedCustomThemeId === theme.id
+                ? selectedTheme === "custom"
                 : selectedTheme === theme.id;
 
             return (
-              <button
-                className={selected ? "uiThemeCard selected" : "uiThemeCard"}
-                type="button"
+              <div
+                className={theme.kind === "custom" ? "uiThemeCardWrap hasDelete" : "uiThemeCardWrap"}
                 key={`${theme.kind}-${theme.id}`}
-                onClick={() => {
-                  if (theme.kind === "custom") {
-                    selectCustomTheme(theme.id);
-                  } else {
-                    selectBuiltInTheme(theme.id);
-                  }
-                }}
               >
-                <span
-                  className={[
-                    "uiThemePreview",
-                    theme.kind === "custom" ? "theme-custom" : `theme-${theme.id}`
-                  ].join(" ")}
-                  style={theme.kind === "custom" ? getCustomThemeStyle(theme.theme) : undefined}
-                  aria-hidden="true"
+                <button
+                  className={selected ? "uiThemeCard selected" : "uiThemeCard"}
+                  type="button"
+                  onClick={() => {
+                    if (theme.kind === "custom") {
+                      selectCustomTheme();
+                    } else {
+                      selectBuiltInTheme(theme.id);
+                    }
+                  }}
                 >
-                  <span className="themePreviewBubble">Hi</span>
-                  <span className="themePreviewChat">
-                    <span />
-                    <em />
+                  <span
+                    className={[
+                      "uiThemePreview",
+                      theme.kind === "custom" ? "theme-custom" : `theme-${theme.id}`
+                    ].join(" ")}
+                    style={theme.kind === "custom" ? getCustomThemeStyle(theme.theme) : undefined}
+                    aria-hidden="true"
+                  >
+                    <span className="themePreviewBubble">Hi</span>
+                    <span className="themePreviewChat">
+                      <span />
+                      <em />
+                    </span>
+                    <span className="themePreviewMenu">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
                   </span>
-                  <span className="themePreviewMenu">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </span>
-                <strong>{theme.name}</strong>
-                <span>{theme.description}</span>
-              </button>
+                  <strong>{theme.name}</strong>
+                  <span>{theme.description}</span>
+                </button>
+                {theme.kind === "custom" ? (
+                  <button
+                    className="themeCardDelete"
+                    type="button"
+                    title={`删除导入主题「${theme.name}」`}
+                    aria-label={`删除导入主题「${theme.name}」`}
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
             );
           })}
         </div>
         <PanelSaveActions
           onSave={() => void saveUiTheme()}
           saving={saving}
-          disabled={selectedTheme === "custom" && !selectedCustomThemeId}
-          disabledReason="请选择一个已导入的主题。"
+          disabled={selectedTheme === "custom" && !selectedCustomTheme}
+          disabledReason="请先导入当前桌宠的主题。"
           result={result}
         />
       </section>
@@ -330,6 +391,13 @@ export function ThemePanel({
             setImportDialogOpen(false);
             setImportResult(undefined);
           }}
+        />
+      ) : null}
+      {deleteConfirmOpen && selectedCustomTheme ? (
+        <ThemeDeleteDialog
+          theme={selectedCustomTheme}
+          onConfirm={deleteCustomTheme}
+          onClose={() => setDeleteConfirmOpen(false)}
         />
       ) : null}
     </div>

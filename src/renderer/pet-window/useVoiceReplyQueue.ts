@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { PetExpressionKey } from "../../shared/types/pet";
 import type { PetExpressionEvent } from "../live2d/Live2DCanvas";
 import type { useSubtitle } from "../services/subtitle/subtitleStore";
-import { splitVoiceTextIntoSegments } from "./aiReplyUtils";
 import { base64ToBlob } from "./audioUtils";
+import { StreamingVoiceCommitter } from "./streamingVoiceCommitter";
 
 export interface VoiceReplyAudio {
   audioUrl: string;
@@ -71,8 +71,10 @@ export interface UseVoiceReplyQueueResult {
   cancelSynchronizedReveal: () => void;
   clearPendingExpression: () => void;
   completeSynchronizedReveal: () => void;
+  enqueueStreamingText: (voiceText: string, requestId?: number) => void;
   enqueueFinalText: (voiceText: string, requestId?: number) => void;
   hasActiveAudio: () => boolean;
+  hasCommittedSpeech: () => boolean;
   holdExpression: (requestId: number, expression?: PetExpressionKey) => boolean;
   finalizeReply: (requestId: number, restartAfterReply: boolean) => void;
   holdSubtitle: (requestId: number) => void;
@@ -120,44 +122,6 @@ export function normalizeVoiceReplyText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-export function getUnqueuedFinalVoiceSegments(
-  finalVoiceText: string,
-  queuedSegments: string[]
-): string[] {
-  const normalizedFinalText = normalizeVoiceReplyText(finalVoiceText);
-
-  if (!normalizedFinalText) {
-    return [];
-  }
-
-  if (!queuedSegments.length) {
-    return splitVoiceTextIntoSegments(normalizedFinalText);
-  }
-
-  const queuedPrefix = normalizeVoiceReplyText(queuedSegments.join(" "));
-
-  if (queuedPrefix && normalizedFinalText.startsWith(queuedPrefix)) {
-    return splitVoiceTextIntoSegments(normalizedFinalText.slice(queuedPrefix.length));
-  }
-
-  const finalSegments = splitVoiceTextIntoSegments(normalizedFinalText);
-  const queuedKeys = queuedSegments.map(normalizeVoiceReplyText);
-  let queuedIndex = 0;
-
-  return finalSegments.filter((segment) => {
-    const segmentKey = normalizeVoiceReplyText(segment);
-
-    for (let index = queuedIndex; index < queuedKeys.length; index += 1) {
-      if (queuedKeys[index] === segmentKey) {
-        queuedIndex = index + 1;
-        return false;
-      }
-    }
-
-    return true;
-  });
-}
-
 function waitForRetry(delayMs: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, delayMs);
@@ -174,8 +138,10 @@ export function useVoiceReplyQueue(
   const voiceReplyUrlRef = useRef<string | undefined>();
   const pendingUrlsRef = useRef<Set<string>>(new Set());
   const queueRef = useRef<VoiceReplyQueueState>(createEmptyQueue());
+  const streamingCommitterRef = useRef(new StreamingVoiceCommitter());
   const syncRevealRef = useRef<SyncVoiceRevealState | undefined>();
   const requestIdRef = useRef(0);
+  const voiceSessionIdRef = useRef<string | undefined>();
   const textToSpeechRequestSequenceRef = useRef(0);
   const voiceConfigurationErrorRequestRef = useRef<number | undefined>();
   const subtitleHoldRef = useRef<{ requestId: number; active: boolean } | undefined>();
@@ -251,7 +217,8 @@ export function useVoiceReplyQueue(
         response = await window.desktopPet?.textToSpeech.speak({
           petId: optionsRef.current.petId,
           text: segment,
-          requestId: textToSpeechRequestId
+          requestId: textToSpeechRequestId,
+          sessionId: voiceSessionIdRef.current
         });
       } catch {
         if (requestId !== requestIdRef.current) {
@@ -546,17 +513,27 @@ export function useVoiceReplyQueue(
     enqueuePreparedSegments(segments.map((segment) => ({ segment })), requestId);
   };
 
+  const enqueueStreamingText = (
+    voiceText: string,
+    requestId = requestIdRef.current
+  ): void => {
+    if (requestId !== requestIdRef.current || !voiceReplyEnabledRef.current) {
+      return;
+    }
+
+    enqueueSegments(streamingCommitterRef.current.append(voiceText), requestId);
+  };
+
   const enqueueFinalText = (voiceText: string, requestId = requestIdRef.current): void => {
     if (requestId !== requestIdRef.current || !voiceReplyEnabledRef.current) {
       return;
     }
 
-    const queue = queueRef.current;
-    const finalSegments = getUnqueuedFinalVoiceSegments(voiceText, queue.queuedVoiceSegments);
-    enqueueSegments(finalSegments, requestId);
+    enqueueSegments(streamingCommitterRef.current.finalize(voiceText), requestId);
   };
 
   const stop = (stopOptions?: { clearPresentation?: boolean }): void => {
+    const voiceSessionId = voiceSessionIdRef.current;
     if (stopOptions?.clearPresentation ?? true) {
       if (subtitleHoldRef.current?.active) {
         optionsRef.current.subtitle.hide();
@@ -575,6 +552,7 @@ export function useVoiceReplyQueue(
     replyFinalizedRef.current = true;
     completionNotifiedRef.current = false;
     voiceReplyEnabledRef.current = false;
+    voiceSessionIdRef.current = undefined;
     presetLineAudioRef.current?.pause();
     presetLineAudioRef.current = null;
     voiceReplyAudioRef.current?.pause();
@@ -582,6 +560,7 @@ export function useVoiceReplyQueue(
     activePlaybackCancelRef.current = undefined;
     voiceReplyAudioRef.current = null;
     queueRef.current = createEmptyQueue();
+    streamingCommitterRef.current = new StreamingVoiceCommitter();
 
     if (voiceReplyUrlRef.current) {
       window.URL.revokeObjectURL(voiceReplyUrlRef.current);
@@ -592,7 +571,7 @@ export function useVoiceReplyQueue(
     }
     pendingUrlsRef.current.clear();
     void window.desktopPet?.textToSpeech
-      .stop({ petId: optionsRef.current.petId })
+      .stop({ petId: optionsRef.current.petId, sessionId: voiceSessionId })
       .catch(() => undefined);
   };
   useLayoutEffect(() => {
@@ -630,6 +609,7 @@ export function useVoiceReplyQueue(
     replyFinalizedRef.current = false;
     completionNotifiedRef.current = false;
     voiceReplyEnabledRef.current = voiceReplyEnabled;
+    voiceSessionIdRef.current = voiceReplyEnabled ? `voice-session-${requestId}` : undefined;
     queueRef.current.playbackBlocked = synchronized;
     syncRevealRef.current = synchronized
       ? {
@@ -695,8 +675,10 @@ export function useVoiceReplyQueue(
     completeSynchronizedReveal: () => {
       syncRevealRef.current = undefined;
     },
+    enqueueStreamingText,
     enqueueFinalText,
     hasActiveAudio,
+    hasCommittedSpeech: () => queueRef.current.queuedVoiceSegments.length > 0,
     holdExpression,
     finalizeReply: (requestId: number, restartAfterReply: boolean) => {
       if (requestId !== requestIdRef.current) {
@@ -722,8 +704,15 @@ export function useVoiceReplyQueue(
     },
     stop,
     updateSynchronizedContent: (content: string) => {
-      if (syncRevealRef.current?.requestId === requestIdRef.current) {
-        syncRevealRef.current.latestContent = content;
+      const revealState = syncRevealRef.current;
+      if (revealState?.requestId === requestIdRef.current) {
+        revealState.latestContent = content;
+        if (revealState.revealed) {
+          optionsRef.current.onSynchronizedReveal(
+            revealState.pendingMessageId,
+            revealState.latestContent
+          );
+        }
       }
     }
   };
