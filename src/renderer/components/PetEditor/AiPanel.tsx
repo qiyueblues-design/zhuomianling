@@ -71,11 +71,13 @@ function getProviderName(baseUrl: string): string {
 
 function getOutputCapabilityLabel(capability: AiOutputCapability): string {
   if (capability.confidence === "fallback") {
-    return "尚未完成回复测试，将自动兼容";
+    return capability.protocolTier === "full"
+      ? "完整桌宠协议 · Prompt JSON 兼容"
+      : "仅文字兼容 · 自动回退";
   }
 
-  const replyMode = capability.mode === "plain-text" ? "已使用通用回复模式" : "回复已适配";
-  return `${replyMode} · ${capability.streaming ? "支持流式" : "完整回复"}`;
+  const tierLabel = capability.protocolTier === "full" ? "完整桌宠协议" : "仅文字兼容";
+  return `${tierLabel} · 已测试 · ${capability.streaming ? "支持流式" : "完整回复"}`;
 }
 
 export function AiPanel({
@@ -564,6 +566,17 @@ export function AiPanel({
         <PlugZap size={16} />
         <span>AI 回复：{outputCapabilityLabel}</span>
       </div>
+
+      {activeOutputCapability ? (
+        <div className="settingsHint">
+          <PlugZap size={16} />
+          <span>
+            {activeOutputCapability.protocolTier === "full"
+              ? "支持 AI 心情变化，并按当前桌宠配置启用语义表情和跨语言语音。"
+              : "保留聊天、字幕、本地表情推断和同语言朗读；本轮心情不变化，跨语言语音自动降级为纯文字。"}
+          </span>
+        </div>
+      ) : null}
 
       {outputResult ? (
         <div className="settingsHint">

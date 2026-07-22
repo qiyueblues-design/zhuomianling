@@ -79,7 +79,9 @@ describe("safe AI stream presentation", () => {
   it("selects voice only from the finalized normalized fields", () => {
     expect(selectFinalVoiceText("聊天正文", "语音正文", false)).toBe("语音正文");
     expect(selectFinalVoiceText("直接朗读正文", "不应采用", true)).toBe("直接朗读正文");
-    expect(selectFinalVoiceText("回退正文", undefined, false)).toBe("回退正文");
+    expect(selectFinalVoiceText("跨语言正文", undefined, false)).toBeUndefined();
+    expect(selectFinalVoiceText("兼容正文", undefined, false, "text")).toBeUndefined();
+    expect(selectFinalVoiceText("兼容正文", undefined, true, "text")).toBe("兼容正文");
   });
 
   it("streams reply directly only when chat and voice use the same language", () => {
@@ -88,6 +90,7 @@ describe("safe AI stream presentation", () => {
     expect(selectStreamingVoiceText(event, true)).toBe("聊天正文。");
     expect(selectStreamingVoiceText(event, false)).toBe("语音正文。");
     expect(selectStreamingVoiceText({ content: "聊天正文。" }, false)).toBe("");
+    expect(selectStreamingVoiceText({ content: "聊天正文。", protocolTier: "text" }, false)).toBe("");
   });
 
   it("enqueues a safe streaming field during chunk handling before finalization", () => {

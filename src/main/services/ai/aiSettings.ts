@@ -95,6 +95,7 @@ function normalizeOutputCapability(
   if (
     candidate.mode !== "json-schema" &&
     candidate.mode !== "json-object" &&
+    candidate.mode !== "prompt-json" &&
     candidate.mode !== "plain-text"
   ) {
     return undefined;
@@ -102,14 +103,29 @@ function normalizeOutputCapability(
   if (typeof candidate.streaming !== "boolean") return undefined;
   if (candidate.confidence !== "tested" && candidate.confidence !== "fallback") return undefined;
   if (typeof candidate.checkedAt !== "string" || !candidate.checkedAt) return undefined;
+  const hasExplicitTier = candidate.protocolTier === "full" || candidate.protocolTier === "text";
+  if (
+    hasExplicitTier &&
+    ((candidate.mode === "plain-text") !== (candidate.protocolTier === "text"))
+  ) {
+    return undefined;
+  }
+  const needsPromptJsonRecheck = !hasExplicitTier ||
+    (candidate.probeVersion !== 2 && candidate.protocolTier === "text");
+  const protocolTier = needsPromptJsonRecheck
+    ? "full"
+    : candidate.protocolTier as "full" | "text";
+  const mode = needsPromptJsonRecheck ? "prompt-json" : candidate.mode;
 
   return {
     baseUrl: capabilityBaseUrl,
     model: capabilityModel,
-    mode: candidate.mode,
+    mode,
+    protocolTier,
     streaming: candidate.streaming,
-    confidence: candidate.confidence,
-    checkedAt: candidate.checkedAt
+    confidence: needsPromptJsonRecheck ? "fallback" : candidate.confidence,
+    checkedAt: candidate.checkedAt,
+    probeVersion: 2
   };
 }
 
@@ -160,6 +176,13 @@ function parseSettingsFile(value: unknown): ParsedAiSettingsFile {
     }
 
     const legacyConnection = rawConnection as Record<string, unknown>;
+
+    if (legacyConnection.outputCapability && typeof legacyConnection.outputCapability === "object" && (
+      !("protocolTier" in (legacyConnection.outputCapability as Record<string, unknown>)) ||
+      (legacyConnection.outputCapability as Record<string, unknown>).probeVersion !== 2
+    )) {
+      needsRewrite = true;
+    }
 
     if (Object.prototype.hasOwnProperty.call(legacyConnection, "apiKey")) {
       needsRewrite = true;
@@ -565,11 +588,24 @@ export async function testAiConnection(draft: AiConnectionDraft): Promise<AiConn
 
 function getCapabilityMessage(capability: AiOutputCapability): string {
   if (capability.confidence === "fallback") {
-    return "回复测试未完成，将自动使用兼容模式。";
+    return capability.protocolTier === "full"
+      ? "将通过 Prompt JSON 兼容方式保持完整桌宠协议。"
+      : "完整协议测试未完成，将使用仅文字兼容模式。";
   }
-  const modeLabel =
-    capability.mode === "plain-text" ? "已使用通用回复模式" : "回复格式已适配";
-  return `${modeLabel} · ${capability.streaming ? "支持流式" : "完整回复"}`;
+  const tierLabel = capability.protocolTier === "full" ? "完整桌宠协议" : "仅文字兼容";
+  return `${tierLabel} · ${capability.streaming ? "支持流式" : "完整回复"}`;
+}
+
+function getCapabilityProbeFailureMessage(
+  failureKind: "authentication" | "rate-limit" | "server" | "network" | "invalid-response" | undefined,
+  status?: number
+): string {
+  const statusSuffix = status ? `（HTTP ${status}）` : "";
+  if (failureKind === "authentication") return `输出能力测试认证失败${statusSuffix}，不会更改已保存的能力等级。`;
+  if (failureKind === "rate-limit") return `输出能力测试触发限流${statusSuffix}，不会更改已保存的能力等级。`;
+  if (failureKind === "server") return `输出能力测试遇到服务端错误${statusSuffix}，不会更改已保存的能力等级。`;
+  if (failureKind === "network") return "输出能力测试未能连接或已超时，不会更改已保存的能力等级。";
+  return "模型没有完成固定输出能力测试，不会把本次失败记录为格式降级。";
 }
 
 export async function testAiOutputCapability(
@@ -609,7 +645,7 @@ export async function testAiOutputCapability(
     });
 
     const existing = settings.connections[normalized.petId];
-    if (existing?.baseUrl === normalized.baseUrl && existing.model === normalized.model) {
+    if (probe.tested && existing?.baseUrl === normalized.baseUrl && existing.model === normalized.model) {
       await runSettingsMutation(async () => {
         const latest = (await readSettingsFile()).settings;
         const current = latest.connections[normalized.petId];
@@ -622,9 +658,11 @@ export async function testAiOutputCapability(
 
     return {
       ok: probe.tested,
-      message: getCapabilityMessage(probe.capability),
+      message: probe.tested
+        ? getCapabilityMessage(probe.capability)
+        : getCapabilityProbeFailureMessage(probe.failureKind, probe.status),
       checkedAt,
-      capability: probe.capability
+      ...(probe.tested ? { capability: probe.capability } : {})
     };
   });
 }
@@ -721,19 +759,28 @@ export async function saveAiConnection(
           checkedAt
         })
       : undefined;
+    const outputCapability = capabilityProbe?.tested
+      ? capabilityProbe.capability
+      : existingConfig?.baseUrl === normalized.baseUrl && existingConfig.model === normalized.model
+        ? existingConfig.outputCapability
+        : undefined;
     const config: AiConnectionConfig = {
       petId: normalized.petId,
       providerName: normalized.providerName,
       baseUrl: normalized.baseUrl,
       model: normalized.model,
       models: normalized.models?.length ? normalized.models : existingConfig?.models ?? [],
-      outputCapability: capabilityProbe?.capability,
+      outputCapability,
       updatedAt: new Date().toISOString()
     };
     const test: AiConnectionTestResult = {
       ok: modelsResult.ok,
       message: modelsResult.ok
-        ? `连接成功，设置已保存。${capabilityProbe ? ` ${getCapabilityMessage(capabilityProbe.capability)}` : ""}`
+        ? `连接成功，设置已保存。${capabilityProbe
+          ? ` ${capabilityProbe.tested
+            ? getCapabilityMessage(capabilityProbe.capability)
+            : getCapabilityProbeFailureMessage(capabilityProbe.failureKind, capabilityProbe.status)}`
+          : ""}`
         : modelsResult.message,
       checkedAt: modelsResult.checkedAt,
       code: modelsResult.code

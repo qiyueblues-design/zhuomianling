@@ -5,6 +5,8 @@ import { maxAiReplyTextCharacters } from "../../../shared/aiReply";
 
 const recallMock = vi.hoisted(() => vi.fn());
 const captureMock = vi.hoisted(() => vi.fn());
+const moodApplyMock = vi.hoisted(() => vi.fn());
+const petConfigMock = vi.hoisted(() => ({ voice: false, expressions: false }));
 const aiSettingsMock = vi.hoisted(() => ({
   config: {
     petId: "pet-a",
@@ -15,7 +17,8 @@ const aiSettingsMock = vi.hoisted(() => ({
       | {
           baseUrl: string;
           model: string;
-          mode: "json-schema" | "json-object" | "plain-text";
+          mode: "json-schema" | "json-object" | "prompt-json" | "plain-text";
+          protocolTier: "full" | "text";
           streaming: boolean;
           confidence: "tested" | "fallback";
           checkedAt: string;
@@ -35,6 +38,31 @@ vi.mock("../config/secureConfigStore", () => ({
   SecureStorageUnavailableError: class SecureStorageUnavailableError extends Error {}
 }));
 
+vi.mock("../config/petConfigStore", () => ({
+  getLocalPetDefinition: vi.fn(async (petId: string) => ({
+    id: petId,
+    name: "测试桌宠",
+    modelPath: `pet-resource://local/${petId}/live2d/model.model3.json`,
+    avatar: "",
+    description: "",
+    personaPrompt: "你是测试桌宠。",
+    personaSettings: { chatLanguage: "zh", replyLength: "medium" },
+    voiceModelSettings: petConfigMock.voice
+      ? { enabled: true, connected: true, language: "ja", playMode: "sentence" }
+      : undefined,
+    capabilities: { chat: true, voiceInput: false, voiceOutput: false, subtitles: true },
+    details: { birthday: "", favoriteFood: "", hobbies: [], dislikes: [], scenarios: [] },
+    lines: {},
+    expressions: petConfigMock.expressions ? { normal: "normal", happy: "happy" } : {},
+    expressionDescriptions: petConfigMock.expressions
+      ? { normal: "平静", happy: "开心" }
+      : {},
+    expressionSelectionMode: "semantic",
+    events: {},
+    isLocal: true
+  }))
+}));
+
 vi.mock("../memory/memoryRecall", () => ({
   recallMemoryForAi: recallMock
 }));
@@ -42,6 +70,16 @@ vi.mock("../memory/memoryRecall", () => ({
 vi.mock("../memory/memoryCapture", () => ({
   captureCompletedAiTurn: captureMock
 }));
+
+vi.mock("../mood/MoodService", () => ({
+  moodService: {
+    createReplySnapshot: vi.fn(async (ownerId: number, petId: string, requestId: string) => ({ ownerId, petId, requestId, value: 0, rangeId: "calm", createdAt: Date.now() })),
+    releaseReplySnapshot: vi.fn(),
+    applyAiDelta: moodApplyMock
+  }
+}));
+
+vi.mock("../speech/textToSpeech", () => ({ registerMoodTextToSpeechSnapshot: vi.fn() }));
 
 class FakeWebContents extends EventEmitter {
   destroyed = false;
@@ -128,6 +166,18 @@ function createStreamingResponse(reader: ControlledReader): Response {
   } as unknown as Response;
 }
 
+function useFullCapability(streaming = true): void {
+  aiSettingsMock.config.outputCapability = {
+    baseUrl: "https://ai.example.com/v1",
+    model: "model-a",
+    mode: "json-object",
+    protocolTier: "full",
+    streaming,
+    confidence: "tested",
+    checkedAt: "2026-07-15T00:00:00.000Z"
+  };
+}
+
 function createSseDelta(content: string): string {
   return `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`;
 }
@@ -153,7 +203,11 @@ beforeEach(() => {
   recallMock.mockResolvedValue({ recalledCount: 0 });
   captureMock.mockReset();
   captureMock.mockResolvedValue(true);
+  moodApplyMock.mockReset();
+  moodApplyMock.mockResolvedValue(undefined);
   aiSettingsMock.config.outputCapability = undefined;
+  petConfigMock.voice = false;
+  petConfigMock.expressions = false;
   aiSettingsMock.record.mockClear();
 });
 
@@ -163,6 +217,7 @@ describe("AI chat stream lifecycle", () => {
       baseUrl: "https://ai.example.com/v1",
       model: "model-a",
       mode: "json-schema",
+      protocolTier: "full",
       streaming: true,
       confidence: "tested",
       checkedAt: "2026-07-15T00:00:00.000Z"
@@ -186,7 +241,7 @@ describe("AI chat stream lifecycle", () => {
       .toBe("json_schema");
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).response_format.type)
       .toBe("json_object");
-    reader.push(createSseDelta('{"reply":"compatible"}'));
+    reader.push(createSseDelta('{"reply":"compatible","moodDelta":0}'));
     reader.end();
     await pending;
 
@@ -203,6 +258,7 @@ describe("AI chat stream lifecycle", () => {
       baseUrl: "https://ai.example.com/v1",
       model: "model-a",
       mode: "json-schema",
+      protocolTier: "full",
       streaming: false,
       confidence: "tested",
       checkedAt: "2026-07-15T00:00:00.000Z"
@@ -210,7 +266,7 @@ describe("AI chat stream lifecycle", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          choices: [{ message: { content: '{"reply":"完整回复","voiceText":"最终语音"}' } }]
+          choices: [{ message: { content: '{"reply":"完整回复","moodDelta":0}' } }]
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )
@@ -230,12 +286,268 @@ describe("AI chat stream lifecycle", () => {
     expect(events.some((event) => event?.type === "chunk")).toBe(false);
     expect(events).toContainEqual(expect.objectContaining({
       type: "done",
-      content: "完整回复",
-      voiceText: "最终语音"
+      content: "完整回复"
     }));
+    expect(events.find((event) => event?.type === "done")).not.toHaveProperty("moodDelta");
     expect(captureMock).toHaveBeenCalledWith(expect.objectContaining({
       assistantReply: "完整回复"
     }));
+  });
+
+  it("builds the actual full request with only this round's dynamic voice and emotion fields", async () => {
+    useFullCapability(false);
+    if (aiSettingsMock.config.outputCapability) {
+      aiSettingsMock.config.outputCapability.mode = "json-schema";
+    }
+    petConfigMock.voice = true;
+    petConfigMock.expressions = true;
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        reply: "你好",
+        moodDelta: 0,
+        voiceText: "こんにちは",
+        emotion: "happy"
+      }) } }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+
+    await startAiChatStream(
+      asWebContents(new FakeWebContents()),
+      createRequest("request-dynamic-schema"),
+      "stream-dynamic-schema"
+    );
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const schema = body.response_format.json_schema.schema;
+    expect(schema.required).toEqual(["voiceText", "reply", "moodDelta", "emotion"]);
+    expect(Object.keys(schema.properties)).toEqual(["voiceText", "reply", "moodDelta", "emotion"]);
+    expect(schema.properties.emotion.enum).toEqual(["normal", "happy"]);
+    expect(schema.additionalProperties).toBe(false);
+    expect(body.messages[0].content).toContain("voiceText 使用日语");
+    expect(body.messages[0].content).toContain("emotion 只能选择");
+  });
+
+  it("applies the final mood delta only in main without exposing it to renderer events", async () => {
+    aiSettingsMock.config.outputCapability = {
+      baseUrl: "https://ai.example.com/v1",
+      model: "model-a",
+      mode: "json-object",
+      protocolTier: "full",
+      streaming: false,
+      confidence: "tested",
+      checkedAt: "2026-07-15T00:00:00.000Z"
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: '{"reply":"第一次","moodDelta":4}' } }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+
+    await startAiChatStream(asWebContents(owner), createRequest("request-first"), "stream-first");
+    const doneEvent = owner.send.mock.calls.map((call) => call[1]).find((event) => event?.type === "done");
+    expect(doneEvent).toEqual(expect.objectContaining({
+      type: "done",
+      content: "第一次"
+    }));
+    expect(doneEvent).not.toHaveProperty("moodDelta");
+    expect(moodApplyMock).toHaveBeenCalledWith("pet-a", "request-first", 4);
+  });
+
+  it("keeps reply, moodDelta, and cross-language voiceText in prompt JSON across consecutive turns", async () => {
+    aiSettingsMock.config.outputCapability = {
+      baseUrl: "https://ai.example.com/v1",
+      model: "model-a",
+      mode: "prompt-json",
+      protocolTier: "full",
+      streaming: false,
+      confidence: "fallback",
+      checkedAt: "2026-07-22T00:00:00.000Z"
+    };
+    petConfigMock.voice = true;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content:
+        '{"reply":"第一轮正文","moodDelta":2,"voiceText":"一回目の音声"}'
+      } }] }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content:
+        '{"reply":"第二轮正文","moodDelta":3,"voiceText":"二回目の音声"}'
+      } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+    const firstOwner = new FakeWebContents();
+    const secondOwner = new FakeWebContents();
+
+    await startAiChatStream(asWebContents(firstOwner), createRequest("request-prompt-json-1"), "stream-prompt-json-1");
+    await startAiChatStream(asWebContents(secondOwner), {
+      petId: "pet-a",
+      requestId: "request-prompt-json-2",
+      messages: [
+        { role: "user", content: "第一轮" },
+        { role: "assistant", content: '{"reply":"第一轮正文","moodDelta":2,"voiceText":"一回目の音声"}' },
+        { role: "user", content: "第二轮" }
+      ]
+    }, "stream-prompt-json-2");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      const body = JSON.parse(String(call[1]?.body));
+      expect(body).not.toHaveProperty("response_format");
+      expect(body.messages[0].content).toContain("必须且只能包含这些字段：voiceText、reply、moodDelta");
+      expect(body.messages[0].content).toContain("不得包含心理活动、内心独白、旁白、动作");
+    }
+    const secondBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(secondBody.messages.find((message: { role: string }) => message.role === "assistant")?.content)
+      .toBe('{"voiceText":"一回目の音声","reply":"第一轮正文","moodDelta":2}');
+    expect(firstOwner.send.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "第一轮正文",
+      voiceText: "一回目の音声",
+      quality: "structured"
+    }));
+    expect(secondOwner.send.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "第二轮正文",
+      voiceText: "二回目の音声",
+      quality: "structured"
+    }));
+    expect(moodApplyMock).toHaveBeenNthCalledWith(1, "pet-a", "request-prompt-json-1", 2);
+    expect(moodApplyMock).toHaveBeenNthCalledWith(2, "pet-a", "request-prompt-json-2", 3);
+  });
+
+  it("repairs an incomplete full-protocol response once without rewriting reply", async () => {
+    useFullCapability(false);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: '{"reply":"保持原文"}' } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: '{"reply":"保持原文","moodDelta":3}' } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+
+    await startAiChatStream(asWebContents(owner), createRequest("request-repair"), "stream-repair");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const repairBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(repairBody.messages.at(-1)?.content).toContain("不得改写、增删或翻译 reply");
+    expect(owner.send.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "保持原文",
+      quality: "structured"
+    }));
+    expect(moodApplyMock).toHaveBeenCalledWith("pet-a", "request-repair", 3);
+    expect(captureMock).toHaveBeenCalledWith(expect.objectContaining({ assistantReply: "保持原文" }));
+  });
+
+  it("keeps the full capability after one malformed response and failed format repair", async () => {
+    useFullCapability(false);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: '{"reply":"安全原文"}' } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: '{"reply":"被改写","moodDelta":5}' } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+    const owner = new FakeWebContents();
+
+    await startAiChatStream(asWebContents(owner), createRequest("request-repair-failed"), "stream-repair-failed");
+
+    expect(owner.send.mock.calls.map((call) => call[1])).toContainEqual(expect.objectContaining({
+      type: "done",
+      content: "安全原文",
+      quality: "recovered"
+    }));
+    expect(moodApplyMock).not.toHaveBeenCalled();
+    expect(captureMock).not.toHaveBeenCalled();
+    expect(aiSettingsMock.record).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a response_format rejected on the previous turn", async () => {
+    aiSettingsMock.config.outputCapability = {
+      baseUrl: "https://ai.example.com/v1",
+      model: "model-a",
+      mode: "json-object",
+      protocolTier: "full",
+      streaming: false,
+      confidence: "tested",
+      checkedAt: "2026-07-22T00:00:00.000Z"
+    };
+    const successfulReply = () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"reply":"兼容回复","moodDelta":0}' } }]
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("response_format unavailable", { status: 400 }))
+      .mockResolvedValueOnce(successfulReply())
+      .mockResolvedValueOnce(successfulReply());
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+
+    await startAiChatStream(
+      asWebContents(new FakeWebContents()),
+      createRequest("request-format-fallback-1"),
+      "stream-format-fallback-1"
+    );
+    await startAiChatStream(
+      asWebContents(new FakeWebContents()),
+      createRequest("request-format-fallback-2"),
+      "stream-format-fallback-2"
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).response_format.type)
+      .toBe("json_object");
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).not.toHaveProperty("response_format");
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).not.toHaveProperty("response_format");
+    expect(aiSettingsMock.record).toHaveBeenCalledWith(
+      "pet-a",
+      "https://ai.example.com/v1",
+      "model-a",
+      expect.objectContaining({ mode: "prompt-json", protocolTier: "full" })
+    );
+  });
+
+  it("remembers prompt JSON as soon as response_format is rejected", async () => {
+    aiSettingsMock.config.outputCapability = {
+      baseUrl: "https://ai.example.com/v1",
+      model: "model-a",
+      mode: "json-object",
+      protocolTier: "full",
+      streaming: false,
+      confidence: "tested",
+      checkedAt: "2026-07-22T00:00:00.000Z"
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("response_format unavailable", { status: 400 }))
+      .mockResolvedValueOnce(new Response("lower transport failed", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { startAiChatStream } = await import("./aiChat");
+
+    await startAiChatStream(
+      asWebContents(new FakeWebContents()),
+      createRequest("request-immediate-format-fallback"),
+      "stream-immediate-format-fallback"
+    );
+
+    expect(aiSettingsMock.record).toHaveBeenCalledWith(
+      "pet-a",
+      "https://ai.example.com/v1",
+      "model-a",
+      expect.objectContaining({
+        mode: "prompt-json",
+        protocolTier: "full",
+        confidence: "fallback"
+      })
+    );
   });
 
   it("does not retry authentication, rate-limit, or server failures as format errors", async () => {
@@ -258,6 +570,9 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("emits done before queuing only the current user text and parsed visible reply", async () => {
+    useFullCapability();
+    petConfigMock.voice = true;
+    petConfigMock.expressions = true;
     const reader = new ControlledReader();
     const fetchMock = vi.fn().mockResolvedValue(createStreamingResponse(reader));
     vi.stubGlobal("fetch", fetchMock);
@@ -274,7 +589,7 @@ describe("AI chat stream lifecycle", () => {
       ]
     }, "stream-capture");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    reader.push('data: {"choices":[{"delta":{"content":"{\\"reply\\":\\"visible-reply\\",\\"emotion\\":\\"happy\\",\\"voiceText\\":\\"voice-only\\"}"}}]}\n\n');
+    reader.push('data: {"choices":[{"delta":{"content":"{\\"reply\\":\\"visible-reply\\",\\"moodDelta\\":0,\\"emotion\\":\\"happy\\",\\"voiceText\\":\\"voice-only\\"}"}}]}\n\n');
     reader.end();
     await pending;
     const doneOrder = owner.send.mock.invocationCallOrder.find((_, index) =>
@@ -293,6 +608,7 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("does not capture partial structured output", async () => {
+    useFullCapability();
     const reader = new ControlledReader();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
     const { startAiChatStream } = await import("./aiChat");
@@ -306,6 +622,9 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("captures only the final visible reply from a Grok-style reasoning and repeated JSON response", async () => {
+    useFullCapability();
+    petConfigMock.voice = true;
+    petConfigMock.expressions = true;
     const reader = new ControlledReader();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
     const { startAiChatStream } = await import("./aiChat");
@@ -319,7 +638,7 @@ describe("AI chat stream lifecycle", () => {
     reader.push(createSseDelta("<think>内部推理不能进入记忆</think>\n"));
     reader.push(
       createSseDelta(
-        '{"reply":"草稿回复"}\n{"reply":"最终可见回复","emotion":"happy","voiceText":"最终语音"}'
+        '{"reply":"草稿回复"}\n{"reply":"最终可见回复","moodDelta":1,"emotion":"happy","voiceText":"最终语音"}'
       )
     );
     reader.end();
@@ -345,6 +664,8 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("normalizes multiple Grok think blocks, independent reasoning fields, and split Markdown JSON", async () => {
+    useFullCapability();
+    petConfigMock.voice = true;
     const reader = new ControlledReader();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
     const { startAiChatStream } = await import("./aiChat");
@@ -367,7 +688,7 @@ describe("AI chat stream lifecycle", () => {
     );
     reader.push(createSseDelta("<think>第一段内部推理</think>\n<think>第二段"));
     reader.push(createSseDelta('内部推理</think>\n```json\n{"reply":"分'));
-    reader.push(createSseDelta('片安全回复","voiceText":"安全语音"}\n```'));
+    reader.push(createSseDelta('片安全回复","moodDelta":0,"voiceText":"安全语音"}\n```'));
     reader.end();
     await pending;
 
@@ -402,6 +723,7 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("never rewrites an already emitted reply when later JSON changes it", async () => {
+    useFullCapability();
     const reader = new ControlledReader();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
     const { startAiChatStream } = await import("./aiChat");
@@ -433,6 +755,7 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("ignores provider reasoning fields and emits only safe visible content", async () => {
+    useFullCapability();
     const reader = new ControlledReader();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
     const { startAiChatStream } = await import("./aiChat");
@@ -446,7 +769,7 @@ describe("AI chat stream lifecycle", () => {
     reader.push(
       `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "hidden-chain" } }] })}\n\n`
     );
-    reader.push(createSseDelta('{"reply":"safe-answer"}'));
+    reader.push(createSseDelta('{"reply":"safe-answer","moodDelta":0}'));
     reader.end();
     await pending;
 
@@ -463,6 +786,7 @@ describe("AI chat stream lifecycle", () => {
   });
 
   it("processes a final SSE data line without a trailing newline", async () => {
+    useFullCapability();
     const reader = new ControlledReader();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createStreamingResponse(reader)));
     const { startAiChatStream } = await import("./aiChat");
@@ -473,7 +797,7 @@ describe("AI chat stream lifecycle", () => {
       "stream-final-line"
     );
     await vi.waitFor(() => expect(recallMock).toHaveBeenCalled());
-    reader.push(createSseDelta('{"reply":"no-newline"}').trimEnd());
+    reader.push(createSseDelta('{"reply":"no-newline","moodDelta":0}').trimEnd());
     reader.end();
     await pending;
 
@@ -616,17 +940,19 @@ describe("AI chat stream lifecycle", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.messages).toEqual([
-      { role: "system", content: "persona" },
+      { role: "system", content: expect.stringContaining("当前服务处于仅文字兼容模式") },
       { role: "user", content: "old" },
       { role: "user", content: "hello" }
     ]);
+    expect(body.messages[0].content).toContain("你是测试桌宠");
+    expect(body.messages[0].content).not.toContain(" persona ");
     expect(body).toMatchObject({
       model: "model-a",
       temperature: 0.8,
       max_tokens: 1200,
-      response_format: { type: "json_object" },
       stream: true
     });
+    expect(body).not.toHaveProperty("response_format");
     reader.push('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n');
     reader.end();
     await pending;
@@ -650,10 +976,10 @@ describe("AI chat stream lifecycle", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.messages).toEqual([
-      { role: "system", content: "persona" },
-      { role: "system", content: "untrusted-memory-context" },
+      { role: "system", content: expect.stringContaining("untrusted-memory-context") },
       { role: "user", content: "hello" }
     ]);
+    expect(body.messages[0].content).toContain("当前服务处于仅文字兼容模式");
     reader.push('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n');
     reader.end();
     await pending;
@@ -669,7 +995,11 @@ describe("AI chat stream lifecycle", () => {
     const pending = startAiChatStream(asWebContents(owner), createRequest("request-fallback"), "stream-fallback");
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body.messages).toEqual([{ role: "user", content: "hello" }]);
+    expect(body.messages).toEqual([
+      { role: "system", content: expect.stringContaining("当前服务处于仅文字兼容模式") },
+      { role: "user", content: "hello" }
+    ]);
+    expect(body.messages[0].content).not.toContain("untrusted-memory-context");
     reader.push('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n');
     reader.end();
     await pending;
@@ -831,13 +1161,15 @@ describe("AI chat stream lifecycle", () => {
 
 describe("AI chat final response normalization", () => {
   it("returns only the normalized visible fields from mixed provider content", async () => {
+    useFullCapability(false);
+    petConfigMock.voice = true;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: vi.fn(async () => ({
         choices: [{
           message: {
-            content: '<think>隐藏推理</think>\n```json\n{"reply":"可见回复","voiceText":"可见语音"}\n```'
+            content: '<think>隐藏推理</think>\n```json\n{"reply":"可见回复","moodDelta":0,"voiceText":"可见语音"}\n```'
           }
         }]
       }))

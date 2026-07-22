@@ -9,23 +9,38 @@ import type {
 } from "../../../shared/types/ai";
 import {
   buildAiChatRequestBody,
-  buildChatCompletionsUrl
+  buildChatCompletionsUrl,
+  canFallbackAiOutputMode
 } from "./aiProtocol";
+import { getAiProtocolTierForMode } from "../../../shared/aiContract";
+import { createAiReplyContract } from "../../../shared/aiContract";
 
 export interface AiCapabilityProbeResult {
   capability: AiOutputCapability;
   tested: boolean;
+  failureKind?: "authentication" | "rate-limit" | "server" | "network" | "invalid-response";
+  status?: number;
 }
 
-const probeModes: AiOutputMode[] = ["json-schema", "json-object", "plain-text"];
-const probeMessages: AiChatMessage[] = [
+const probeModes: AiOutputMode[] = ["json-schema", "json-object", "prompt-json", "plain-text"];
+const structuredProbeMessages: AiChatMessage[] = [
   {
     role: "system",
-    content: "这是连接能力测试。不要输出推理、Markdown 或解释；请只返回包含 reply 字段的 JSON。"
+    content: "这是固定连接能力测试。只返回 JSON，不要输出推理、Markdown 或解释。必须且只能返回 reply 和 moodDelta。"
   },
   {
     role: "user",
-    content: "将 reply 设置为 probe-ok。"
+    content: "将 reply 设置为 probe-ok，将 moodDelta 设置为 0。"
+  }
+];
+const textProbeMessages: AiChatMessage[] = [
+  {
+    role: "system",
+    content: "这是固定连接能力测试。只返回普通文字 probe-ok，不要输出 JSON、推理、Markdown 或解释。"
+  },
+  {
+    role: "user",
+    content: "回复 probe-ok。"
   }
 ];
 const probeTimeoutMs = 12_000;
@@ -93,9 +108,11 @@ function extractProbeContent(rawBody: string): { content?: string; streaming: bo
 
 function isProbeReplyValid(content: string | undefined, mode: AiOutputMode): boolean {
   if (!content) return false;
-  const parsed = parseFinalAiReply(content);
-  if (!parsed.reply) return false;
-  return mode === "plain-text" || parsed.quality === "structured";
+  if (mode === "plain-text") return content.trim() === "probe-ok";
+  const contract = createAiReplyContract({ tier: getAiProtocolTierForMode(mode) });
+  const parsed = parseFinalAiReply(content, contract);
+  if (parsed.reply !== "probe-ok") return false;
+  return parsed.quality === "structured" && parsed.moodDelta === 0;
 }
 
 function fallbackCapability(baseUrl: string, model: string, checkedAt: string): AiOutputCapability {
@@ -103,10 +120,19 @@ function fallbackCapability(baseUrl: string, model: string, checkedAt: string): 
     baseUrl,
     model,
     mode: "plain-text",
+    protocolTier: "text",
     streaming: true,
     confidence: "fallback",
-    checkedAt
+    checkedAt,
+    probeVersion: 2
   };
+}
+
+function getProbeFailureKind(status: number): NonNullable<AiCapabilityProbeResult["failureKind"]> {
+  if (status === 401 || status === 403) return "authentication";
+  if (status === 429) return "rate-limit";
+  if (status >= 500) return "server";
+  return "invalid-response";
 }
 
 export async function probeAiOutputCapability(options: {
@@ -140,24 +166,37 @@ export async function probeAiOutputCapability(options: {
             body: JSON.stringify(
               buildAiChatRequestBody({
                 model: options.model,
-                messages: probeMessages,
+                messages: mode === "plain-text" ? textProbeMessages : structuredProbeMessages,
                 mode,
+                contract: createAiReplyContract({ tier: getAiProtocolTierForMode(mode) }),
                 stream: requestedStreaming,
                 temperature: 0,
-                maxTokens: 48
+                maxTokens: 64
               })
             )
           });
         } catch {
           return {
             capability: fallbackCapability(options.baseUrl, options.model, checkedAt),
-            tested: false
+            tested: false,
+            failureKind: "network"
           };
         }
 
         if (!response.ok) {
-          await response.body?.cancel("trying the next AI capability probe").catch(() => undefined);
-          continue;
+          const mayTryCompatibleFormat = canFallbackAiOutputMode(response.status);
+          await response.body?.cancel(
+            mayTryCompatibleFormat
+              ? "trying the next AI capability probe"
+              : "AI capability probe stopped on a non-compatibility error"
+          ).catch(() => undefined);
+          if (mayTryCompatibleFormat) continue;
+          return {
+            capability: fallbackCapability(options.baseUrl, options.model, checkedAt),
+            tested: false,
+            failureKind: getProbeFailureKind(response.status),
+            status: response.status
+          };
         }
 
         const rawBody = await readBoundedText(response);
@@ -170,9 +209,11 @@ export async function probeAiOutputCapability(options: {
             baseUrl: options.baseUrl,
             model: options.model,
             mode,
+            protocolTier: getAiProtocolTierForMode(mode),
             streaming: requestedStreaming && extracted.streaming,
             confidence: "tested",
-            checkedAt
+            checkedAt,
+            probeVersion: 2
           },
           tested: true
         };
@@ -181,7 +222,8 @@ export async function probeAiOutputCapability(options: {
   } catch {
     return {
       capability: fallbackCapability(options.baseUrl, options.model, checkedAt),
-      tested: false
+      tested: false,
+      failureKind: "network"
     };
   } finally {
     clearTimeout(timeout);
@@ -189,6 +231,7 @@ export async function probeAiOutputCapability(options: {
 
   return {
     capability: fallbackCapability(options.baseUrl, options.model, checkedAt),
-    tested: false
+    tested: false,
+    failureKind: "invalid-response"
   };
 }

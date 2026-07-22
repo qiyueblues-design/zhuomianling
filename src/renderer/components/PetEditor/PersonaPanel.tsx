@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { LocalPetSaveResult, PetDefinition } from "../../../shared/types/pet";
+import { AI_PROMPT_LIMITS } from "../../../shared/aiContract";
 import { PanelSaveActions } from "./EditorShared";
 import {
   normalizePersonaDraft,
@@ -120,6 +121,7 @@ export function PersonaPanel({
         <textarea
           className="personaTextArea"
           rows={16}
+          maxLength={AI_PROMPT_LIMITS.personaCharacters}
           value={personaPrompt}
           onChange={(event) => {
             const nextPersonaPrompt = event.target.value;
@@ -130,6 +132,9 @@ export function PersonaPanel({
           }}
           placeholder="填写人物性格、说话方式、人生经历、和用户的关系、喜欢或讨厌的事物等等。"
         />
+        <span className="panelSubtleNote">
+          {personaPrompt.length}/{AI_PROMPT_LIMITS.personaCharacters}
+        </span>
       </label>
 
       <div className="personaPreferenceGrid">

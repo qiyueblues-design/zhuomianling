@@ -26,8 +26,25 @@ import type {
   PetWindowSourcePreviewEvent,
   PetWindowState
 } from "../shared/types/window";
+import type { MoodMutationResult, PetMoodDisplayState, PetMoodMeterPosition, PetMoodRangeEnteredEvent } from "../shared/types/mood";
+import type { SystemMoodEvent } from "../shared/mood";
 
 const petDesktopApi = {
+  mood: {
+    getDisplayState: () => ipcRenderer.invoke("mood:get-display-state") as Promise<PetMoodDisplayState>,
+    reportSystemEvent: (event: SystemMoodEvent) => ipcRenderer.invoke("mood:report-system-event", event) as Promise<MoodMutationResult>,
+    saveMeterPosition: (position: PetMoodMeterPosition) => ipcRenderer.invoke("mood:save-meter-position", position) as Promise<void>,
+    onDisplayStateChanged: (callback: (state: PetMoodDisplayState) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: PetMoodDisplayState): void => callback(state);
+      ipcRenderer.on("mood:display-state-changed", listener);
+      return () => ipcRenderer.off("mood:display-state-changed", listener);
+    },
+    onRangeEntered: (callback: (entry: PetMoodRangeEnteredEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, entry: PetMoodRangeEnteredEvent): void => callback(entry);
+      ipcRenderer.on("mood:range-entered", listener);
+      return () => ipcRenderer.off("mood:range-entered", listener);
+    }
+  },
   petConfig: {
     onChanged: (callback: (pet?: PetDefinition) => void) => {
       const listener = (_event: Electron.IpcRendererEvent, pet?: PetDefinition): void => {

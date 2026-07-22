@@ -90,11 +90,13 @@ describe("memory recall prompt boundary", () => {
     expect(result.context).toContain("禁止");
   });
 
-  it("marks verified checks as hard facts without weakening current-user priority", () => {
+  it("marks verified checks as conditional hard facts without weakening current-user priority", () => {
     const settings = { ...DEFAULT_MEMORY_SETTINGS, recallEnabled: true, contextBudgetChars: 1_024 };
     const result = buildUntrustedMemoryContext([recall("1", "用户喜欢咖啡", 0.9)], settings, "verified");
     expect(result.context).toContain("高置信度");
     expect(result.context).toContain("硬约束");
+    expect(result.context).toContain("明确纠正、更新或否定");
+    expect(result.context).toContain("以当前表达为准");
     expect(result.context).toContain("当前用户这次的新表达优先级最高");
   });
 });

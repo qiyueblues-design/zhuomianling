@@ -84,7 +84,8 @@ describe("Live2D desktop scale integration", () => {
     expect(panelSource).toContain("desktopScale: selectedDesktopScale");
     expect(ipcSource).toContain('handle("pet-config:save-ui-settings"');
     expect(ipcSource).toContain("updateCurrentPetWindowPayload({");
-    expect(ipcSource).toContain('targetWindow.webContents.send("pet-config:changed", publicPet)');
+    expect(ipcSource).toContain('"pet-config:changed",');
+    expect(ipcSource).toContain("isPetWindowWebContents(targetWindow.webContents) ? runtimePet : publicPet");
     expect(windowSource).toContain("currentPet = payload;");
     expect(windowSource).toContain("enforcePetWindowSize(currentPet);");
   });

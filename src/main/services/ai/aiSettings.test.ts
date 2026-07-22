@@ -35,7 +35,7 @@ function createModelsResponse(): Response {
   });
 }
 
-function createProbeResponse(content = '{"reply":"probe-ok"}'): Response {
+function createProbeResponse(content = '{"reply":"probe-ok","moodDelta":0}'): Response {
   return new Response(
     `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`,
     {
@@ -311,6 +311,7 @@ describe("AI API key storage", () => {
       baseUrl: "https://api.example.com/v1",
       model: "model-a",
       mode: "json-schema",
+      protocolTier: "full",
       streaming: true,
       confidence: "tested"
     });
@@ -393,6 +394,211 @@ describe("AI API key storage", () => {
     expect(rewritten.connections["pet-a"]).not.toHaveProperty("outputCapability");
   });
 
+  it("rechecks legacy capability metadata through prompt JSON instead of trapping it in text mode", async () => {
+    await fs.writeFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      JSON.stringify({
+        version: 3,
+        connections: {
+          "pet-a": {
+            petId: "pet-a",
+            providerName: "Legacy Provider",
+            baseUrl: "https://legacy.example.com/v1",
+            model: "legacy-model",
+            outputCapability: {
+              baseUrl: "https://legacy.example.com/v1",
+              model: "legacy-model",
+              mode: "json-object",
+              streaming: true,
+              confidence: "tested",
+              checkedAt: "2026-01-01T00:00:00.000Z"
+            },
+            updatedAt: "2026-01-01T00:00:00.000Z"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const { getAiConnectionSummary } = await import("./aiSettings");
+    const summary = await getAiConnectionSummary("pet-a");
+    const rewritten = JSON.parse(
+      await fs.readFile(path.join(temporaryDirectory, "ai-connections.json"), "utf8")
+    );
+
+    expect(summary?.outputCapability).toMatchObject({
+      mode: "prompt-json",
+      protocolTier: "full",
+      confidence: "fallback"
+    });
+    expect(rewritten.connections["pet-a"].outputCapability).toMatchObject({
+      mode: "prompt-json",
+      protocolTier: "full",
+      confidence: "fallback"
+    });
+  });
+
+  it("preserves a genuinely tested v2 plain-text capability", async () => {
+    await fs.writeFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      JSON.stringify({
+        version: 3,
+        connections: {
+          "pet-a": {
+            petId: "pet-a",
+            providerName: "Provider A",
+            baseUrl: "https://api.example.com/v1",
+            model: "model-a",
+            outputCapability: {
+              baseUrl: "https://api.example.com/v1",
+              model: "model-a",
+              mode: "plain-text",
+              protocolTier: "text",
+              streaming: true,
+              confidence: "tested",
+              checkedAt: "2026-07-22T00:00:00.000Z",
+              probeVersion: 2
+            },
+            updatedAt: "2026-07-22T00:00:00.000Z"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const { getAiConnectionSummary } = await import("./aiSettings");
+
+    await expect(getAiConnectionSummary("pet-a")).resolves.toMatchObject({
+      outputCapability: {
+        mode: "plain-text",
+        protocolTier: "text",
+        confidence: "tested",
+        probeVersion: 2
+      }
+    });
+  });
+
+  it("discards stored output capability metadata whose mode and tier disagree", async () => {
+    await fs.writeFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      JSON.stringify({
+        version: 3,
+        connections: {
+          "pet-a": {
+            petId: "pet-a",
+            providerName: "Provider A",
+            baseUrl: "https://api.example.com/v1",
+            model: "model-a",
+            outputCapability: {
+              baseUrl: "https://api.example.com/v1",
+              model: "model-a",
+              mode: "json-object",
+              protocolTier: "text",
+              streaming: true,
+              confidence: "tested",
+              checkedAt: "2026-07-15T00:00:00.000Z"
+            },
+            updatedAt: "2026-07-15T00:00:00.000Z"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const { getAiConnectionSummary } = await import("./aiSettings");
+
+    await expect(getAiConnectionSummary("pet-a")).resolves.toMatchObject({
+      outputCapability: undefined
+    });
+  });
+
+  it("does not replace a tested capability when an explicit retest hits rate limiting", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createModelsResponse())
+      .mockResolvedValueOnce(createProbeResponse());
+    const {
+      getAiConnectionSummary,
+      saveAiConnection,
+      testAiOutputCapability
+    } = await import("./aiSettings");
+    await saveAiConnection({
+      petId: "pet-a",
+      providerName: "Provider A",
+      baseUrl: "https://api.example.com/v1",
+      model: "model-a",
+      apiKey: "private-key"
+    });
+    fetchMock.mockReset().mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+
+    const result = await testAiOutputCapability({
+      petId: "pet-a",
+      providerName: "Provider A",
+      baseUrl: "https://api.example.com/v1",
+      model: "model-a",
+      apiKey: ""
+    });
+    const summary = await getAiConnectionSummary("pet-a");
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("限流")
+    });
+    expect(result.capability).toBeUndefined();
+    expect(summary?.outputCapability).toMatchObject({
+      mode: "json-schema",
+      protocolTier: "full",
+      confidence: "tested"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("upgrades a saved text fallback after a successful explicit retest", async () => {
+    await fs.writeFile(
+      path.join(temporaryDirectory, "ai-connections.json"),
+      JSON.stringify({
+        version: 3,
+        connections: {
+          "pet-a": {
+            petId: "pet-a",
+            providerName: "Provider A",
+            baseUrl: "https://api.example.com/v1",
+            model: "model-a",
+            outputCapability: {
+              baseUrl: "https://api.example.com/v1",
+              model: "model-a",
+              mode: "plain-text",
+              protocolTier: "text",
+              streaming: true,
+              confidence: "fallback",
+              checkedAt: "2026-07-15T00:00:00.000Z"
+            },
+            updatedAt: "2026-07-15T00:00:00.000Z"
+          }
+        }
+      }),
+      "utf8"
+    );
+    const securePath = path.join(temporaryDirectory, "secure-secrets.json");
+    const { setSecureString } = await import("../config/secureConfigStore");
+    await setSecureString("ai-api-key", "pet-a", "secret", "https://api.example.com/v1");
+    expect(await fs.stat(securePath)).toBeTruthy();
+    fetchMock.mockResolvedValueOnce(createProbeResponse());
+    const { getAiConnectionSummary, testAiOutputCapability } = await import("./aiSettings");
+
+    const result = await testAiOutputCapability({
+      petId: "pet-a",
+      providerName: "Provider A",
+      baseUrl: "https://api.example.com/v1",
+      model: "model-a",
+      apiKey: ""
+    });
+    const summary = await getAiConnectionSummary("pet-a");
+
+    expect(result).toMatchObject({ ok: true, capability: { protocolTier: "full" } });
+    expect(summary?.outputCapability).toMatchObject({
+      mode: "json-schema",
+      protocolTier: "full",
+      confidence: "tested"
+    });
+  });
+
   it("uses only a fixed probe conversation and does not create memory data", async () => {
     await writeLegacySettings();
     fetchMock.mockResolvedValueOnce(createProbeResponse());
@@ -411,13 +617,13 @@ describe("AI API key storage", () => {
     const entries = await fs.readdir(temporaryDirectory, { recursive: true });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toBe("回复格式已适配 · 支持流式");
+    expect(result.message).toBe("完整桌宠协议 · 支持流式");
     expect(requestBody.messages).toEqual([
       {
         role: "system",
-        content: "这是连接能力测试。不要输出推理、Markdown 或解释；请只返回包含 reply 字段的 JSON。"
+        content: "这是固定连接能力测试。只返回 JSON，不要输出推理、Markdown 或解释。必须且只能返回 reply 和 moodDelta。"
       },
-      { role: "user", content: "将 reply 设置为 probe-ok。" }
+      { role: "user", content: "将 reply 设置为 probe-ok，将 moodDelta 设置为 0。" }
     ]);
     expect(entries.some((entry) => /memory|ledger|pending/i.test(entry))).toBe(false);
   });

@@ -51,6 +51,7 @@ import {
   dialogueSubTabs,
   editorTabs,
   interactionSubTabs,
+  moodEditorTab,
   type ActiveEditorPanel
 } from "./editorNavigation";
 import {
@@ -61,6 +62,7 @@ import { PersonaPanel } from "./PersonaPanel";
 import { ThemePanel } from "./ThemePanel";
 import { QuickActionsPanel } from "./QuickActionsPanel";
 import { VoiceInputPanel } from "./VoiceInputPanel";
+import { MoodPanel } from "./MoodPanel";
 
 interface PetEditorProps {
   pets: PetDefinition[];
@@ -95,6 +97,7 @@ export function PetEditor({
   onSavedPet,
   onBack
 }: PetEditorProps): JSX.Element | null {
+  const MoodIcon = moodEditorTab.icon;
   const [activePanel, setActivePanel] = useState<ActiveEditorPanel>(initialPanel);
   const [aiExpanded, setAiExpanded] = useState(true);
   const [dialogueExpanded, setDialogueExpanded] = useState(true);
@@ -110,6 +113,7 @@ export function PetEditor({
       aiSubTabs.find((tab) => tab.id === activePanel)?.label ??
       dialogueSubTabs.find((tab) => tab.id === activePanel)?.label ??
       interactionSubTabs.find((tab) => tab.id === activePanel)?.label ??
+      (activePanel === "mood" ? moodEditorTab.label : undefined) ??
       "基础信息"
     );
   }, [activePanel]);
@@ -318,6 +322,9 @@ export function PetEditor({
               })}
             </div>
           ) : null}
+          <button className={activePanel === "mood" ? "editorTab active" : "editorTab"} type="button" onClick={() => changePanel("mood")}>
+            <MoodIcon size={18} /><span>{moodEditorTab.label}</span>
+          </button>
         </aside>
 
         <div className="editorContent">
@@ -357,6 +364,7 @@ export function PetEditor({
           {activePanel === "voiceReply" ? (
             <VoicePanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} />
           ) : null}
+          {activePanel === "mood" ? <MoodPanel pet={selectedPet} onSavedPet={onSavedPet} onDirtyChange={setHasUnsavedChanges} /> : null}
         </div>
         <div className="editorCanvasOverlayHost" id="editor-canvas-overlay" />
       </div>

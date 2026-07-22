@@ -66,7 +66,8 @@ export interface UseVoiceReplyQueueResult {
   beginReply: (
     pendingMessageId: number,
     synchronized: boolean,
-    voiceReplyEnabled: boolean
+    voiceReplyEnabled: boolean,
+    sessionId?: string
   ) => number;
   cancelSynchronizedReveal: () => void;
   clearPendingExpression: () => void;
@@ -602,14 +603,15 @@ export function useVoiceReplyQueue(
   const beginReply = (
     pendingMessageId: number,
     synchronized: boolean,
-    voiceReplyEnabled: boolean
+    voiceReplyEnabled: boolean,
+    sessionId?: string
   ): number => {
     stop();
     const requestId = requestIdRef.current;
     replyFinalizedRef.current = false;
     completionNotifiedRef.current = false;
     voiceReplyEnabledRef.current = voiceReplyEnabled;
-    voiceSessionIdRef.current = voiceReplyEnabled ? `voice-session-${requestId}` : undefined;
+    voiceSessionIdRef.current = voiceReplyEnabled ? (sessionId ?? `voice-session-${requestId}`) : undefined;
     queueRef.current.playbackBlocked = synchronized;
     syncRevealRef.current = synchronized
       ? {

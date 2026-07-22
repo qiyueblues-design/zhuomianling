@@ -121,16 +121,18 @@ export function selectSafeAiStreamPresentation(
 export function selectFinalVoiceText(
   replyText: string,
   voiceText: string | undefined,
-  useReplyAsVoiceText: boolean
+  useReplyAsVoiceText: boolean,
+  protocolTier: "full" | "text" = "full"
 ): string | undefined {
-  const selected = (useReplyAsVoiceText ? replyText : voiceText?.trim() || replyText).trim();
+  if (protocolTier === "text" && !useReplyAsVoiceText) return undefined;
+  const selected = (useReplyAsVoiceText ? replyText : voiceText?.trim() ?? "").trim();
 
   if (
     !selected ||
     /<\/?(?:think|analysis|reasoning)\b/i.test(selected) ||
     /```/.test(selected) ||
     /^\s*[{[]/.test(selected) ||
-    /"(?:reply|emotion|voiceText)"\s*:/.test(selected)
+    /"(?:reply|emotion|voiceText|moodDelta)"\s*:/.test(selected)
   ) {
     return undefined;
   }
@@ -139,14 +141,15 @@ export function selectFinalVoiceText(
 }
 
 export function selectStreamingVoiceText(
-  event: Pick<AiChatStreamEvent, "content" | "voiceText">,
+  event: Pick<AiChatStreamEvent, "content" | "voiceText" | "protocolTier">,
   useReplyAsVoiceText: boolean
 ): string {
+  if (event.protocolTier === "text" && !useReplyAsVoiceText) return "";
   return (useReplyAsVoiceText ? event.content : event.voiceText) ?? "";
 }
 
 export function enqueueSafeStreamingVoiceChunk(
-  event: Pick<AiChatStreamEvent, "content" | "voiceText">,
+  event: Pick<AiChatStreamEvent, "content" | "voiceText" | "protocolTier">,
   options: {
     enabled: boolean;
     useReplyAsVoiceText: boolean;
@@ -332,7 +335,12 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     const replyText = event.content ?? "";
     const voiceText = event.voiceText;
     const effectiveVoiceText = context.voiceReplyEnabled
-      ? selectFinalVoiceText(replyText, voiceText, context.useReplyAsVoiceText)
+      ? selectFinalVoiceText(
+          replyText,
+          voiceText,
+          context.useReplyAsVoiceText,
+          event.protocolTier
+        )
       : undefined;
     const inferredExpression = inferExpressionFromAiReply(replyText);
     const randomExpressionMode = definition?.expressionSelectionMode === "random";
@@ -606,7 +614,8 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     const voiceReplyRequestId = currentOptions.voiceReply.beginReply(
       pendingMessageId,
       shouldSynchronize,
-      settingsSnapshot.voiceReplyEnabled
+      settingsSnapshot.voiceReplyEnabled,
+      requestId
     );
     const context: AiStreamContext = {
       requestId,
@@ -621,10 +630,8 @@ export function useAiStream(options: UseAiStreamOptions): UseAiStreamResult {
     streamIdRef.current = undefined;
     streamContextRef.current = context;
     const aiMessages = buildAiMessages({
-      petDefinition: currentOptions.petDefinition,
       messages: messagesRef.current,
-      nextUserText: nextText,
-      voiceReplyEnabled: settingsSnapshot.voiceReplyEnabled
+      nextUserText: nextText
     });
 
     setSendingState(true);

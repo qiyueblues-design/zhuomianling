@@ -53,6 +53,19 @@ describe("validateIpcArguments", () => {
     expect(() => validateIpcArguments("ai-chat:stream", [payload])).toThrow(/__proto__/);
   });
 
+  it("allows selecting a mood reference audio before entering its transcript", () => {
+    expect(() => validateIpcArguments("mood:import-range-voice", [{
+      petId: "pet-a",
+      rangeId: "calm",
+      referenceText: ""
+    }])).not.toThrow();
+    expect(() => validateIpcArguments("mood:import-range-voice", [{
+      petId: "pet-a",
+      rangeId: "calm",
+      referenceText: "x".repeat(501)
+    }])).toThrow(/500/);
+  });
+
   it("accepts only bounded TTS reply session identifiers", () => {
     expect(() =>
       validateIpcArguments("text-to-speech:speak", [
@@ -145,6 +158,35 @@ describe("validateIpcArguments", () => {
         actions: {
           chat: { surface: "#eff8d7", text: "#577838" }
         }
+      },
+      moodMeter: {
+        upColor: "#e88cab",
+        downColor: "#6676b8",
+        calmColor: "#8b9387",
+        surface: "rgba(19, 23, 38, 0.82)",
+        emptyColor: "rgba(255, 255, 255, 0.12)",
+        textColor: "#ffffff",
+        boundaryColor: "#f4f7ff",
+        particleColor: "#ffffff",
+        shadow: "0 8px 24px rgba(0, 0, 0, 0.24)",
+        insetShadow: "inset 0 0 8px rgba(255, 255, 255, 0.08)",
+        frame: "soft-pill",
+        particleStyle: "float",
+        effectStyle: "halo",
+        ranges: {
+          excited: {
+            frameOpacity: .9,
+            glowOpacity: .72,
+            glowRadius: 22,
+            liquidOpacity: .94,
+            boundaryWidth: 2,
+            waveAmplitude: 4,
+            particleOpacity: .9,
+            auraOpacity: .92,
+            accentOpacity: 1,
+            animationSeconds: 1.2
+          }
+        }
       }
     };
     expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
@@ -193,6 +235,60 @@ describe("validateIpcArguments", () => {
         radialMenu: { ...customTheme.radialMenu, unknown: "#fff" }
       }
     }])).toThrow(/不允许字段/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        moodMeter: { ...customTheme.moodMeter, upColor: undefined }
+      }
+    }])).toThrow(/upColor/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        moodMeter: { ...customTheme.moodMeter, particleStyle: "spark" }
+      }
+    }])).toThrow(/particleStyle/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        moodMeter: { ...customTheme.moodMeter, effectStyle: "css" }
+      }
+    }])).toThrow(/effectStyle/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        moodMeter: {
+          ...customTheme.moodMeter,
+          ranges: { excited: { glowRadius: 33 } }
+        }
+      }
+    }])).toThrow(/glowRadius/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        moodMeter: {
+          ...customTheme.moodMeter,
+          ranges: { euphoric: { glowRadius: 12 } }
+        }
+      }
+    }])).toThrow(/euphoric/);
+    expect(() => validateIpcArguments("pet-config:save-ui-settings", [{
+      petId: "pet-a",
+      theme: "custom",
+      customTheme: {
+        ...customTheme,
+        moodMeter: { ...customTheme.moodMeter, surface: "url(https://example.test/a.png)" }
+      }
+    }])).toThrow(/不安全/);
   });
 
   it("accepts only supported GPT-SoVITS model versions", () => {
@@ -229,6 +325,22 @@ describe("validateIpcArguments", () => {
         }
       ])
     ).toThrow(/4096/);
+  });
+
+  it("enforces persona and expression-description prompt budgets at IPC", () => {
+    expect(() => validateIpcArguments("pet-config:save-persona", [{
+      petId: "pet-a",
+      personaPrompt: "人".repeat(16_001),
+      chatLanguage: "zh"
+    }])).toThrow(/16000/);
+    expect(() => validateIpcArguments("pet-config:save-expression-mappings", [{
+      petId: "pet-a",
+      mappings: [{ description: "表".repeat(501) }]
+    }])).toThrow(/500/);
+    expect(() => validateIpcArguments("pet-config:save-expression-mappings", [{
+      petId: "pet-a",
+      mappings: Array.from({ length: 17 }, () => ({ description: "表".repeat(500) }))
+    }])).toThrow(/总长度/);
   });
 
   it("accepts bounded memory management requests and explicit destructive confirmations", () => {
@@ -292,6 +404,19 @@ describe("validateIpcArguments", () => {
         }
       ])
     ).not.toThrow();
+  });
+
+  it("accepts a bounded mood range entry line and rejects an oversized one", () => {
+    const request = {
+      petId: "pet-a",
+      settings: { ranges: { calm: { enterLine: "我会慢慢平静下来的。" } } }
+    };
+
+    expect(() => validateIpcArguments("mood:save-settings", [request])).not.toThrow();
+    expect(() => validateIpcArguments("mood:save-settings", [{
+      ...request,
+      settings: { ranges: { calm: { enterLine: "x".repeat(301) } } }
+    }])).toThrow(/enterLine/);
   });
 
   it("still rejects a real circular payload", () => {

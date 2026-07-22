@@ -1,6 +1,7 @@
 import { ChevronDown, Play, Shuffle, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Live2DImportedSource } from "../../../shared/types/live2dImport";
+import { AI_PROMPT_LIMITS } from "../../../shared/aiContract";
 import type {
   LocalPetSaveResult,
   PetDefinition,
@@ -110,6 +111,7 @@ function AutoGrowDescriptionTextarea({
       placeholder={placeholder}
       ref={textareaRef}
       rows={1}
+      maxLength={AI_PROMPT_LIMITS.expressionDescriptionCharacters}
       onChange={(event) => onChange(event.target.value)}
     />
   );
@@ -331,6 +333,9 @@ export function ExpressionPanel({
   const [saveResult, setSaveResult] = useState<LocalPetSaveResult>();
   const validation = validateMappingRows(mappingRows);
   const randomMode = expressionSelectionMode === "random";
+  const savedDescriptionCharacters = mappingRows
+    .filter((row) => row.mappingKey.trim() && row.description.trim() && row.sourceFileName.trim())
+    .reduce((total, row) => total + row.description.length, 0);
   const sourceKindCounts = mappingRows.reduce(
     (counts, row) => ({
       ...counts,
@@ -422,6 +427,13 @@ export function ExpressionPanel({
       setSaveResult({
         ok: false,
         message: validation.invalidRowMessages.join(" ")
+      });
+      return;
+    }
+    if (!randomMode && savedDescriptionCharacters > AI_PROMPT_LIMITS.expressionDescriptionsTotalCharacters) {
+      setSaveResult({
+        ok: false,
+        message: `全部表现描述合计不能超过 ${AI_PROMPT_LIMITS.expressionDescriptionsTotalCharacters} 个字符。`
       });
       return;
     }
@@ -651,6 +663,11 @@ export function ExpressionPanel({
         </div>
       ) : null}
 
+      {!randomMode ? (
+        <p className="panelSubtleNote">
+          已填写描述 {savedDescriptionCharacters}/{AI_PROMPT_LIMITS.expressionDescriptionsTotalCharacters} 字符；单项最多 {AI_PROMPT_LIMITS.expressionDescriptionCharacters} 字符。
+        </p>
+      ) : null}
       <PanelSaveActions onSave={() => void saveMappings()} saving={saving} result={saveResult} />
     </div>
   );

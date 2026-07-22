@@ -1,4 +1,4 @@
-import { Hand, Lock, MessageCircle, Unlock, X } from "lucide-react";
+import { Gauge, Hand, Lock, MessageCircle, Unlock, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { CSSProperties, RefObject } from "react";
 import type { PetUiTheme } from "../../shared/types/pet";
@@ -19,6 +19,8 @@ interface RadialPetMenuProps {
   onCloseWindow: () => void;
   onToggleTouch: () => void;
   onToggleChat: () => void;
+  moodOpen: boolean;
+  onToggleMood: () => void;
 }
 
 interface RadialMenuAction {
@@ -26,7 +28,7 @@ interface RadialMenuAction {
   label: string;
   title: string;
   Icon: LucideIcon;
-  tone: "passThrough" | "danger" | "touch" | "chat";
+  tone: "passThrough" | "danger" | "touch" | "chat" | "mood";
   active?: boolean;
   buttonRef?: RefObject<HTMLButtonElement>;
   onClick: () => void;
@@ -54,61 +56,69 @@ export function RadialPetMenu({
   onToggleClickThrough,
   onCloseWindow,
   onToggleTouch,
-  onToggleChat
+  onToggleChat,
+  moodOpen,
+  onToggleMood
 }: RadialPetMenuProps): JSX.Element {
-  const actions: RadialMenuAction[] = [
-    {
-      id: "clickThrough",
-      label: state.clickThrough ? "解锁" : "穿透",
-      title: state.clickThrough ? "关闭点击穿透" : "开启点击穿透",
-      Icon: state.clickThrough ? Unlock : Lock,
-      tone: "passThrough",
-      active: state.clickThrough,
-      buttonRef: clickThroughButtonRef,
-      onClick: onToggleClickThrough
-    },
-    ...(
-      state.clickThrough
-        ? []
-        : [
-            {
-              id: "close",
-              label: "关闭",
-              title: "关闭桌宠",
-              Icon: X,
-              tone: "danger" as const,
-              onClick: () => {
-                onCloseMenu();
-                onCloseWindow();
-              }
-            },
-            {
-              id: "touch",
-              label: "触控",
-              title: touchEnabled ? "关闭触控" : "开启触控",
-              Icon: Hand,
-              tone: "touch" as const,
-              active: touchEnabled,
-              onClick: () => {
-                onToggleTouch();
-                onCloseMenu();
-              }
-            },
-            {
-              id: "chat",
-              label: "对话",
-              title: chatOpen ? "关闭对话" : "打开对话",
-              Icon: MessageCircle,
-              tone: "chat" as const,
-              active: chatOpen,
-              onClick: () => {
-                onToggleChat();
-                onCloseMenu();
-              }
-            }
-          ]
-    )
-  ];
+  const clickThroughAction: RadialMenuAction = {
+    id: "clickThrough",
+    label: state.clickThrough ? "解锁" : "穿透",
+    title: state.clickThrough ? "关闭点击穿透" : "开启点击穿透",
+    Icon: state.clickThrough ? Unlock : Lock,
+    tone: "passThrough",
+    active: state.clickThrough,
+    buttonRef: clickThroughButtonRef,
+    onClick: onToggleClickThrough
+  };
+  const actions: RadialMenuAction[] = state.clickThrough
+    ? [clickThroughAction]
+    : [
+        clickThroughAction,
+        {
+          id: "close",
+          label: "关闭",
+          title: "关闭桌宠",
+          Icon: X,
+          tone: "danger",
+          onClick: () => {
+            onCloseMenu();
+            onCloseWindow();
+          }
+        },
+        {
+          id: "touch",
+          label: "触控",
+          title: touchEnabled ? "关闭触控" : "开启触控",
+          Icon: Hand,
+          tone: "touch",
+          active: touchEnabled,
+          onClick: () => {
+            onToggleTouch();
+            onCloseMenu();
+          }
+        },
+        {
+          id: "mood",
+          label: "心情",
+          title: moodOpen ? "隐藏心情" : "查看心情",
+          Icon: Gauge,
+          tone: "mood",
+          active: moodOpen,
+          onClick: onToggleMood
+        },
+        {
+          id: "chat",
+          label: "对话",
+          title: chatOpen ? "关闭对话" : "打开对话",
+          Icon: MessageCircle,
+          tone: "chat",
+          active: chatOpen,
+          onClick: () => {
+            onToggleChat();
+            onCloseMenu();
+          }
+        }
+      ];
 
   return (
     <div

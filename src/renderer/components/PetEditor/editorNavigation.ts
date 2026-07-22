@@ -11,6 +11,7 @@ import {
   Settings2,
   Smile,
   Volume2
+  ,Gauge
 } from "lucide-react";
 import type { BuiltInPetUiTheme, PetExpressionKey, PetLineEvent } from "../../../shared/types/pet";
 
@@ -18,7 +19,9 @@ export type EditorTab = "basic" | "live2d" | "ai" | "dialogue" | "interaction";
 export type AiSubTab = "aiConfig" | "persona" | "expressions" | "events";
 export type DialogueSubTab = "voiceInput" | "voiceReply";
 export type InteractionSubTab = "themeStyle" | "quickActions";
-export type ActiveEditorPanel = EditorTab | AiSubTab | DialogueSubTab | InteractionSubTab;
+export type ActiveEditorPanel = EditorTab | AiSubTab | DialogueSubTab | InteractionSubTab | "mood";
+
+export const moodEditorTab = { id: "mood" as const, label: "心情配置", icon: Gauge };
 
 export const uiThemeOptions: Array<{ id: BuiltInPetUiTheme; name: string; description: string }> = [
   { id: "soft", name: "软糖风", description: "轻柔、明亮，适合陪伴型桌宠。" },

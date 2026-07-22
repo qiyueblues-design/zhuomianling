@@ -16,6 +16,8 @@ import {
   toUserFacingGptSoVitsError,
   validateReadableVoiceFile
 } from "./voiceResourceValidation";
+import type { PetMoodRangeId } from "../../../shared/mood";
+import { resolveMoodVoiceOverride } from "../mood/moodVoice";
 
 interface GptSoVitsPetConfig {
   baseUrl: string;
@@ -307,6 +309,32 @@ function getPetVoiceConfigForRequest(
   };
   ownerState.snapshots.set(key, snapshot);
   return snapshot.config;
+}
+
+export function registerMoodTextToSpeechSnapshot(
+  target: WebContents,
+  petId: string,
+  sessionId: string,
+  rangeId: PetMoodRangeId
+): void {
+  const ownerState = getOrCreateTextToSpeechOwnerState(target);
+  const key = getTextToSpeechSnapshotKey(petId, sessionId);
+  if (ownerState.snapshots.has(key)) return;
+  const config = (async () => {
+    const base = await resolvePetVoiceConfig(petId);
+    const override = await resolveMoodVoiceOverride(petId, rangeId).catch(() => undefined);
+    return override ? { ...base, ...override } : base;
+  })();
+  void config.catch(() => undefined);
+  ownerState.snapshots.set(key, { petId, sessionId, config });
+  while (ownerState.snapshots.size > 128) ownerState.snapshots.delete(ownerState.snapshots.keys().next().value as string);
+  const snapshot = ownerState.snapshots.get(key);
+  setTimeout(() => {
+    if (ownerState.snapshots.get(key) === snapshot) {
+      ownerState.snapshots.delete(key);
+      releaseTextToSpeechOwnerStateIfEmpty(target, ownerState);
+    }
+  }, 10 * 60_000).unref?.();
 }
 
 function normalizePetConfig(

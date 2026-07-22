@@ -1,8 +1,10 @@
 import type {
   PetDefinition,
+  PetMoodSettings,
   PetVoiceLanguage,
   PetVoiceModelSettings
 } from "../types/pet";
+import { isPetMoodRangeId } from "../mood";
 import { normalizePetVoiceModelVersion } from "./petVoiceModel";
 import { normalizePetDesktopPosition, normalizePetDesktopScale } from "./petUiSettings";
 
@@ -121,6 +123,50 @@ function normalizeVoiceModelSettings(value: unknown): PetVoiceModelSettings | un
   } as PetVoiceModelSettings;
 }
 
+export function normalizePetMoodSettings(value: unknown): PetMoodSettings | undefined {
+  if (value === undefined || value === null) return undefined;
+  const settings = recordOrEmpty(value, "moodSettings");
+  const rawRanges = recordOrEmpty(settings.ranges, "moodSettings.ranges");
+  const ranges: NonNullable<PetMoodSettings["ranges"]> = {};
+
+  for (const [rangeId, rawRange] of Object.entries(rawRanges)) {
+    if (!isPetMoodRangeId(rangeId)) throw new Error(`未知的心情区间 ${rangeId}。`);
+    const range = recordOrEmpty(rawRange, `moodSettings.ranges.${rangeId}`);
+    const normalized: NonNullable<PetMoodSettings["ranges"]>[typeof rangeId] = {};
+    if (range.enterSource !== undefined) {
+      const source = recordOrEmpty(range.enterSource, `moodSettings.ranges.${rangeId}.enterSource`);
+      const fileName = stringOrDefault(source.sourceFileName, "", "enterSource.sourceFileName").trim();
+      if (!fileName || fileName.length > 255 || /[\\/\0]/.test(fileName) || !["motion", "expression"].includes(String(source.sourceKind))) {
+        throw new Error("心情进入表现源无效。");
+      }
+      normalized.enterSource = {
+        sourceFileName: fileName,
+        sourceKind: source.sourceKind as "motion" | "expression",
+        ...(typeof source.runtimeName === "string" || typeof source.runtimeName === "number" ? { runtimeName: source.runtimeName } : {}),
+        ...(typeof source.description === "string" && source.description.length <= 500 ? { description: source.description } : {})
+      };
+    }
+    if (range.enterLine !== undefined) {
+      const line = stringOrDefault(range.enterLine, "", `moodSettings.ranges.${rangeId}.enterLine`).trim();
+      if (!line || line.length > 300) {
+        throw new Error("心情进入台词无效。");
+      }
+      normalized.enterLine = line;
+    }
+    if (range.voiceOverride !== undefined) {
+      const voice = recordOrEmpty(range.voiceOverride, `moodSettings.ranges.${rangeId}.voiceOverride`);
+      const referenceAudio = stringOrDefault(voice.referenceAudio, "", "voiceOverride.referenceAudio").trim();
+      const referenceText = stringOrDefault(voice.referenceText, "", "voiceOverride.referenceText").trim();
+      if (!referenceAudio || referenceAudio.length > 255 || /[\\/\0:]/.test(referenceAudio) || !referenceText || referenceText.length > 500) {
+        throw new Error("心情区间语音配置无效。");
+      }
+      normalized.voiceOverride = { referenceAudio, referenceText };
+    }
+    if (normalized.enterSource || normalized.enterLine || normalized.voiceOverride) ranges[rangeId] = normalized;
+  }
+  return Object.keys(ranges).length ? { ranges } : {};
+}
+
 /**
  * 将历史版本中尚未存在的字段补成当前运行时默认值。
  * 该函数只返回内存副本；读取旧配置本身不会触发磁盘写入。
@@ -161,6 +207,7 @@ export function normalizeLegacyPetDefinition(pet: PetDefinition): PetDefinition 
       features: Array.isArray(details.features) ? details.features : []
     },
     voiceModelSettings: normalizeVoiceModelSettings(rawPet.voiceModelSettings),
+    moodSettings: normalizePetMoodSettings(rawPet.moodSettings),
     uiSettings: {
       ...uiSettings,
       theme: typeof uiSettings.theme === "string" ? uiSettings.theme : "soft",

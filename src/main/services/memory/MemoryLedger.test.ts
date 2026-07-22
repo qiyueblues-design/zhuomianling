@@ -63,6 +63,24 @@ describe("MemoryLedger schema and queries", () => {
     expect(search.items.map(({ content }) => content)).toEqual(["I prefer jasmine tea"]);
   });
 
+  it("finds Chinese and partial-text substrings in memory content and tags", async () => {
+    const ledger = await MemoryLedger.open("pet-a", ledgerOptions());
+    await ledger.create({
+      petId: "pet-a",
+      chapter: "about_you",
+      memoryType: "profile",
+      content: "我喜欢茉莉花茶",
+      tags: ["饮品偏好"]
+    });
+    await createMemory(ledger, "I prefer jasmine tea");
+
+    expect(ledger.search({ petId: "pet-a", query: "茉莉", pageSize: 10 }).items).toHaveLength(1);
+    expect(ledger.search({ petId: "pet-a", query: "花茶", pageSize: 10 }).items).toHaveLength(1);
+    expect(ledger.search({ petId: "pet-a", query: "饮品", pageSize: 10 }).items).toHaveLength(1);
+    expect(ledger.search({ petId: "pet-a", query: "jas", pageSize: 10 }).items).toHaveLength(1);
+    ledger.close();
+  });
+
   it("uses stable cursor pagination and bounded filters", async () => {
     const ledger = await MemoryLedger.open("pet-a", ledgerOptions());
     await createMemory(ledger, "first");

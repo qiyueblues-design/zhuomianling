@@ -158,9 +158,13 @@ function decodeCursor(cursor: string): { updatedAt: string; id: string } {
   }
 }
 
-function ftsQuery(query: string): string {
+function memorySearchTerms(query: string): string[] {
   return (query.match(/[\p{L}\p{N}_-]+/gu) ?? [])
-    .slice(0, 32)
+    .slice(0, 32);
+}
+
+function ftsQuery(terms: readonly string[]): string {
+  return terms
     .map((term) => `"${term}"`)
     .join(" AND ");
 }
@@ -843,12 +847,18 @@ export class MemoryLedger {
     const { pageSize, cursor } = normalizeMemoryPageRequest(request);
     const parameters: Array<string | number> = [this.petId];
     const conditions = ["m.pet_id = ?", "m.deleted_at IS NULL"];
-    const search = ftsQuery(request.query);
-    let from = "memories m";
-    if (search) {
-      from += " JOIN memories_fts ON memories_fts.id = m.id";
-      conditions.push("memories_fts MATCH ?");
+    const terms = memorySearchTerms(request.query);
+    const search = ftsQuery(terms);
+    const from = "memories m";
+    if (terms.length) {
+      const substringConditions = terms
+        .map(() => "(instr(lower(m.content), lower(?)) > 0 OR instr(lower(m.tags_json), lower(?)) > 0)")
+        .join(" AND ");
+      conditions.push(
+        `(m.id IN (SELECT id FROM memories_fts WHERE memories_fts MATCH ?) OR (${substringConditions}))`
+      );
       parameters.push(search);
+      for (const term of terms) parameters.push(term, term);
     }
     if (request.chapters?.length) {
       conditions.push(`m.chapter IN (${request.chapters.map(() => "?").join(",")})`);

@@ -12,6 +12,8 @@ import {
   minPetDesktopScale
 } from "../shared/validation/petUiSettings";
 import { isPetVoiceModelVersion } from "../shared/validation/petVoiceModel";
+import { isPetMoodRangeId, isSystemMoodEvent } from "../shared/mood";
+import { AI_PROMPT_LIMITS } from "../shared/aiContract";
 import {
   assertMemoryClearRequest,
   assertMemoryCreateRequest,
@@ -75,6 +77,14 @@ export const validatedIpcChannels = new Set([
   "pet-config:import-avatar",
   "pet-config:save-avatar-crop",
   "pet-config:delete",
+  "mood:get-editor-state",
+  "mood:save-settings",
+  "mood:import-range-voice",
+  "mood:remove-range-voice",
+  "mood:preview-enter-source",
+  "mood:get-display-state",
+  "mood:report-system-event",
+  "mood:save-meter-position",
   "live2d-import:select-folder",
   "live2d-import:validate-folder",
   "live2d-import:generate-entry",
@@ -372,7 +382,8 @@ function validateCustomTheme(channel: string, value: unknown): void {
     "importedAt",
     "tokens",
     "chatDecorations",
-    "radialMenu"
+    "radialMenu",
+    "moodMeter"
   ]);
   assertString(channel, theme.id, "customTheme.id", 40);
   assertString(channel, theme.name, "customTheme.name", 32);
@@ -475,6 +486,49 @@ function validateCustomTheme(channel: string, value: unknown): void {
       }
     }
   }
+  if (theme.moodMeter !== undefined) {
+    const meter = assertRecord(channel, theme.moodMeter, "customTheme.moodMeter");
+    assertAllowedKeys(channel, meter, [
+      "upColor", "downColor", "calmColor", "surface", "emptyColor", "textColor",
+      "frameColor", "boundaryColor", "particleColor", "shadow", "insetShadow",
+      "frame", "particleStyle", "effectStyle", "ranges"
+    ]);
+    assertString(channel, meter.upColor, "customTheme.moodMeter.upColor", 180);
+    assertString(channel, meter.downColor, "customTheme.moodMeter.downColor", 180);
+    for (const key of ["calmColor", "surface", "emptyColor", "textColor", "frameColor", "boundaryColor", "particleColor", "shadow", "insetShadow"] as const) {
+      assertOptionalString(channel, meter[key], `customTheme.moodMeter.${key}`, 180);
+    }
+    for (const key of ["upColor", "downColor", "calmColor", "surface", "emptyColor", "textColor", "frameColor", "boundaryColor", "particleColor", "shadow", "insetShadow"] as const) {
+      const value = meter[key];
+      if (typeof value === "string" && (/[;{}<>@]/.test(value) || /(?:url|expression|import)\s*\(/i.test(value))) {
+        fail(channel, `customTheme.moodMeter.${key} 包含不安全的样式值。`);
+      }
+    }
+    if (!["soft-pill","rounded","sharp","pixel","cut-corner"].includes(String(meter.frame))) fail(channel, "customTheme.moodMeter.frame 无效。");
+    if (!["float","dust","pixel","scan","minimal"].includes(String(meter.particleStyle))) fail(channel, "customTheme.moodMeter.particleStyle 无效。");
+    if (!["halo","lightning","pixel","ink","scan","minimal"].includes(String(meter.effectStyle))) fail(channel, "customTheme.moodMeter.effectStyle 无效。");
+    if (meter.ranges !== undefined) {
+      const ranges = assertRecord(channel, meter.ranges, "customTheme.moodMeter.ranges");
+      assertAllowedKeys(channel, ranges, ["darkened", "slump", "downcast", "calm", "pleasant", "joyful", "excited"]);
+      const rangeKeys = ["frameOpacity", "glowOpacity", "glowRadius", "liquidOpacity", "boundaryWidth", "waveAmplitude", "particleOpacity", "auraOpacity", "accentOpacity", "animationSeconds"] as const;
+      const limits: Record<(typeof rangeKeys)[number], readonly [number, number]> = {
+        frameOpacity: [0, 1], glowOpacity: [0, 1], glowRadius: [0, 32], liquidOpacity: [0, 1],
+        boundaryWidth: [.25, 4], waveAmplitude: [0, 5], particleOpacity: [0, 1],
+        auraOpacity: [0, 1], accentOpacity: [0, 1], animationSeconds: [.6, 12]
+      };
+      for (const [rangeId, rawStyle] of Object.entries(ranges)) {
+        const style = assertRecord(channel, rawStyle, `customTheme.moodMeter.ranges.${rangeId}`);
+        assertAllowedKeys(channel, style, rangeKeys);
+        for (const key of rangeKeys) {
+          if (style[key] === undefined) continue;
+          const [min, max] = limits[key];
+          if (typeof style[key] !== "number" || !Number.isFinite(style[key]) || (style[key] as number) < min || (style[key] as number) > max) {
+            fail(channel, `customTheme.moodMeter.ranges.${rangeId}.${key} 必须在 ${min}-${max} 范围内。`);
+          }
+        }
+      }
+    }
+  }
 }
 
 function validateAiChat(channel: string, value: unknown, requireRequestId: boolean): void {
@@ -491,12 +545,18 @@ function validateAiChat(channel: string, value: unknown, requireRequestId: boole
     if (message.role !== "system" && message.role !== "user" && message.role !== "assistant") {
       fail(channel, "消息 role 无效。");
     }
-    assertString(channel, message.content, "消息 content", 100_000, { allowEmpty: true });
+    assertString(
+      channel,
+      message.content,
+      "消息 content",
+      AI_PROMPT_LIMITS.conversationMessageCharacters,
+      { allowEmpty: true }
+    );
   }
   assertSafePayload(channel, request, {
     maxArrayLength: 128,
-    maxStringLength: 100_000,
-    maxTotalStringLength: 1_000_000
+    maxStringLength: AI_PROMPT_LIMITS.conversationMessageCharacters,
+    maxTotalStringLength: AI_PROMPT_LIMITS.conversationTotalCharacters
   });
 }
 
@@ -520,6 +580,7 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     "pet-window:get-state",
     "pet-window:get-payload",
     "pet-window:consume-pending-source-preview"
+    ,"mood:get-display-state"
   ]);
 
   if (noArgumentChannels.has(channel)) {
@@ -530,6 +591,56 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
   if (channel === "app-window:startup-surface-ready") {
     expectArgumentCount(channel, args, 0, 1);
     assertOptionalString(channel, args[0], "reason", 120);
+    return;
+  }
+
+  if (channel === "mood:get-editor-state") {
+    expectArgumentCount(channel, args, 1); assertPetId(channel, args[0]); return;
+  }
+
+  if (channel === "mood:report-system-event") {
+    expectArgumentCount(channel, args, 1);
+    if (!isSystemMoodEvent(args[0])) fail(channel, "事件类型无效。");
+    return;
+  }
+
+  if (channel === "mood:save-meter-position") {
+    expectArgumentCount(channel, args, 1);
+    const position = assertRecord(channel, args[0]);
+    assertAllowedKeys(channel, position, ["left", "top"]);
+    for (const key of ["left", "top"] as const) if (typeof position[key] !== "number" || !Number.isFinite(position[key]) || Math.abs(position[key] as number) > 100_000) fail(channel, `${key} 无效。`);
+    return;
+  }
+
+  if (channel === "mood:save-settings") {
+    expectArgumentCount(channel, args, 1);
+    const draft = assertRecord(channel, args[0]);
+    assertAllowedKeys(channel, draft, ["petId", "settings"]); assertPetId(channel, draft.petId);
+    const settings = assertRecord(channel, draft.settings); assertAllowedKeys(channel, settings, ["ranges"]);
+    const ranges = settings.ranges === undefined ? {} : assertRecord(channel, settings.ranges);
+    for (const [id, raw] of Object.entries(ranges)) {
+      if (!isPetMoodRangeId(id)) fail(channel, "包含未知心情区间。");
+      const range = assertRecord(channel, raw); assertAllowedKeys(channel, range, ["enterSource", "enterLine", "voiceOverride"]);
+      if (range.enterLine !== undefined) assertString(channel, range.enterLine, "enterLine", 300);
+    }
+    assertSafePayload(channel, draft, { maxStringLength: 500, maxTotalStringLength: 8_000, maxObjectKeys: 128 });
+    return;
+  }
+
+  if (channel === "mood:import-range-voice" || channel === "mood:remove-range-voice" || channel === "mood:preview-enter-source") {
+    expectArgumentCount(channel, args, 1);
+    const request = assertRecord(channel, args[0]);
+    assertAllowedKeys(channel, request, channel === "mood:import-range-voice" ? ["petId","rangeId","referenceText"] : channel === "mood:preview-enter-source" ? ["petId","rangeId","source"] : ["petId","rangeId"]);
+    assertPetId(channel, request.petId);
+    if (!isPetMoodRangeId(request.rangeId)) fail(channel, "rangeId 无效。");
+    if (channel === "mood:import-range-voice") assertString(channel, request.referenceText, "referenceText", 500, { allowEmpty: true });
+    if (channel === "mood:preview-enter-source") {
+      const source = assertRecord(channel, request.source, "source");
+      assertAllowedKeys(channel, source, ["sourceFileName","runtimeName","sourceKind","description","effects"]);
+      assertString(channel, source.sourceFileName, "sourceFileName", 255);
+      if (source.sourceKind !== "motion" && source.sourceKind !== "expression") fail(channel, "sourceKind 无效。");
+      assertSafePayload(channel, source, { maxStringLength: 500, maxTotalStringLength: 4_000, maxObjectKeys: 64 });
+    }
     return;
   }
 
@@ -564,9 +675,34 @@ export function validateIpcArguments(channel: string, args: unknown[]): void {
     return;
   }
 
+  if (channel === "pet-config:save-persona") {
+    expectArgumentCount(channel, args, 1);
+    const draft = assertRecord(channel, args[0]);
+    assertPetId(channel, draft.petId);
+    assertString(channel, draft.personaPrompt, "personaPrompt", AI_PROMPT_LIMITS.personaCharacters, { allowEmpty: true });
+    if (draft.chatLanguage !== "zh" && draft.chatLanguage !== "ja" && draft.chatLanguage !== "en") fail(channel, "chatLanguage 无效。");
+    if (draft.replyLength !== undefined && draft.replyLength !== "short" && draft.replyLength !== "medium" && draft.replyLength !== "long") fail(channel, "replyLength 无效。");
+    assertSafePayload(channel, draft, { maxStringLength: AI_PROMPT_LIMITS.personaCharacters, maxTotalStringLength: AI_PROMPT_LIMITS.personaCharacters + 256 });
+    return;
+  }
+
+  if (channel === "pet-config:save-expression-mappings") {
+    expectArgumentCount(channel, args, 1);
+    const draft = assertRecord(channel, args[0]);
+    assertPetId(channel, draft.petId);
+    if (!Array.isArray(draft.mappings) || draft.mappings.length > 128) fail(channel, "mappings 数量无效。");
+    let descriptionCharacters = 0;
+    for (const rawMapping of draft.mappings) {
+      const mapping = assertRecord(channel, rawMapping, "mapping");
+      const description = assertString(channel, mapping.description, "mapping.description", AI_PROMPT_LIMITS.expressionDescriptionCharacters, { allowEmpty: true });
+      descriptionCharacters += description.length;
+    }
+    if (descriptionCharacters > AI_PROMPT_LIMITS.expressionDescriptionsTotalCharacters) fail(channel, "表情描述总长度超出限制。");
+    validatePetDraft(channel, draft, AI_PROMPT_LIMITS.expressionDescriptionsTotalCharacters);
+    return;
+  }
+
   if (
-    channel === "pet-config:save-persona" ||
-    channel === "pet-config:save-expression-mappings" ||
     channel === "pet-config:save-event-settings" ||
     channel === "pet-config:save-voice-input"
   ) {

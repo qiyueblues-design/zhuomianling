@@ -9,14 +9,14 @@ import type {
   AiChatStreamEvent,
   AiOutputMode
 } from "../../../shared/types/ai";
-import { parseFinalAiReply } from "../../../shared/aiReply";
+import type { PetDefinition } from "../../../shared/types/pet";
+import { parseFinalAiReply, type NormalizedAiReply } from "../../../shared/aiReply";
 import {
   SecureStorageCorruptedError,
   SecureStorageUnavailableError
 } from "../config/secureConfigStore";
 import { getAiConnectionConfig, recordAiOutputCapability } from "./aiSettings";
 import { recallMemoryForAi } from "../memory/memoryRecall";
-import { injectMemoryContext } from "../memory/memoryPrompt";
 import { captureCompletedAiTurn } from "../memory/memoryCapture";
 import { AiStreamNormalizer } from "./aiStreamNormalizer";
 import {
@@ -25,6 +25,16 @@ import {
   canFallbackAiOutputMode,
   getAiOutputModeFallbacks
 } from "./aiProtocol";
+import { moodService } from "../mood/MoodService";
+import { buildMoodSystemPrompt } from "../mood/moodPrompt";
+import { registerMoodTextToSpeechSnapshot } from "../speech/textToSpeech";
+import {
+  createAiReplyContractForPet,
+  getAiProtocolTierForMode,
+  type AiReplyContract
+} from "../../../shared/aiContract";
+import { getLocalPetDefinition } from "../config/petConfigStore";
+import { buildAuthoritativeAiSystemPrompt } from "./aiPrompt";
 
 interface ChatCompletionResponse {
   choices?: Array<{
@@ -66,53 +76,157 @@ function getAiSettingsErrorMessage(error: unknown): string {
   return "无法读取本机 AI 设置，请检查配置文件权限后重试。";
 }
 
-function normalizeMessages(messages: AiChatMessage[]): AiChatMessage[] {
-  const normalizedMessages = messages
-    .map((message) => ({
-      role: message.role,
-      content: message.content.trim()
-    }))
-    .filter((message) => message.content.length > 0);
-  const systemMessages = normalizedMessages.filter((message) => message.role === "system");
-  const conversationMessages = normalizedMessages.filter((message) => message.role !== "system");
+function normalizeConversationMessages(messages: AiChatMessage[]): AiChatMessage[] {
+  return messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({ role: message.role, content: message.content.trim() }))
+    .filter((message) => message.content.length > 0)
+    .slice(-15);
+}
 
-  return [...systemMessages, ...conversationMessages.slice(-15)];
+function normalizeAssistantContentForContract(
+  content: string,
+  contract: AiReplyContract
+): string {
+  const parsed = parseFinalAiReply(content);
+  const reply = parsed.reply || content.trim();
+  if (contract.tier === "text") return reply;
+
+  const values: Record<string, unknown> = {
+    reply,
+    moodDelta:
+      Number.isInteger(parsed.moodDelta) && Math.abs(parsed.moodDelta as number) <= 12
+        ? parsed.moodDelta
+        : 0
+  };
+  if (contract.voiceTextRequired) values.voiceText = parsed.voiceText ?? reply;
+  if (contract.emotionRequired) {
+    values.emotion = parsed.emotion && contract.emotionKeys.includes(parsed.emotion)
+      ? parsed.emotion
+      : contract.emotionKeys[0];
+  }
+  return JSON.stringify(Object.fromEntries(
+    contract.requiredFields.map((field) => [field, values[field]])
+  ));
+}
+
+function buildMessagesForMode(options: {
+  conversationMessages: AiChatMessage[];
+  pet: PetDefinition;
+  mode: AiOutputMode;
+  moodContext: string;
+  memoryContext?: string;
+}): { messages: AiChatMessage[]; contract: AiReplyContract } {
+  const contract = createAiReplyContractForPet(
+    options.pet,
+    getAiProtocolTierForMode(options.mode)
+  );
+  const conversation = options.conversationMessages.map((message) => ({
+    role: message.role,
+    content: message.role === "assistant"
+      ? normalizeAssistantContentForContract(message.content, contract)
+      : message.content
+  }));
+  return {
+    contract,
+    messages: [
+      {
+        role: "system",
+        content: buildAuthoritativeAiSystemPrompt({
+          pet: options.pet,
+          contract,
+          moodContext: options.moodContext,
+          memoryContext: options.memoryContext
+        })
+      },
+      ...conversation
+    ]
+  };
 }
 
 interface AiCompletionFetchResult {
   response: Response;
   mode: AiOutputMode;
   streaming: boolean;
+  contract: AiReplyContract;
 }
 
 type ResolvedAiConfig = NonNullable<Awaited<ReturnType<typeof getAiConnectionConfig>>>;
+
+const runtimeOutputCapabilities = new Map<string, NonNullable<ResolvedAiConfig["outputCapability"]>>();
+
+function getRuntimeCapabilityKey(config: ResolvedAiConfig): string {
+  return `${config.petId}\0${config.baseUrl}\0${config.model}`;
+}
+
+async function rememberRuntimeCapability(
+  config: ResolvedAiConfig,
+  mode: AiOutputMode,
+  streaming: boolean,
+  confidence: "tested" | "fallback"
+): Promise<void> {
+  const capability = {
+    baseUrl: config.baseUrl,
+    model: config.model,
+    mode,
+    protocolTier: getAiProtocolTierForMode(mode),
+    streaming,
+    confidence,
+    checkedAt: new Date().toISOString(),
+    probeVersion: 2 as const
+  };
+  runtimeOutputCapabilities.set(getRuntimeCapabilityKey(config), capability);
+  await recordAiOutputCapability(
+    config.petId,
+    config.baseUrl,
+    config.model,
+    capability
+  ).catch(() => undefined);
+}
 
 function getPreferredOutput(config: ResolvedAiConfig): {
   mode: AiOutputMode;
   streaming: boolean;
 } {
+  const capability = runtimeOutputCapabilities.get(getRuntimeCapabilityKey(config)) ??
+    config.outputCapability;
   return {
-    mode: config.outputCapability?.mode ?? "json-object",
-    streaming: config.outputCapability?.streaming ?? true
+    mode: capability?.protocolTier === "full"
+      ? capability.mode
+      : "plain-text",
+    streaming: capability?.streaming ?? true
   };
 }
 
 async function fetchAiCompletion(options: {
   config: ResolvedAiConfig;
-  messages: AiChatMessage[];
+  conversationMessages: AiChatMessage[];
+  pet: PetDefinition;
+  moodContext: string;
+  memoryContext?: string;
   streaming: boolean;
   signal?: AbortSignal;
 }): Promise<AiCompletionFetchResult> {
-  const modes = getAiOutputModeFallbacks(getPreferredOutput(options.config).mode);
+  const preferred = getPreferredOutput(options.config);
+  const modes = getAiOutputModeFallbacks(preferred.mode);
   const streamingOptions = options.streaming ? [true, false] : [false];
   let lastResponse: Response | undefined;
   let lastMode = modes[modes.length - 1];
   let lastStreaming = options.streaming;
+  let lastContract = createAiReplyContractForPet(options.pet, "text");
 
   for (let streamingIndex = 0; streamingIndex < streamingOptions.length; streamingIndex += 1) {
     const streaming = streamingOptions[streamingIndex];
     for (let modeIndex = 0; modeIndex < modes.length; modeIndex += 1) {
       const mode = modes[modeIndex];
+      const prepared = buildMessagesForMode({
+        conversationMessages: options.conversationMessages,
+        pet: options.pet,
+        mode,
+        moodContext: options.moodContext,
+        memoryContext: options.memoryContext
+      });
+      lastContract = prepared.contract;
       const response = await fetch(buildChatCompletionsUrl(options.config.baseUrl), {
         method: "POST",
         headers: {
@@ -124,8 +238,9 @@ async function fetchAiCompletion(options: {
         body: JSON.stringify(
           buildAiChatRequestBody({
             model: options.config.model,
-            messages: options.messages,
+            messages: prepared.messages,
             mode,
+            contract: prepared.contract,
             stream: streaming
           })
         )
@@ -134,25 +249,112 @@ async function fetchAiCompletion(options: {
       lastMode = mode;
       lastStreaming = streaming;
 
-      if (response.ok || !canFallbackAiOutputMode(response.status)) {
-        return { response, mode, streaming };
+      if (response.ok) {
+        if (mode !== preferred.mode || streaming !== preferred.streaming) {
+          await rememberRuntimeCapability(options.config, mode, streaming, "fallback");
+        }
+        return { response, mode, streaming, contract: prepared.contract };
+      }
+
+      if (!canFallbackAiOutputMode(response.status)) {
+        return { response, mode, streaming, contract: prepared.contract };
       }
 
       const hasModeFallback = modeIndex < modes.length - 1;
       const hasStreamingFallback = streamingIndex < streamingOptions.length - 1;
       if (!hasModeFallback && !hasStreamingFallback) {
-        return { response, mode, streaming };
+        return { response, mode, streaming, contract: prepared.contract };
       }
 
       await response.body?.cancel("retrying with compatible AI output settings").catch(() => undefined);
+      if (hasModeFallback) {
+        // The current transport was explicitly rejected with a compatibility
+        // status. Persist the next transport before retrying so a completed,
+        // canceled, or malformed lower response cannot make the next turn hit
+        // the same known response_format error again.
+        await rememberRuntimeCapability(
+          options.config,
+          modes[modeIndex + 1],
+          streaming,
+          "fallback"
+        );
+      }
     }
   }
 
   return {
     response: lastResponse as Response,
     mode: lastMode,
-    streaming: lastStreaming
+    streaming: lastStreaming,
+    contract: lastContract
   };
+}
+
+async function repairAiReplyFormat(options: {
+  config: ResolvedAiConfig;
+  conversationMessages: AiChatMessage[];
+  pet: PetDefinition;
+  mode: AiOutputMode;
+  contract: AiReplyContract;
+  moodContext: string;
+  memoryContext?: string;
+  visibleReply: string;
+  signal?: AbortSignal;
+}): Promise<NormalizedAiReply | undefined> {
+  if (options.contract.tier !== "full" || options.mode === "plain-text" || !options.visibleReply.trim()) {
+    return undefined;
+  }
+  const prepared = buildMessagesForMode({
+    conversationMessages: options.conversationMessages,
+    pet: options.pet,
+    mode: options.mode,
+    moodContext: options.moodContext,
+    memoryContext: options.memoryContext
+  });
+  prepared.messages.push(
+    { role: "assistant", content: options.visibleReply },
+    {
+      role: "user",
+      content: [
+        "上一份回复的可见正文已经确定，但机器协议不完整。",
+        "只重新封装同一份 reply，不得改写、增删或翻译 reply。",
+        `必须返回且只返回字段：${options.contract.requiredFields.join("、")}。`
+      ].join("\n")
+    }
+  );
+  try {
+    const response = await fetch(buildChatCompletionsUrl(options.config.baseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${options.config.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      signal: options.signal,
+      body: JSON.stringify(buildAiChatRequestBody({
+        model: options.config.model,
+        messages: prepared.messages,
+        mode: options.mode,
+        contract: options.contract,
+        stream: false,
+        temperature: 0,
+        maxTokens: 1200
+      }))
+    });
+    if (!response.ok) {
+      await response.body?.cancel("format repair failed").catch(() => undefined);
+      return undefined;
+    }
+    const body = (await response.json()) as ChatCompletionResponse;
+    const content = body.choices?.[0]?.message?.content?.trim();
+    if (!content) return undefined;
+    const repaired = parseFinalAiReply(content, options.contract);
+    return repaired.quality === "structured" && repaired.reply === options.visibleReply
+      ? repaired
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function recordRuntimeCapability(
@@ -168,14 +370,7 @@ function recordRuntimeCapability(
     return;
   }
 
-  void recordAiOutputCapability(config.petId, config.baseUrl, config.model, {
-    baseUrl: config.baseUrl,
-    model: config.model,
-    mode,
-    streaming,
-    confidence: "tested",
-    checkedAt: new Date().toISOString()
-  }).catch(() => undefined);
+  void rememberRuntimeCapability(config, mode, streaming, "tested");
 }
 
 export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse> {
@@ -197,7 +392,7 @@ export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse
     };
   }
 
-  const messages = normalizeMessages(request.messages);
+  const messages = normalizeConversationMessages(request.messages);
 
   if (!messages.length) {
     return {
@@ -207,10 +402,22 @@ export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse
   }
 
   let response: Response;
+  let responseContract: AiReplyContract;
 
   try {
-    const fetched = await fetchAiCompletion({ config, messages, streaming: false });
+    const pet = await getLocalPetDefinition(request.petId);
+    if (!pet) {
+      return { ok: false, message: "当前桌宠配置不存在。" };
+    }
+    const fetched = await fetchAiCompletion({
+      config,
+      conversationMessages: messages,
+      pet,
+      moodContext: buildMoodSystemPrompt("calm"),
+      streaming: false
+    });
     response = fetched.response;
+    responseContract = fetched.contract;
   } catch {
     return {
       ok: false,
@@ -245,7 +452,7 @@ export async function sendAiChat(request: AiChatRequest): Promise<AiChatResponse
     };
   }
 
-  const parsedReply = parseFinalAiReply(content);
+  const parsedReply = parseFinalAiReply(content, responseContract);
 
   if (!parsedReply.reply) {
     return {
@@ -333,6 +540,7 @@ function detachEntry(entry: AiChatStreamEntry, abortReason?: AiChatAbortReason):
   }
 
   entry.active = false;
+  moodService.releaseReplySnapshot(entry.target.id, entry.petId, entry.requestId);
   clearEntryTimers(entry);
 
   const ownerState = aiChatOwners.get(entry.target);
@@ -512,6 +720,14 @@ export async function startAiChatStream(
     ...timeoutOverrides
   };
   const entry = createStreamEntry(target, request, streamId, timeouts);
+  let moodSnapshot: Awaited<ReturnType<typeof moodService.createReplySnapshot>>;
+  try {
+    moodSnapshot = await moodService.createReplySnapshot(target.id, request.petId, request.requestId);
+    registerMoodTextToSpeechSnapshot(target, request.petId, request.requestId, moodSnapshot.rangeId);
+  } catch {
+    completeEntry(entry, { ok: false, type: "error", message: "无法读取桌宠心情状态，请检查本地数据后重试。" });
+    return;
+  }
   let config: Awaited<ReturnType<typeof getAiConnectionConfig>>;
 
   try {
@@ -538,9 +754,25 @@ export async function startAiChatStream(
     return;
   }
 
-  let messages = normalizeMessages(request.messages);
+  let pet: PetDefinition | undefined;
+  try {
+    pet = await getLocalPetDefinition(request.petId);
+  } catch {
+    completeEntry(entry, {
+      ok: false,
+      type: "error",
+      message: "无法读取桌宠配置，请检查本地数据后重试。"
+    });
+    return;
+  }
+  if (!pet) {
+    completeEntry(entry, { ok: false, type: "error", message: "当前桌宠配置不存在。" });
+    return;
+  }
 
-  if (!messages.length) {
+  const conversationMessages = normalizeConversationMessages(request.messages);
+
+  if (!conversationMessages.length) {
     completeEntry(entry, {
       ok: false,
       type: "error",
@@ -548,12 +780,14 @@ export async function startAiChatStream(
     });
     return;
   }
-  const currentUserText = [...messages].reverse().find((message) => message.role === "user")?.content;
+  const currentUserText = [...conversationMessages].reverse().find((message) => message.role === "user")?.content;
+  const moodContext = buildMoodSystemPrompt(moodSnapshot.rangeId);
+  let memoryContext: string | undefined;
 
   try {
-    const recalled = await recallMemoryForAi(request.petId, messages, entry.controller.signal);
+    const recalled = await recallMemoryForAi(request.petId, conversationMessages, entry.controller.signal);
     if (!entry.active) return;
-    messages = injectMemoryContext(messages, recalled.context);
+    memoryContext = recalled.context;
   } catch {
     // Recall is optional and must never block the original chat path.
     if (!entry.active) return;
@@ -562,18 +796,23 @@ export async function startAiChatStream(
   let response: Response;
   let responseMode: AiOutputMode;
   let requestedStreaming: boolean;
+  let responseContract: AiReplyContract;
 
   try {
     const preferred = getPreferredOutput(config);
     const fetched = await fetchAiCompletion({
       config,
-      messages,
+      conversationMessages,
+      pet,
+      moodContext,
+      memoryContext,
       streaming: preferred.streaming,
       signal: entry.controller.signal
     });
     response = fetched.response;
     responseMode = fetched.mode;
     requestedStreaming = fetched.streaming;
+    responseContract = fetched.contract;
   } catch {
     if (!entry.active) {
       return;
@@ -631,7 +870,7 @@ export async function startAiChatStream(
     }
 
     const content = body.choices?.[0]?.message?.content?.trim();
-    const parsedReply = content ? parseFinalAiReply(content) : undefined;
+    let parsedReply = content ? parseFinalAiReply(content, responseContract) : undefined;
     if (!parsedReply?.reply) {
       completeEntry(entry, {
         ok: false,
@@ -641,15 +880,36 @@ export async function startAiChatStream(
       return;
     }
 
+    if (responseContract.tier === "full" && parsedReply.quality !== "structured") {
+      const repaired = await repairAiReplyFormat({
+        config,
+        conversationMessages,
+        pet,
+        mode: responseMode,
+        contract: responseContract,
+        moodContext,
+        memoryContext,
+        visibleReply: parsedReply.reply,
+        signal: entry.controller.signal
+      });
+      if (repaired) parsedReply = repaired;
+    }
+
+    if (parsedReply.quality === "structured" && parsedReply.moodDelta !== undefined) {
+      await moodService.applyAiDelta(request.petId, request.requestId, parsedReply.moodDelta);
+    }
     completeEntry(entry, {
       ok: true,
       type: "done",
       content: parsedReply.reply,
       emotion: parsedReply.emotion,
       voiceText: parsedReply.voiceText,
+      protocolTier: responseContract.tier,
       quality: parsedReply.quality === "invalid" ? undefined : parsedReply.quality
     });
-    recordRuntimeCapability(config, responseMode, false);
+    if (responseContract.tier === "text" || parsedReply.quality === "structured") {
+      recordRuntimeCapability(config, responseMode, false);
+    }
     if (currentUserText && parsedReply.completeForMemory) {
       void captureCompletedAiTurn({
         petId: request.petId,
@@ -666,7 +926,7 @@ export async function startAiChatStream(
   const reader = response.body.getReader();
   entry.reader = reader;
   let buffer = "";
-  const normalizer = new AiStreamNormalizer();
+  const normalizer = new AiStreamNormalizer(responseContract);
   resetIdleTimeout(entry, timeouts.idleTimeoutMs);
 
   const processSseLine = async (rawLine: string): Promise<boolean> => {
@@ -715,7 +975,8 @@ export async function startAiChatStream(
         type: "chunk",
         delta: safeSnapshot.replyDelta,
         content: safeSnapshot.reply,
-        voiceText: safeSnapshot.voiceText
+        voiceText: safeSnapshot.voiceText,
+        protocolTier: responseContract.tier
       });
     }
 
@@ -773,7 +1034,7 @@ export async function startAiChatStream(
     return;
   }
 
-  const parsedReply = normalizer.finalize();
+  let parsedReply = normalizer.finalize();
   if (!parsedReply.reply) {
     completeEntry(entry, {
       ok: false,
@@ -782,15 +1043,35 @@ export async function startAiChatStream(
     });
     return;
   }
+  if (responseContract.tier === "full" && parsedReply.quality !== "structured") {
+    const repaired = await repairAiReplyFormat({
+      config,
+      conversationMessages,
+      pet,
+      mode: responseMode,
+      contract: responseContract,
+      moodContext,
+      memoryContext,
+      visibleReply: parsedReply.reply,
+      signal: entry.controller.signal
+    });
+    if (repaired) parsedReply = repaired;
+  }
+  if (parsedReply.quality === "structured" && parsedReply.moodDelta !== undefined) {
+    await moodService.applyAiDelta(request.petId, request.requestId, parsedReply.moodDelta);
+  }
   completeEntry(entry, {
     ok: true,
     type: "done",
     content: parsedReply.reply,
     emotion: parsedReply.emotion,
     voiceText: parsedReply.voiceText,
+    protocolTier: responseContract.tier,
     quality: parsedReply.quality === "invalid" ? undefined : parsedReply.quality
   });
-  recordRuntimeCapability(config, responseMode, true);
+  if (responseContract.tier === "text" || parsedReply.quality === "structured") {
+    recordRuntimeCapability(config, responseMode, true);
+  }
   if (currentUserText && parsedReply.completeForMemory && parsedReply.reply) {
     void captureCompletedAiTurn({
       petId: request.petId,

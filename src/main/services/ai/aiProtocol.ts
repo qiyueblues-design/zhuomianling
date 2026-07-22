@@ -2,6 +2,11 @@ import type {
   AiChatMessage,
   AiOutputMode
 } from "../../../shared/types/ai";
+import {
+  buildAiReplyJsonSchema,
+  createAiReplyContract,
+  type AiReplyContract
+} from "../../../shared/aiContract";
 
 export function buildChatCompletionsUrl(baseUrl: string): string {
   const url = new URL(`${baseUrl}/`);
@@ -16,10 +21,19 @@ export function buildChatCompletionsUrl(baseUrl: string): string {
   return url.toString();
 }
 
-export function buildAiResponseFormat(mode: AiOutputMode): Record<string, unknown> | undefined {
+export function buildAiResponseFormat(
+  mode: AiOutputMode,
+  contract: AiReplyContract = createAiReplyContract({
+    tier: mode === "plain-text" ? "text" : "full"
+  })
+): Record<string, unknown> | undefined {
   if (mode === "plain-text") {
     return undefined;
   }
+  if (contract.tier !== "full") {
+    throw new Error("Structured AI output mode requires the full desktop-pet protocol.");
+  }
+  if (mode === "prompt-json") return undefined;
 
   if (mode === "json-object") {
     return { type: "json_object" };
@@ -29,17 +43,8 @@ export function buildAiResponseFormat(mode: AiOutputMode): Record<string, unknow
     type: "json_schema",
     json_schema: {
       name: "zhuomianling_reply",
-      strict: false,
-      schema: {
-        type: "object",
-        properties: {
-          reply: { type: "string" },
-          emotion: { type: ["string", "null"] },
-          voiceText: { type: ["string", "null"] }
-        },
-        required: ["reply"],
-        additionalProperties: false
-      }
+      strict: true,
+      schema: buildAiReplyJsonSchema(contract)
     }
   };
 }
@@ -48,11 +53,12 @@ export function buildAiChatRequestBody(options: {
   model: string;
   messages: AiChatMessage[];
   mode: AiOutputMode;
+  contract?: AiReplyContract;
   stream: boolean;
   temperature?: number;
   maxTokens?: number;
 }): Record<string, unknown> {
-  const responseFormat = buildAiResponseFormat(options.mode);
+  const responseFormat = buildAiResponseFormat(options.mode, options.contract);
   return {
     model: options.model,
     messages: options.messages,
@@ -65,12 +71,14 @@ export function buildAiChatRequestBody(options: {
 
 export function getAiOutputModeFallbacks(mode: AiOutputMode): AiOutputMode[] {
   if (mode === "json-schema") {
-    return ["json-schema", "json-object", "plain-text"];
+    return ["json-schema", "json-object", "prompt-json", "plain-text"];
   }
 
   if (mode === "json-object") {
-    return ["json-object", "plain-text"];
+    return ["json-object", "prompt-json", "plain-text"];
   }
+
+  if (mode === "prompt-json") return ["prompt-json", "plain-text"];
 
   return ["plain-text"];
 }

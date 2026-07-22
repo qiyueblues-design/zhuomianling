@@ -36,6 +36,9 @@ import { useAiStream } from "./useAiStream";
 import { useVoiceRecorder } from "./useVoiceRecorder";
 import { useVoiceReplyQueue } from "./useVoiceReplyQueue";
 import { useWindowDrag } from "./useWindowDrag";
+import { MoodMeter } from "./MoodMeter";
+import { useMoodRangeEntry } from "./useMoodRangeEntry";
+import type { PetMoodDisplayState } from "../../shared/types/mood";
 
 const chatInputMaxVisibleHeightPx = 65;
 
@@ -75,7 +78,7 @@ function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties |
 
   const { tokens } = theme;
   const radialMenu = theme.radialMenu;
-  const menuAction = (kind: "passThrough" | "touch" | "chat" | "danger") => radialMenu?.actions[kind];
+  const menuAction = (kind: "passThrough" | "touch" | "chat" | "mood" | "danger") => radialMenu?.actions[kind];
 
   return {
     "--custom-theme-background": tokens.background,
@@ -114,6 +117,12 @@ function getCustomThemeStyle(theme: PetCustomTheme | undefined): CSSProperties |
     "--custom-menu-chat-surface": menuAction("chat")?.surface ?? tokens.petSurface ?? tokens.surface,
     "--custom-menu-chat-text": menuAction("chat")?.text ?? tokens.text,
     "--custom-menu-chat-border": menuAction("chat")?.border ?? tokens.border,
+    "--custom-menu-mood-surface": menuAction("mood")?.surface ?? tokens.petSurface ?? tokens.surface,
+    "--custom-menu-mood-text": menuAction("mood")?.text ?? tokens.text,
+    "--custom-menu-mood-border": menuAction("mood")?.border ?? tokens.border,
+    "--custom-mood-up": theme.moodMeter?.upColor ?? tokens.accentStrong ?? tokens.accent,
+    "--custom-mood-down": theme.moodMeter?.downColor ?? tokens.decorationSecondary ?? tokens.mutedText,
+    "--custom-mood-calm": theme.moodMeter?.calmColor ?? tokens.mutedText,
     "--custom-menu-danger-surface": menuAction("danger")?.surface ?? tokens.danger ?? "#ef4444",
     "--custom-menu-danger-text": menuAction("danger")?.text ?? tokens.surface,
     "--custom-menu-danger-border": menuAction("danger")?.border ?? tokens.danger ?? "#ef4444"
@@ -139,6 +148,7 @@ export function PetWindow(): JSX.Element {
   const lastModelTouchHitAtRef = useRef(0);
   const rapidModelClickCountRef = useRef(0);
   const rapidModelClickWindowStartedAtRef = useRef(0);
+  const moodClickTimerRef = useRef<number>();
   const lookAtListenersRef = useRef(new Set<(point: { clientX: number; clientY: number }) => void>());
 
   useEffect(() => {
@@ -220,6 +230,8 @@ export function PetWindow(): JSX.Element {
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [touchEnabled, setTouchEnabled] = useState(true);
   const [radialMenuOpen, setRadialMenuOpen] = useState(false);
+  const [moodMeterOpen, setMoodMeterOpen] = useState(false);
+  const [moodDisplay, setMoodDisplay] = useState<PetMoodDisplayState>();
   const [radialMenuPosition, setRadialMenuPosition] = useState({ x: 190, y: 190 });
   const [closingEffect, setClosingEffect] = useState(false);
   const [expressionEvent, setExpressionEvent] = useState<PetExpressionEvent | undefined>();
@@ -293,6 +305,13 @@ export function PetWindow(): JSX.Element {
     chatOpenRef.current = open;
     setChatOpen(open);
   };
+
+  useEffect(() => {
+    let disposed = false;
+    void window.desktopPet?.mood.getDisplayState().then((next) => { if (!disposed) setMoodDisplay(next); }).catch(() => undefined);
+    const unsubscribe = window.desktopPet?.mood.onDisplayStateChanged((next) => { if (!disposed) setMoodDisplay(next); });
+    return () => { disposed = true; unsubscribe?.(); };
+  }, [pet.petId]);
 
 
   useLayoutEffect(() => {
@@ -604,7 +623,8 @@ export function PetWindow(): JSX.Element {
       triggerEventExpression("drag", "normal", "focus");
       speakLine("drag", "慢一点，我跟着你走。");
       resetIdleTimer();
-    }
+    },
+    onModelDragCompleted: () => { void window.desktopPet?.mood.reportSystemEvent("dragCompleted").catch(() => undefined); }
   });
   const {
     chatPanelPosition,
@@ -628,11 +648,27 @@ export function PetWindow(): JSX.Element {
     };
   }, [aiStream, voiceRecorder.scheduleRestart]);
 
+  useMoodRangeEntry({
+    busy: sending || voiceReply.hasActiveAudio() || closingEffect,
+    trigger: (source) => triggerExpressionSource(source, "low"),
+    speak: (line) => {
+      if (petDefinition?.capabilities.subtitles && !voiceReply.isSubtitleHeld()) {
+        subtitle.show({
+          text: line,
+          mode: "typewriter",
+          tone: petDefinition.subtitleStyle?.tone,
+          maxWidth: petDefinition.subtitleStyle?.maxWidth
+        });
+      }
+    }
+  });
+
   useEffect(() => {
     resetIdleTimer();
 
     return () => {
       window.clearTimeout(idleTimerRef.current);
+      window.clearTimeout(moodClickTimerRef.current);
     };
   }, []);
 
@@ -752,6 +788,7 @@ export function PetWindow(): JSX.Element {
         aiStream.cancel();
         voiceReply.stop();
         setChatOpenState(false);
+        setMoodMeterOpen(false);
       }
 
       setState(nextState);
@@ -815,6 +852,7 @@ export function PetWindow(): JSX.Element {
 
     chatOpenRef.current = true;
     setChatOpenState(true);
+    void window.desktopPet?.mood.reportSystemEvent("chatOpened").catch(() => undefined);
     triggerEventExpression("chatOpen", "normal", "panic");
     speakLine("chatOpen", "嗯，我在听。");
     resetIdleTimer();
@@ -873,6 +911,8 @@ export function PetWindow(): JSX.Element {
       triggerEventExpression("rapidClick", "high", "melt");
       speakLine("rapidClick", "呜哇，点得有点快啦。");
       resetIdleTimer();
+      window.clearTimeout(moodClickTimerRef.current);
+      void window.desktopPet?.mood.reportSystemEvent("rapidClick").catch(() => undefined);
       return;
     }
 
@@ -880,6 +920,11 @@ export function PetWindow(): JSX.Element {
     triggerEventExpression("click", clickExpression === "impact" ? "high" : "normal", "shy");
     speakLine("click", "嗯？叫我吗？");
     resetIdleTimer();
+    window.clearTimeout(moodClickTimerRef.current);
+    moodClickTimerRef.current = window.setTimeout(() => {
+      rapidModelClickCountRef.current = 0;
+      void window.desktopPet?.mood.reportSystemEvent("click").catch(() => undefined);
+    }, 1400);
   };
 
   const sendMessage = (): Promise<void> => sendMessageText(draft);
@@ -1151,7 +1196,12 @@ export function PetWindow(): JSX.Element {
           onCloseWindow={() => void closeWindow()}
           onToggleTouch={toggleTouch}
           onToggleChat={toggleChat}
+          moodOpen={moodMeterOpen}
+          onToggleMood={() => setMoodMeterOpen((open) => !open)}
         />
+      ) : null}
+      {moodMeterOpen && moodDisplay && !state.clickThrough && !closingEffect ? (
+        <MoodMeter state={moodDisplay} theme={uiTheme} customization={customTheme?.moodMeter} fallbackPosition={{ left: radialMenuPosition.x + 136 <= window.innerWidth ? radialMenuPosition.x + 104 : radialMenuPosition.x - 136, top: Math.max(8, radialMenuPosition.y - 50) }} />
       ) : null}
     </main>
   );

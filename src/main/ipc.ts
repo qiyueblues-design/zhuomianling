@@ -45,6 +45,8 @@ import type {
   MemoryUpdateRequest
 } from "../shared/types/memory";
 import type { StartupRendererStage } from "../shared/types/startup";
+import type { LocalPetMoodSettingsDraft, PetMoodEnterPreviewRequest, PetMoodMeterPosition, PetMoodVoiceImportRequest, PetMoodVoiceRemoveRequest } from "../shared/types/mood";
+import type { SystemMoodEvent } from "../shared/mood";
 import { cancelAiChatStreams, startAiChatStream } from "./services/ai/aiChat";
 import {
   getAiConnectionSummary,
@@ -102,7 +104,12 @@ import {
   stopManagedGptSoVitsApi,
   testLocalPetVoiceModelConnection,
   toPublicPetDefinition
+  ,toPetRuntimeDefinition,
+  saveLocalPetMoodSettings
+  ,importLocalPetMoodVoice,
+  removeLocalPetMoodVoice
 } from "./services/config/petConfigStore";
+import { moodService } from "./services/mood/MoodService";
 import { writeTextFileAtomically } from "./services/config/durableJsonFile";
 import { memoryManagementService } from "./services/memory/memoryManagement";
 import { createMemoryExportFileName } from "./services/memory/memoryExport";
@@ -121,6 +128,8 @@ import { assertIpcPetIdBound, assertIpcSenderAllowed, type IpcAccess } from "./i
 import { startupProfiler } from "./startupProfiler";
 
 export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow | null): void {
+  let moodRangeEventId = 0;
+  const moodWindowSubscriptions = new Map<number, () => void>();
   const assertSenderAllowed = (
     channel: string,
     event: IpcMainEvent | IpcMainInvokeEvent,
@@ -180,6 +189,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
 
   const emitPetConfigChanged = (pet?: DesktopPetPayload["definition"]): void => {
     const publicPet = pet ? toPublicPetDefinition(pet) : undefined;
+    const runtimePet = pet ? toPetRuntimeDefinition(pet) : undefined;
 
     if (publicPet) {
       updateCurrentPetWindowPayload({
@@ -187,12 +197,15 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
         name: publicPet.name,
         modelPath: publicPet.modelPath,
         avatar: publicPet.avatar,
-        definition: publicPet
+        definition: runtimePet
       });
     }
 
     for (const targetWindow of BrowserWindow.getAllWindows()) {
-      targetWindow.webContents.send("pet-config:changed", publicPet);
+      targetWindow.webContents.send(
+        "pet-config:changed",
+        isPetWindowWebContents(targetWindow.webContents) ? runtimePet : publicPet
+      );
     }
   };
 
@@ -256,6 +269,89 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
   });
 
   handle("pet-config:import-ui-theme", "main", () => importLocalUiTheme());
+
+  handle("mood:get-editor-state", "main", async (_event, petId: string) => {
+    const pet = await getLocalPetDefinition(petId);
+    return { display: await moodService.getDisplayState(petId), settings: pet?.moodSettings };
+  });
+
+  moodService.subscribeMutations((petId, result) => {
+    if (!result.enteredRangeId) return;
+    void getLocalPetDefinition(petId).then((pet) => {
+      const settings = pet?.moodSettings?.ranges?.[result.enteredRangeId!];
+      const source = settings?.enterSource;
+      const line = settings?.enterLine;
+      if (!source && !line) return;
+      for (const targetWindow of BrowserWindow.getAllWindows()) {
+        if (getBoundPetWindowPayload(targetWindow.webContents)?.id === petId) {
+          targetWindow.webContents.send("mood:range-entered", {
+            id: ++moodRangeEventId,
+            rangeId: result.enteredRangeId,
+            ...(source ? { source } : {}),
+            ...(line ? { line } : {})
+          });
+        }
+      }
+    }).catch(() => undefined);
+  });
+
+  handle("mood:save-settings", "main", async (_event, draft: LocalPetMoodSettingsDraft) => {
+    const result = await saveLocalPetMoodSettings(draft);
+    if (result.ok) emitPetConfigChanged(result.pet);
+    return result;
+  });
+
+  handle("mood:import-range-voice", "main", async (_event, request: PetMoodVoiceImportRequest) => {
+    const result = await importLocalPetMoodVoice(request);
+    if (result.ok && result.pet) emitPetConfigChanged(result.pet);
+    const { pet: _pet, ...publicResult } = result;
+    return publicResult;
+  });
+
+  handle("mood:remove-range-voice", "main", async (_event, request: PetMoodVoiceRemoveRequest) => {
+    const result = await removeLocalPetMoodVoice(request);
+    if (result.ok) emitPetConfigChanged(result.pet);
+    return result;
+  });
+
+  handle("mood:preview-enter-source", "main", async (_event, request: PetMoodEnterPreviewRequest) => {
+    const pet = await getLocalPetDefinition(request.petId);
+    const source = request.source;
+    if (!pet?.modelPath || !source) return { ok: false, message: "当前心情区间没有可预览的进入表现。", state: getPetWindowState() };
+    const available = pet.expressionSources?.some((candidate) => candidate.sourceKind === source.sourceKind && candidate.sourceFileName === source.sourceFileName && String(candidate.runtimeName ?? "") === String(source.runtimeName ?? ""));
+    if (!available) return { ok: false, message: "所选进入表现源已失效，请重新选择。", state: getPetWindowState() };
+    return previewPetWindowSource({ id: pet.id, name: pet.name, modelPath: pet.modelPath, avatar: pet.avatar, definition: toPetRuntimeDefinition(pet) }, source);
+  });
+
+  handle("mood:get-display-state", "pet", async (event) => {
+    const petId = getBoundPetWindowPayload(event.sender)?.id;
+    if (!petId) throw new Error("心情请求未绑定桌宠。");
+    if (!moodWindowSubscriptions.has(event.sender.id)) {
+      const unsubscribe = moodService.subscribe(petId, (state) => {
+        if (!event.sender.isDestroyed()) event.sender.send("mood:display-state-changed", state);
+      });
+      moodWindowSubscriptions.set(event.sender.id, unsubscribe);
+      event.sender.once("destroyed", () => {
+        moodWindowSubscriptions.get(event.sender.id)?.();
+        moodWindowSubscriptions.delete(event.sender.id);
+        moodService.disposeOwner(event.sender.id);
+      });
+    }
+    return moodService.getDisplayState(petId);
+  });
+
+  handle("mood:report-system-event", "pet", async (event, systemEvent: SystemMoodEvent) => {
+    const petId = getBoundPetWindowPayload(event.sender)?.id;
+    if (!petId) throw new Error("心情事件未绑定桌宠。");
+    const result = await moodService.applySystemEvent(petId, systemEvent);
+    return result;
+  });
+
+  handle("mood:save-meter-position", "pet", async (event, position: PetMoodMeterPosition) => {
+    const petId = getBoundPetWindowPayload(event.sender)?.id;
+    if (!petId) throw new Error("心情位置未绑定桌宠。");
+    await moodService.saveMeterPosition(petId, position);
+  });
 
   handle("pet-config:save-basic-info", "main", async (_event, draft: LocalPetBasicInfoDraft) => {
     const result = await saveLocalPetBasicInfo(draft);

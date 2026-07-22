@@ -1,4 +1,5 @@
 import type { MemorySettings } from "./memory";
+import type { PetMoodRangeId } from "../mood";
 
 export interface PetCapabilities {
   chat: boolean;
@@ -113,6 +114,9 @@ export type PetVoiceInferenceDevice = "auto" | "cuda" | "cpu";
 export type PetVoiceInputSilenceSeconds = number;
 export type BuiltInPetUiTheme = "soft" | "rock" | "pixel" | "journal" | "cyber" | "minimal";
 export type PetUiTheme = BuiltInPetUiTheme | "custom";
+export type PetMoodMeterEffectStyle = "halo" | "lightning" | "pixel" | "ink" | "scan" | "minimal";
+export type PetMoodMeterFrame = "soft-pill" | "rounded" | "sharp" | "pixel" | "cut-corner";
+export type PetMoodMeterParticleStyle = "float" | "dust" | "pixel" | "scan" | "minimal";
 export type PetExpressionSelectionMode = "semantic" | "random";
 export type PetExpressionRandomScope = PetExpressionSourceKind | "all";
 
@@ -139,6 +143,7 @@ export const petRadialMenuActionKinds = [
   "passThrough",
   "touch",
   "chat",
+  "mood",
   "danger"
 ] as const;
 
@@ -159,6 +164,37 @@ export interface PetCustomThemeRadialMenu {
   activeBorder?: string;
   center: PetCustomThemeRadialMenuAction;
   actions: Record<PetRadialMenuActionKind, PetCustomThemeRadialMenuAction>;
+}
+
+export interface PetCustomThemeMoodRangeStyle {
+  frameOpacity: number;
+  glowOpacity: number;
+  glowRadius: number;
+  liquidOpacity: number;
+  boundaryWidth: number;
+  waveAmplitude: number;
+  particleOpacity: number;
+  auraOpacity: number;
+  accentOpacity: number;
+  animationSeconds: number;
+}
+
+export interface PetCustomThemeMoodMeter {
+  upColor: string;
+  downColor: string;
+  calmColor?: string;
+  surface?: string;
+  emptyColor?: string;
+  textColor?: string;
+  frameColor?: string;
+  boundaryColor?: string;
+  particleColor?: string;
+  shadow?: string;
+  insetShadow?: string;
+  frame: PetMoodMeterFrame;
+  particleStyle: PetMoodMeterParticleStyle;
+  effectStyle: PetMoodMeterEffectStyle;
+  ranges: Record<PetMoodRangeId, PetCustomThemeMoodRangeStyle>;
 }
 
 export interface PetCustomThemeTokens {
@@ -192,6 +228,7 @@ export interface PetCustomTheme {
   tokens: PetCustomThemeTokens;
   chatDecorations?: PetChatDecorations;
   radialMenu?: PetCustomThemeRadialMenu;
+  moodMeter?: PetCustomThemeMoodMeter;
 }
 
 export interface PetCustomThemeImportResult {
@@ -246,6 +283,22 @@ export interface PetVoiceModelSettings {
   syncTextWithVoice?: boolean;
 }
 
+export interface PetMoodVoiceOverride {
+  referenceAudio: string;
+  referenceText: string;
+}
+
+export interface PetMoodRangeSettings {
+  enterSource?: PetExpressionSourceItem;
+  /** 在进入此心情区间时显示的桌宠专属字幕。 */
+  enterLine?: string;
+  voiceOverride?: PetMoodVoiceOverride;
+}
+
+export interface PetMoodSettings {
+  ranges?: Partial<Record<PetMoodRangeId, PetMoodRangeSettings>>;
+}
+
 export interface PetLive2DSettings {
   format?: "cubism2" | "cubism4-5";
   entryFileName?: string;
@@ -283,6 +336,7 @@ export interface PetDefinition {
   live2dSettings?: PetLive2DSettings;
   uiSettings?: PetUiSettings;
   memorySettings?: MemorySettings;
+  moodSettings?: PetMoodSettings;
   capabilities: PetCapabilities;
   details: PetDetails;
   expressions?: PetExpressionMap;

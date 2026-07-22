@@ -40,6 +40,7 @@ class FakeEmbeddingRuntime:
 class NormalizationHandler(BaseHTTPRequestHandler):
     response_content = json.dumps({"memories": []})
     requests: list[dict] = []
+    response_statuses: list[int] = []
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
@@ -49,10 +50,11 @@ class NormalizationHandler(BaseHTTPRequestHandler):
             "authorization": self.headers.get("Authorization"),
             "body": body,
         })
+        status = self.__class__.response_statuses.pop(0) if self.__class__.response_statuses else 200
         response = json.dumps({
             "choices": [{"message": {"content": self.__class__.response_content}}]
         }).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(response)))
         self.end_headers()
@@ -86,6 +88,7 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
         self.root = Path(self.temp.name)
         NormalizationHandler.requests = []
         NormalizationHandler.response_content = json.dumps({"memories": []})
+        NormalizationHandler.response_statuses = []
         self.embedding_runtime = FakeEmbeddingRuntime()
 
     async def asyncTearDown(self):
@@ -302,6 +305,10 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
             request = NormalizationHandler.requests[0]
             self.assertEqual(request["path"], "/v1/chat/completions")
             self.assertEqual(request["authorization"], "Bearer http-test-secret")
+            self.assertEqual(request["body"]["response_format"]["type"], "json_schema")
+            memory_schema = request["body"]["response_format"]["json_schema"]["schema"]
+            self.assertEqual(memory_schema["required"], ["memories"])
+            self.assertFalse(memory_schema["additionalProperties"])
             system_prompt = request["body"]["messages"][0]["content"]
             self.assertIn("不可信数据", system_prompt)
             self.assertIn("userText 的主要自然语言", system_prompt)
@@ -322,6 +329,8 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("普通回应，不得单独保存", system_prompt)
             self.assertIn("与核心人格有关的变化不能由本轮回复自行确立", system_prompt)
             self.assertIn("共同经历、桌宠具体承诺或已完成的重要行为放入 important_events", system_prompt)
+            self.assertIn("身份、背景和稳定属性→profile", system_prompt)
+            self.assertIn("偏好、习惯、边界和稳定互动方式→behavior", system_prompt)
             conversation = json.loads(request["body"]["messages"][1]["content"])
             self.assertEqual(conversation, {
                 "assistantReply": "我记住了",
@@ -369,6 +378,75 @@ class MemuBackendTests(unittest.IsolatedAsyncioTestCase):
                     "provider": "openai-compatible",
                 })
             self.assertEqual(index.inspect()["indexedCount"], 0)
+        finally:
+            await index.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    async def test_normalization_falls_back_to_json_object_only_for_compatibility_status(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), NormalizationHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        index = self.open_index("pet-a")
+        try:
+            NormalizationHandler.response_statuses = [400, 200]
+            NormalizationHandler.response_content = json.dumps({"memories": []})
+            result = await index.memorize({
+                "requestId": "request-format-fallback",
+                "userText": "这轮没有长期信息",
+                "assistantReply": "好的",
+                "occurredAt": "2026-07-13T00:00:00.000Z",
+                "retainSource": False,
+            }, {
+                "apiKey": "http-test-secret",
+                "baseUrl": f"http://127.0.0.1:{server.server_port}/v1",
+                "chatModel": "model",
+                "provider": "openai-compatible",
+            })
+
+            self.assertEqual(result, {"entries": []})
+            self.assertEqual(len(NormalizationHandler.requests), 2)
+            self.assertEqual(
+                NormalizationHandler.requests[0]["body"]["response_format"]["type"],
+                "json_schema",
+            )
+            self.assertEqual(
+                NormalizationHandler.requests[1]["body"]["response_format"]["type"],
+                "json_object",
+            )
+        finally:
+            await index.close()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    async def test_normalization_does_not_format_fallback_on_authentication_error(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), NormalizationHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        index = self.open_index("pet-a")
+        try:
+            NormalizationHandler.response_statuses = [401]
+            with self.assertRaises(Exception):
+                await index.memorize({
+                    "requestId": "request-auth-failure",
+                    "userText": "我喜欢散步",
+                    "assistantReply": "我记住了",
+                    "occurredAt": "2026-07-13T00:00:00.000Z",
+                    "retainSource": False,
+                }, {
+                    "apiKey": "invalid-secret",
+                    "baseUrl": f"http://127.0.0.1:{server.server_port}/v1",
+                    "chatModel": "model",
+                    "provider": "openai-compatible",
+                })
+
+            self.assertEqual(len(NormalizationHandler.requests), 1)
+            self.assertEqual(
+                NormalizationHandler.requests[0]["body"]["response_format"]["type"],
+                "json_schema",
+            )
         finally:
             await index.close()
             server.shutdown()

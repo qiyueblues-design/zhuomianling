@@ -11,6 +11,7 @@ import type {
   LocalPetDeleteResult,
   LocalPetAvatarCropSaveRequest,
   LocalPetEventSettingsDraft,
+  PetMoodSettings,
   LocalPetExpressionMappingDraft,
   LocalPetPersonaDraft,
   LocalPetUiSettingsDraft,
@@ -22,6 +23,7 @@ import type {
   LocalPetSaveResult,
   PetCustomTheme,
   PetCustomThemeImportResult,
+  PetCustomThemeMoodRangeStyle,
   PetCustomThemeRadialMenu,
   PetCustomThemeRadialMenuAction,
   PetCustomThemeTokens,
@@ -34,6 +36,7 @@ import type {
   PetLineMap,
   PetVoiceModelVersion
 } from "../../../shared/types/pet";
+import { petMoodRanges } from "../../../shared/mood";
 import {
   petChatDecorationIcons,
   petChatDecorationSlots,
@@ -41,7 +44,9 @@ import {
 } from "../../../shared/types/pet";
 import type { MemorySettings } from "../../../shared/types/memory";
 import { normalizeMemorySettings } from "../../../shared/validation/memory";
-import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
+import { normalizeLegacyPetDefinition, normalizePetMoodSettings } from "../../../shared/validation/petDefinition";
+import type { LocalPetMoodSettingsDraft, PetMoodVoiceImportRequest, PetMoodVoiceImportResult, PetMoodVoiceRemoveRequest } from "../../../shared/types/mood";
+import { getMoodVoiceRangePath, getMoodVoiceRootPath } from "../mood/moodPaths";
 import {
   normalizePetDesktopPosition,
   normalizePetDesktopScale
@@ -167,7 +172,7 @@ async function readReferenceAudioDurationSeconds(filePath: string): Promise<numb
   });
 }
 
-async function validateReferenceAudioDuration(filePath: string): Promise<void> {
+export async function validateReferenceAudioDuration(filePath: string): Promise<void> {
   let durationSeconds: number;
 
   try {
@@ -267,6 +272,17 @@ function stripVoiceInputCredentials(pet: PetDefinition, hasCredentials?: boolean
 
 export function toPublicPetDefinition(pet: PetDefinition): PetDefinition {
   return stripVoiceInputCredentials(normalizeLegacyPetDefinition(pet));
+}
+
+export function toPetRuntimeDefinition(pet: PetDefinition): PetDefinition {
+  const publicPet = toPublicPetDefinition(pet);
+  const ranges = Object.fromEntries(
+    Object.entries(publicPet.moodSettings?.ranges ?? {}).map(([id, settings]) => [id, {
+      ...(settings.enterSource ? { enterSource: settings.enterSource } : {}),
+      ...(settings.enterLine ? { enterLine: settings.enterLine } : {})
+    }]).filter(([, settings]) => Object.keys(settings).length)
+  ) as NonNullable<PetDefinition["moodSettings"]>["ranges"];
+  return { ...publicPet, moodSettings: Object.keys(ranges ?? {}).length ? { ranges } : undefined };
 }
 
 export class PetConfigCorruptedError extends Error {
@@ -1237,7 +1253,31 @@ const defaultCustomThemeRadialMenu: PetCustomThemeRadialMenu = {
     passThrough: { surface: "#edf9f6", text: "#287968", border: "rgba(40, 121, 104, 0.24)" },
     touch: { surface: "#fff9e8", text: "#8a6b22", border: "rgba(138, 107, 34, 0.22)" },
     chat: { surface: "#edf5ff", text: "#2768a8", border: "rgba(39, 104, 168, 0.24)" },
+    mood: { surface: "#f3edff", text: "#6741a5", border: "rgba(103, 65, 165, 0.24)" },
     danger: { surface: "#fff3f5", text: "#a64861", border: "rgba(166, 72, 97, 0.26)" }
+  }
+};
+
+const defaultCustomThemeMoodMeter: NonNullable<PetCustomTheme["moodMeter"]> = {
+  upColor: "#ff7ab8",
+  downColor: "#6f7bd9",
+  calmColor: "#8b95a7",
+  surface: "rgba(30, 24, 44, 0.5)",
+  emptyColor: "rgba(255, 255, 255, 0.35)",
+  textColor: "#ffffff",
+  shadow: "0 8px 24px rgba(20, 24, 42, 0.22)",
+  insetShadow: "inset 0 0 7px rgba(255, 255, 255, 0.08)",
+  frame: "soft-pill",
+  particleStyle: "minimal",
+  effectStyle: "halo",
+  ranges: {
+    darkened: { frameOpacity: .82, glowOpacity: .56, glowRadius: 17, liquidOpacity: .9, boundaryWidth: 1.8, waveAmplitude: 3.2, particleOpacity: .82, auraOpacity: .88, accentOpacity: .96, animationSeconds: 1.8 },
+    slump: { frameOpacity: .55, glowOpacity: .32, glowRadius: 11, liquidOpacity: .84, boundaryWidth: 1.35, waveAmplitude: 1.8, particleOpacity: .52, auraOpacity: .5, accentOpacity: .52, animationSeconds: 2.9 },
+    downcast: { frameOpacity: .35, glowOpacity: .18, glowRadius: 7, liquidOpacity: .8, boundaryWidth: 1, waveAmplitude: .9, particleOpacity: .24, auraOpacity: .24, accentOpacity: .2, animationSeconds: 3.8 },
+    calm: { frameOpacity: .22, glowOpacity: .1, glowRadius: 4, liquidOpacity: .55, boundaryWidth: .8, waveAmplitude: .45, particleOpacity: .1, auraOpacity: .08, accentOpacity: .04, animationSeconds: 4.8 },
+    pleasant: { frameOpacity: .35, glowOpacity: .18, glowRadius: 7, liquidOpacity: .8, boundaryWidth: 1, waveAmplitude: .9, particleOpacity: .24, auraOpacity: .24, accentOpacity: .2, animationSeconds: 3.8 },
+    joyful: { frameOpacity: .55, glowOpacity: .32, glowRadius: 11, liquidOpacity: .84, boundaryWidth: 1.35, waveAmplitude: 1.8, particleOpacity: .52, auraOpacity: .5, accentOpacity: .52, animationSeconds: 2.9 },
+    excited: { frameOpacity: .82, glowOpacity: .56, glowRadius: 17, liquidOpacity: .9, boundaryWidth: 1.8, waveAmplitude: 3.2, particleOpacity: .82, auraOpacity: .88, accentOpacity: .96, animationSeconds: 1.8 }
   }
 };
 
@@ -1367,7 +1407,8 @@ function normalizeCustomTheme(rawTheme: unknown, fallbackName: string): PetCusto
       radius: normalizeThemeRadius(rawTokens.radius)
     },
     chatDecorations: normalizeChatDecorations(rawTheme.chatDecorations),
-    radialMenu: normalizeCustomThemeRadialMenu(rawTheme.radialMenu)
+    radialMenu: normalizeCustomThemeRadialMenu(rawTheme.radialMenu),
+    moodMeter: normalizeCustomThemeMoodMeter(rawTheme.moodMeter)
   };
 }
 
@@ -1523,6 +1564,176 @@ export async function saveLocalPetMemorySettings(
     };
     await writePetConfigUnlocked(validPetId, nextPet);
     return { settings: { ...settings }, pet: nextPet };
+  });
+}
+
+function normalizeOptionalThemeToken(tokens: Record<string, unknown>, key: string): string | undefined {
+  const value = tokens[key];
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return isSafeCssValue(text) ? text : undefined;
+}
+
+function normalizeMoodRangeStyle(
+  value: unknown,
+  fallback: PetCustomThemeMoodRangeStyle
+): PetCustomThemeMoodRangeStyle {
+  const raw = isRecord(value) ? value : {};
+  const number = (key: keyof PetCustomThemeMoodRangeStyle, min: number, max: number): number => {
+    const candidate = raw[key];
+    if (typeof candidate !== "number" || !Number.isFinite(candidate)) return fallback[key];
+    return Math.round(Math.min(max, Math.max(min, candidate)) * 100) / 100;
+  };
+  return {
+    frameOpacity: number("frameOpacity", 0, 1),
+    glowOpacity: number("glowOpacity", 0, 1),
+    glowRadius: number("glowRadius", 0, 32),
+    liquidOpacity: number("liquidOpacity", 0, 1),
+    boundaryWidth: number("boundaryWidth", .25, 4),
+    waveAmplitude: number("waveAmplitude", 0, 5),
+    particleOpacity: number("particleOpacity", 0, 1),
+    auraOpacity: number("auraOpacity", 0, 1),
+    accentOpacity: number("accentOpacity", 0, 1),
+    animationSeconds: number("animationSeconds", .6, 12)
+  };
+}
+
+function normalizeCustomThemeMoodMeter(value: unknown): NonNullable<PetCustomTheme["moodMeter"]> {
+  const raw = isRecord(value) ? value : {};
+  const rawRanges = isRecord(raw.ranges) ? raw.ranges : {};
+  const ranges = Object.fromEntries(petMoodRanges.map(({ id }) => [
+    id,
+    normalizeMoodRangeStyle(rawRanges[id], defaultCustomThemeMoodMeter.ranges[id])
+  ])) as NonNullable<PetCustomTheme["moodMeter"]>["ranges"];
+  return {
+    upColor: normalizeThemeToken(raw, "upColor", defaultCustomThemeMoodMeter.upColor),
+    downColor: normalizeThemeToken(raw, "downColor", defaultCustomThemeMoodMeter.downColor),
+    calmColor: normalizeThemeToken(raw, "calmColor", defaultCustomThemeMoodMeter.calmColor ?? defaultCustomThemeTokens.mutedText),
+    surface: normalizeThemeToken(raw, "surface", defaultCustomThemeMoodMeter.surface ?? defaultCustomThemeTokens.petSurface ?? defaultCustomThemeTokens.surface),
+    emptyColor: normalizeThemeToken(raw, "emptyColor", defaultCustomThemeMoodMeter.emptyColor ?? "rgba(255,255,255,.35)"),
+    textColor: normalizeThemeToken(raw, "textColor", defaultCustomThemeMoodMeter.textColor ?? defaultCustomThemeTokens.text),
+    frameColor: normalizeOptionalThemeToken(raw, "frameColor"),
+    boundaryColor: normalizeOptionalThemeToken(raw, "boundaryColor"),
+    particleColor: normalizeOptionalThemeToken(raw, "particleColor"),
+    shadow: normalizeThemeToken(raw, "shadow", defaultCustomThemeMoodMeter.shadow ?? "none"),
+    insetShadow: normalizeThemeToken(raw, "insetShadow", defaultCustomThemeMoodMeter.insetShadow ?? "none"),
+    frame: ["soft-pill","rounded","sharp","pixel","cut-corner"].includes(String(raw.frame))
+      ? raw.frame as NonNullable<PetCustomTheme["moodMeter"]>["frame"] : defaultCustomThemeMoodMeter.frame,
+    particleStyle: ["float","dust","pixel","scan","minimal"].includes(String(raw.particleStyle))
+      ? raw.particleStyle as NonNullable<PetCustomTheme["moodMeter"]>["particleStyle"] : defaultCustomThemeMoodMeter.particleStyle,
+    effectStyle: ["halo","lightning","pixel","ink","scan","minimal"].includes(String(raw.effectStyle))
+      ? raw.effectStyle as NonNullable<PetCustomTheme["moodMeter"]>["effectStyle"] : defaultCustomThemeMoodMeter.effectStyle,
+    ranges
+  };
+}
+
+export async function saveLocalPetMoodSettings(
+  draft: LocalPetMoodSettingsDraft
+): Promise<LocalPetSaveResult> {
+  const petId = assertValidPetId(draft.petId);
+  const settings = normalizePetMoodSettings(draft.settings) ?? {};
+  return withPetWriteLock(petId, async () => {
+    const pet = await readPetConfigUnlocked(getPetConfigPath(petId), { forMutation: true });
+    if (!pet) return { ok: false, message: "请先保存基础信息，再配置心情。" };
+    const availableSources = new Set((pet.expressionSources ?? []).map((source) =>
+      `${source.sourceKind}:${source.sourceFileName}:${String(source.runtimeName ?? "")}`));
+    for (const range of Object.values(settings.ranges ?? {})) {
+      const source = range.enterSource;
+      if (source && !availableSources.has(`${source.sourceKind}:${source.sourceFileName}:${String(source.runtimeName ?? "")}`)) {
+        return { ok: false, message: "所选心情表现源已不存在，请重新选择。" };
+      }
+    }
+    const nextPet: PetDefinition = { ...pet, moodSettings: settings, isLocal: true };
+    await writePetConfigUnlocked(petId, nextPet);
+    return { ok: true, message: "心情配置已保存。", pet: nextPet };
+  });
+}
+
+export async function importLocalPetMoodVoice(request: PetMoodVoiceImportRequest): Promise<PetMoodVoiceImportResult & { pet?: PetDefinition }> {
+  const petId = assertValidPetId(request.petId);
+  const referenceText = request.referenceText.trim();
+  if (referenceText.length > 500) return { ok: false, message: "请填写 500 字以内的参考文本。" };
+  const picked = await dialog.showOpenDialog({ title: "选择心情参考音频", properties: ["openFile"], filters: [{ name: "音频", extensions: ["wav","mp3","flac","ogg","m4a"] }] });
+  if (picked.canceled || !picked.filePaths[0]) return { ok: false, canceled: true, message: "已取消导入。" };
+  const sourcePath = picked.filePaths[0];
+  try { await validateReferenceAudioDuration(sourcePath); } catch (error) { return { ok: false, message: error instanceof Error ? error.message : "参考音频无效。" }; }
+  return withPetWriteLock(petId, async () => {
+    const pet = await readPetConfigUnlocked(getPetConfigPath(petId), { forMutation: true });
+    if (!pet) return { ok: false, message: "桌宠不存在。" };
+    const extension = path.extname(sourcePath).toLowerCase();
+    const fileName = `reference${extension}`;
+    const voiceRoot = getMoodVoiceRootPath(petId);
+    const rangePath = getMoodVoiceRangePath(petId, request.rangeId);
+    const stagingPath = path.join(voiceRoot, `.staging-${request.rangeId}-${randomUUID()}`);
+    const backupPath = path.join(voiceRoot, `.backup-${request.rangeId}-${randomUUID()}`);
+    await fs.mkdir(voiceRoot, { recursive: true });
+    const realPet = await fs.realpath(getPetDirectoryPath(petId));
+    const realVoiceRoot = await fs.realpath(voiceRoot);
+    assertContainedPath(realPet, realVoiceRoot, "心情语音目录越界。");
+    await fs.mkdir(stagingPath);
+    try {
+      const stagedFile = path.join(stagingPath, fileName);
+      await fs.copyFile(sourcePath, stagedFile);
+      await validateReferenceAudioDuration(stagedFile);
+      const realStaged = await fs.realpath(stagedFile);
+      assertContainedPath(await fs.realpath(stagingPath), realStaged, "心情语音文件越界。");
+      const oldExists = await fs.access(rangePath).then(() => true, () => false);
+      if (oldExists) {
+        const oldStat = await fs.lstat(rangePath);
+        if (oldStat.isSymbolicLink()) throw new Error("心情语音目录不能是符号链接或联接。");
+        assertContainedPath(realVoiceRoot, await fs.realpath(rangePath), "心情语音目录越界。");
+        await fs.rename(rangePath, backupPath);
+      }
+      await fs.rename(stagingPath, rangePath);
+      let nextPet: PetDefinition | undefined;
+      if (referenceText) {
+        nextPet = {
+          ...pet,
+          moodSettings: { ranges: { ...(pet.moodSettings?.ranges ?? {}), [request.rangeId]: {
+            ...(pet.moodSettings?.ranges?.[request.rangeId] ?? {}),
+            voiceOverride: { referenceAudio: fileName, referenceText }
+          } } },
+          isLocal: true
+        };
+        try { await writePetConfigUnlocked(petId, nextPet); }
+        catch (error) {
+          await fs.rm(rangePath, { recursive: true, force: true });
+          if (oldExists) await fs.rename(backupPath, rangePath);
+          throw error;
+        }
+      }
+      await fs.rm(backupPath, { recursive: true, force: true });
+      return referenceText
+        ? { ok: true, message: "心情参考音频已导入。", fileName, persisted: true, pet: nextPet }
+        : { ok: true, message: "参考音频已导入，请填写音频中实际说出的内容并保存。", fileName, persisted: false };
+    } finally { await fs.rm(stagingPath, { recursive: true, force: true }).catch(() => undefined); }
+  });
+}
+
+export async function removeLocalPetMoodVoice(request: PetMoodVoiceRemoveRequest): Promise<LocalPetSaveResult> {
+  const petId = assertValidPetId(request.petId);
+  return withPetWriteLock(petId, async () => {
+    const pet = await readPetConfigUnlocked(getPetConfigPath(petId), { forMutation: true });
+    if (!pet) return { ok: false, message: "桌宠不存在。" };
+    const ranges = { ...(pet.moodSettings?.ranges ?? {}) };
+    const current = ranges[request.rangeId];
+    if (current) {
+      const { voiceOverride: _removed, ...remaining } = current;
+      if (Object.keys(remaining).length) ranges[request.rangeId] = remaining;
+      else delete ranges[request.rangeId];
+    }
+    const nextPet = { ...pet, moodSettings: { ranges }, isLocal: true };
+    await writePetConfigUnlocked(petId, nextPet);
+    const rangePath = getMoodVoiceRangePath(petId, request.rangeId);
+    const exists = await fs.access(rangePath).then(() => true, () => false);
+    if (exists) {
+      const stat = await fs.lstat(rangePath);
+      if (stat.isSymbolicLink()) throw new Error("拒绝删除符号链接或联接形式的心情语音目录。");
+      const voiceRoot = await fs.realpath(getMoodVoiceRootPath(petId));
+      assertContainedPath(voiceRoot, await fs.realpath(rangePath), "心情语音目录越界。");
+      await fs.rm(rangePath, { recursive: true, force: true });
+    }
+    return { ok: true, message: "心情参考音频已移除。", pet: nextPet };
   });
 }
 

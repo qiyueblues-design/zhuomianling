@@ -645,7 +645,13 @@ export function MemoryBook({ pet, initialState, onStateChange, onBack }: MemoryB
   }, []);
 
   useLayoutEffect(() => {
-    if (route.section === "reading" && !pageLoading) pageHeadingRef.current?.focus({ preventScroll: true });
+    if (route.section !== "reading" || pageLoading) return;
+    const activeElement = document.activeElement;
+    const editingFilter = activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement ||
+      activeElement instanceof HTMLSelectElement ||
+      activeElement?.getAttribute("contenteditable") === "true";
+    if (!editingFilter) pageHeadingRef.current?.focus({ preventScroll: true });
   }, [pageLoading, route.pageIndex, route.section]);
 
   useLayoutEffect(() => {

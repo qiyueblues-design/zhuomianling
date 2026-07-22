@@ -5,6 +5,7 @@ import {
   parseFinalAiReply,
   type NormalizedAiReply
 } from "../../../shared/aiReply";
+import type { AiReplyContract } from "../../../shared/aiContract";
 
 export interface AiStreamSafeSnapshot {
   changed: boolean;
@@ -167,13 +168,20 @@ function findLastStreamingStringField(value: string, field: "reply" | "voiceText
   return lastValue || undefined;
 }
 
-function projectSafeStreamingContent(rawContent: string): {
+function projectSafeStreamingContent(rawContent: string, contract?: AiReplyContract): {
   reply: string;
   voiceText?: string;
 } {
-  const visible = stripStreamingMarkdownFence(stripReasoningForStreaming(rawContent));
+  const reasoningSafe = stripReasoningForStreaming(rawContent);
+  const visible = contract?.tier === "text"
+    ? reasoningSafe.trim()
+    : stripStreamingMarkdownFence(reasoningSafe);
   if (!visible) {
     return { reply: "" };
+  }
+
+  if (contract?.tier === "text") {
+    return { reply: visible };
   }
 
   const reply = findLastStreamingStringField(visible, "reply");
@@ -183,7 +191,7 @@ function projectSafeStreamingContent(rawContent: string): {
     return { reply: reply ?? "", voiceText };
   }
 
-  if (/^\s*[{[]/.test(visible) || /"(?:reply|emotion|voiceText)"\s*:/.test(visible)) {
+  if (/^\s*[{[]/.test(visible) || /"(?:reply|emotion|voiceText|moodDelta)"\s*:/.test(visible)) {
     return { reply: "" };
   }
 
@@ -203,6 +211,8 @@ export class AiStreamNormalizer {
   private reply = "";
   private voiceText = "";
   private replyRevisionDetected = false;
+
+  constructor(private readonly contract?: AiReplyContract) {}
 
   append(delta: string): AiStreamSafeSnapshot {
     if (!delta) {
@@ -224,7 +234,7 @@ export class AiStreamNormalizer {
     }
 
     this.rawContent += delta;
-    const projected = projectSafeStreamingContent(this.rawContent);
+    const projected = projectSafeStreamingContent(this.rawContent, this.contract);
     const nextReply =
       this.reply && !projected.reply.startsWith(this.reply)
         ? this.reply
@@ -261,7 +271,7 @@ export class AiStreamNormalizer {
   }
 
   finalize(): NormalizedAiReply {
-    const parsed = parseFinalAiReply(this.rawContent);
+    const parsed = parseFinalAiReply(this.rawContent, this.contract);
 
     if (
       this.replyRevisionDetected &&

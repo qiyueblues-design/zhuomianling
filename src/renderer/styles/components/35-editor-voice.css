@@ -513,3 +513,555 @@
 .settingsSwitch.disabled span {
   background: #d8dee7;
 }
+
+/* Mood editor: scoped to this panel so every app theme can keep owning its materials. */
+.moodPanel {
+  gap: 18px;
+}
+
+.moodHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 4px 2px 2px;
+}
+
+.moodHeroTitle {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.moodHeroIcon {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--ui-accent) 22%, var(--ui-line));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ui-accent) 10%, var(--ui-glass-strong));
+  color: var(--ui-accent);
+}
+
+.moodHero h2,
+.moodRangeEditor h3,
+.moodSettingBlock h4 {
+  margin: 0;
+  color: var(--ui-ink);
+}
+
+.moodHero h2 {
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.moodHeroTitle p {
+  max-width: 640px;
+  margin: 5px 0 0;
+  color: var(--ui-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.moodCurrent {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: end;
+  column-gap: 10px;
+  flex: 0 0 auto;
+  border-left: 1px solid var(--ui-line);
+  padding: 2px 12px 2px 24px;
+}
+
+.moodCurrent > span {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.moodCurrent strong {
+  color: var(--ui-ink);
+  font-size: 36px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.moodCurrent strong.loading {
+  min-width: 46px;
+  letter-spacing: 0;
+}
+
+.moodCurrent em {
+  margin-bottom: 3px;
+  color: var(--ui-accent);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.moodOverview {
+  border: 1px solid var(--ui-line);
+  border-radius: 16px;
+  padding: 16px 18px 14px;
+  background: color-mix(in srgb, var(--ui-glass-strong) 90%, transparent);
+}
+
+.moodOverviewMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.moodOverviewMeta > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.moodOverviewMeta strong {
+  color: var(--ui-ink);
+  font-size: 14px;
+}
+
+.moodOverviewMeta span {
+  color: var(--ui-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.moodScale {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(72px, 1fr));
+  min-width: 630px;
+}
+
+.moodScaleTrack {
+  position: absolute;
+  top: 8px;
+  right: calc(100% / 14);
+  left: calc(100% / 14);
+  height: 2px;
+  border-radius: 999px;
+  background: var(--ui-line);
+  pointer-events: none;
+}
+
+.moodValueMarker {
+  position: absolute;
+  top: -5px;
+  left: var(--mood-position);
+  width: 3px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 12%, transparent);
+  transform: translateX(-50%);
+  transition: left 240ms ease-out;
+}
+
+.moodValueMarker::before {
+  content: attr(data-value);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  min-width: 24px;
+  border-radius: 6px;
+  padding: 2px 5px;
+  background: var(--ui-accent);
+  color: #fff;
+  font-size: 9px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+.moodValueMarker.loading {
+  display: none;
+}
+
+.moodScaleOption {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  min-height: 58px;
+  justify-items: center;
+  align-content: start;
+  border: 0;
+  border-radius: 12px;
+  padding: 0 5px 6px;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 120ms ease;
+}
+
+.moodScaleOption:hover {
+  background: color-mix(in srgb, var(--ui-accent) 7%, transparent);
+  color: var(--ui-ink);
+}
+
+.moodScaleOption:active {
+  transform: scale(0.98);
+}
+
+.moodScaleOption:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.moodScaleDot {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 4px solid var(--ui-glass-strong);
+  border-radius: 50%;
+  background: var(--ui-line);
+  box-shadow: 0 0 0 1px var(--ui-line);
+}
+
+.moodScaleOption.configured .moodScaleDot {
+  background: color-mix(in srgb, var(--ui-accent) 54%, var(--ui-glass-strong));
+}
+
+.moodScaleOption.selected .moodScaleDot {
+  background: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 26%, transparent);
+}
+
+.moodScaleOption strong {
+  margin-top: 8px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.moodScaleOption small {
+  margin-top: 2px;
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.moodScaleOption.selected {
+  color: var(--ui-ink);
+}
+
+.moodScaleOption.selected strong {
+  color: var(--ui-accent);
+}
+
+.moodRangeEditor {
+  border: 1px solid var(--ui-line);
+  border-radius: 16px;
+  background: var(--ui-glass-strong);
+}
+
+.moodRangeEditorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--ui-line);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 18px;
+  background: color-mix(in srgb, var(--ui-accent) 5%, var(--ui-glass-strong));
+}
+
+.moodRangeEditorHeader > div:first-child {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 10px;
+}
+
+.moodRangeEditorHeader > div:first-child > span {
+  grid-column: 1 / -1;
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.moodRangeEditorHeader h3 {
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+
+.moodRangeEditorHeader p {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.moodRangeBadges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.moodRangeBadges span {
+  border: 1px solid var(--ui-line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--ui-glass-strong);
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.moodRangeBadges span.ready {
+  border-color: color-mix(in srgb, var(--ui-accent) 28%, var(--ui-line));
+  background: color-mix(in srgb, var(--ui-accent) 8%, var(--ui-glass-strong));
+  color: var(--ui-accent);
+}
+
+.moodRangeEditorBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.moodSettingBlock {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 14px;
+  padding: 20px;
+}
+
+.moodSettingBlock + .moodSettingBlock {
+  border-left: 1px solid var(--ui-line);
+}
+
+.moodSettingHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.moodSettingNumber {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ui-accent) 9%, var(--ui-glass-strong));
+  color: var(--ui-accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+}
+
+.moodSettingBlock h4 {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.moodSettingHeading p {
+  margin: 3px 0 0;
+  color: var(--ui-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.moodFieldLabel {
+  display: grid;
+  gap: 7px;
+  color: var(--ui-ink);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.moodPanel .moodTextField {
+  width: 100%;
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 14px;
+  outline: 0;
+  color: var(--ui-ink);
+  font: inherit;
+  line-height: 1.5;
+  background: var(--ui-glass-strong);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.moodPanel .moodTextField::placeholder {
+  color: var(--ui-muted);
+  opacity: 0.72;
+}
+
+.moodPanel .moodTextField:focus {
+  border-color: color-mix(in srgb, var(--ui-accent) 56%, var(--ui-line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent);
+}
+
+.moodPanel .moodReferenceText {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.moodPreviewIcon {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 38px;
+  height: 38px;
+  color: var(--ui-accent-ink);
+}
+
+.moodPreviewIcon:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.moodEnterSettingBlock .moodSettingHeading {
+  padding-right: 46px;
+}
+
+.moodPreviewIcon svg,
+.moodConnectionHint svg {
+  flex: 0 0 auto;
+}
+
+.moodEmptyHint {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.moodVoiceFile {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  min-height: 58px;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--ui-glass-strong) 84%, transparent);
+}
+
+.moodVoiceFile.ready {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--ui-accent) 22%, var(--ui-line));
+}
+
+.moodVoiceFile > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ui-accent) 9%, var(--ui-glass-strong));
+  color: var(--ui-accent);
+}
+
+.moodVoiceFile > div:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.moodVoiceFile strong {
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moodVoiceFile small {
+  color: var(--ui-muted);
+  font-size: 10px;
+}
+
+.moodVoiceActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.moodVoiceActions .secondaryAction {
+  min-height: 36px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.moodVoiceActions .iconButton {
+  width: 36px;
+  height: 36px;
+}
+
+.moodConnectionHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .moodOverview {
+    overflow-x: auto;
+  }
+
+  .moodOverviewMeta {
+    position: sticky;
+    left: 0;
+  }
+
+  .moodRangeEditorBody {
+    grid-template-columns: 1fr;
+  }
+
+  .moodSettingBlock + .moodSettingBlock {
+    border-top: 1px solid var(--ui-line);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 680px) {
+  .moodHero,
+  .moodRangeEditorHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .moodCurrent {
+    width: 100%;
+    box-sizing: border-box;
+    border-top: 1px solid var(--ui-line);
+    border-left: 0;
+    padding: 12px 0 0;
+  }
+
+  .moodRangeBadges {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .moodValueMarker,
+  .moodScaleOption {
+    transition: none;
+  }
+}

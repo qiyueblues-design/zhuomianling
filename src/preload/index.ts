@@ -68,6 +68,7 @@ import type {
   MemoryUpdateRequest
 } from "../shared/types/memory";
 import type { StartupRendererStage } from "../shared/types/startup";
+import type { LocalPetMoodSettingsDraft, PetMoodEditorState, PetMoodEnterPreviewRequest, PetMoodVoiceImportRequest, PetMoodVoiceImportResult, PetMoodVoiceRemoveRequest } from "../shared/types/mood";
 
 const startupTimingEnabled = process.env.ZHUOMIANLING_STARTUP_TIMING === "1";
 
@@ -139,6 +140,13 @@ const desktopPetApi = {
         ipcRenderer.off("pet-config:changed", listener);
       };
     }
+  },
+  mood: {
+    getEditorState: (petId: string) => ipcRenderer.invoke("mood:get-editor-state", petId) as Promise<PetMoodEditorState>,
+    saveSettings: (draft: LocalPetMoodSettingsDraft) => ipcRenderer.invoke("mood:save-settings", draft) as Promise<LocalPetSaveResult>,
+    importRangeVoice: (request: PetMoodVoiceImportRequest) => ipcRenderer.invoke("mood:import-range-voice", request) as Promise<PetMoodVoiceImportResult>,
+    removeRangeVoice: (request: PetMoodVoiceRemoveRequest) => ipcRenderer.invoke("mood:remove-range-voice", request) as Promise<LocalPetSaveResult>,
+    previewEnterSource: (request: PetMoodEnterPreviewRequest) => ipcRenderer.invoke("mood:preview-enter-source", request) as Promise<PetWindowSourcePreviewResult>
   },
   live2dImport: {
     selectFolder: () =>

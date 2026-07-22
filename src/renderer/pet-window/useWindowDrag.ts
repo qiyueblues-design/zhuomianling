@@ -8,6 +8,7 @@ interface UseWindowDragOptions {
   clickThrough: boolean;
   touchEnabled: boolean;
   onModelDragFeedback: () => void;
+  onModelDragCompleted?: () => void;
 }
 
 interface ChatPanelPosition {
@@ -101,6 +102,7 @@ export function useWindowDrag({
   clickThrough,
   touchEnabled,
   onModelDragFeedback
+  ,onModelDragCompleted
 }: UseWindowDragOptions): UseWindowDragResult {
   const [chatPanelPosition, setChatPanelPosition] = useState<ChatPanelPosition>({
     left: chatPanelEdgePadding,
@@ -330,6 +332,7 @@ export function useWindowDrag({
         }
         return window.desktopPet?.petWindow.endDrag();
       })
+      .then(() => onModelDragCompleted?.())
       .catch(() => undefined);
   };
 

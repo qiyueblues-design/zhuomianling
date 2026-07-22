@@ -4,8 +4,28 @@ import {
   maxAiReplyTextCharacters
 } from "../../../shared/aiReply";
 import { AiStreamNormalizer } from "./aiStreamNormalizer";
+import { createAiReplyContract } from "../../../shared/aiContract";
 
 describe("AiStreamNormalizer", () => {
+  it("streams voiceText before reply for low-latency cross-language TTS", () => {
+    const normalizer = new AiStreamNormalizer(
+      createAiReplyContract({ tier: "full", voiceTextRequired: true })
+    );
+
+    expect(normalizer.append('{"voiceText":"おはよう。')).toMatchObject({
+      changed: true,
+      reply: "",
+      voiceText: "おはよう。",
+      voiceTextDelta: "おはよう。"
+    });
+    expect(normalizer.append('","reply":"早上好')).toMatchObject({
+      changed: true,
+      reply: "早上好",
+      replyDelta: "早上好",
+      voiceText: "おはよう。"
+    });
+  });
+
   it("hides a reasoning tag split across arbitrary chunks", () => {
     const normalizer = new AiStreamNormalizer();
 
@@ -77,5 +97,26 @@ describe("AiStreamNormalizer", () => {
       reply: ""
     });
     expect(rawBudget.append("overflowing-tail")).toMatchObject({ overflowed: true });
+  });
+
+  it("allows JSON-shaped visible content only in text compatibility mode", () => {
+    const normalizer = new AiStreamNormalizer(createAiReplyContract({ tier: "text" }));
+    expect(normalizer.append('{"example":')).toMatchObject({
+      reply: '{"example":',
+      changed: true
+    });
+    expect(normalizer.append("true}")).toMatchObject({ reply: '{"example":true}' });
+    expect(normalizer.finalize()).toMatchObject({
+      reply: '{"example":true}',
+      quality: "plain-text",
+      completeForMemory: true
+    });
+
+    const fenced = new AiStreamNormalizer(createAiReplyContract({ tier: "text" }));
+    fenced.append("<think>隐藏</think>```json\n{\"reply\":\"字面正文\"}\n```");
+    expect(fenced.finalize()).toMatchObject({
+      reply: "```json\n{\"reply\":\"字面正文\"}\n```",
+      quality: "plain-text"
+    });
   });
 });

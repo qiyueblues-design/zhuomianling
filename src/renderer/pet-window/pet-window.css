@@ -2334,3 +2334,360 @@ textarea {
     -webkit-backdrop-filter: none;
   }
 }
+.petRadialButton.mood {
+  background: radial-gradient(circle at 34% 21%, rgba(255,255,255,.8), transparent 31%), linear-gradient(145deg, rgba(203,181,255,.94), rgba(112,76,190,.94));
+}
+.petRadialMenu.variant-rock .petRadialButton.mood { background:linear-gradient(145deg,#ffcf33,#8d3c16 58%,#120905); }
+.petRadialMenu.variant-pixel .petRadialButton.mood { background:#a855f7; }
+.petRadialMenu.variant-journal .petRadialButton.mood { background:#e9d5ff; }
+.petRadialMenu.variant-cyber .petRadialButton.mood { background:linear-gradient(145deg,rgba(217,70,239,.34),rgba(34,211,238,.22)); }
+.petRadialMenu.variant-minimal .petRadialButton.mood { background:#fff; }
+.petRadialMenu.variant-custom .petRadialButton.mood { border-color:var(--custom-menu-mood-border); background:var(--custom-menu-mood-surface); color:var(--custom-menu-mood-text); }
+
+.moodMeter {
+  position: absolute;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 32px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  --mood-up: #ff8ebc;
+  --mood-down: #7486dc;
+  --mood-calm: #a7afbd;
+  --mood-active: var(--mood-calm);
+  --mood-empty: rgba(255,255,255,.35);
+  --mood-surface: color-mix(in srgb, var(--mood-empty) 88%, var(--mood-active));
+  --mood-text: #fff;
+  --mood-frame-color: var(--mood-active);
+  --mood-boundary-color: color-mix(in srgb, var(--mood-active) 88%, white);
+  --mood-particle-color: color-mix(in srgb, var(--mood-active) 82%, white);
+  --mood-custom-shadow: 0 8px 24px rgba(20,24,42,.22);
+  --mood-custom-inset-shadow: inset 0 0 7px color-mix(in srgb, var(--mood-active) 12%, transparent);
+  --mood-frame-alpha: 34%;
+  --mood-glow-alpha: 18%;
+  --mood-glow-size: 7px;
+  --mood-liquid-alpha: 84%;
+  --mood-line-width: 1.15;
+  --mood-line-speed: 3.4s;
+  --mood-particle-opacity: .22;
+  --mood-particle-travel: -1px;
+  --mood-aura-opacity: .16;
+  --mood-accent-opacity: .1;
+  --mood-effect-speed: 4.8s;
+  isolation: isolate;
+}
+.moodMeter:active { cursor: grabbing; }
+.moodMeter.direction-up { --mood-active: var(--mood-up); --mood-particle-travel: -3px; }
+.moodMeter.direction-down { --mood-active: var(--mood-down); --mood-particle-travel: 2px; }
+.moodMeter.direction-calm { --mood-active: var(--mood-calm); --mood-particle-travel: -1px; }
+.moodMeter::before,
+.moodMeter::after {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+}
+.moodMeter::before {
+  inset: -8px;
+  border: 1px solid color-mix(in srgb, var(--mood-active) 54%, transparent);
+  border-radius: 22px;
+  opacity: var(--mood-aura-opacity);
+  filter: drop-shadow(0 0 5px var(--mood-active));
+  animation: moodAuraOrbit var(--mood-effect-speed) ease-in-out infinite;
+}
+.moodMeter::after {
+  inset: -12px -10px;
+  opacity: var(--mood-accent-opacity);
+  background:
+    radial-gradient(circle at 16% 10%, color-mix(in srgb, var(--mood-active) 88%, white) 0 1px, transparent 2px),
+    radial-gradient(circle at 88% 30%, var(--mood-active) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 8% 76%, var(--mood-active) 0 1px, transparent 2px),
+    radial-gradient(circle at 86% 94%, color-mix(in srgb, var(--mood-active) 80%, white) 0 1px, transparent 2px);
+  filter: drop-shadow(0 0 4px var(--mood-active));
+  animation: moodAccentDrift calc(var(--mood-effect-speed) * .86) ease-in-out infinite alternate;
+}
+
+.moodCapsule {
+  position: relative;
+  width: 32px;
+  height: 100px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--mood-frame-color) var(--mood-frame-alpha), transparent);
+  border-radius: 16px;
+  background: var(--mood-surface);
+  box-shadow:
+    0 0 var(--mood-glow-size) color-mix(in srgb, var(--mood-active) var(--mood-glow-alpha), transparent),
+    var(--mood-custom-shadow),
+    var(--mood-custom-inset-shadow);
+  transition: border-color 240ms ease, box-shadow 240ms ease, background-color 240ms ease;
+}
+.moodCapsule svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.moodUnfilled { fill: var(--mood-empty); }
+.moodFilled { fill: color-mix(in srgb, var(--mood-active) var(--mood-liquid-alpha), transparent); }
+.moodBoundary {
+  fill: none;
+  stroke: var(--mood-boundary-color);
+  stroke-width: var(--mood-line-width);
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--mood-active) 76%, transparent));
+  animation: moodBoundaryBreath var(--mood-line-speed) ease-in-out infinite;
+}
+.moodCapsule strong {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  color: var(--mood-text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0,0,0,.7);
+}
+.moodCapsule i {
+  position: absolute;
+  top: var(--mood-boundary);
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--mood-particle-color);
+  box-shadow: 0 0 4px var(--mood-particle-color);
+  opacity: var(--mood-particle-opacity);
+  animation: moodParticle var(--mood-line-speed) ease-in-out infinite;
+}
+.moodCapsule i:nth-of-type(1) { left: 7px; }
+.moodCapsule i:nth-of-type(2) { left: 16px; animation-delay: .35s; }
+.moodCapsule i:nth-of-type(3) { left: 24px; animation-delay: .7s; }
+
+/* 距离平静区越远，光效、液面线和粒子逐级增强；颜色只表达方向。 */
+.moodMeter.range-calm { --mood-frame-alpha: 22%; --mood-glow-alpha: 10%; --mood-glow-size: 4px; --mood-liquid-alpha: 55%; --mood-line-width: .8; --mood-line-speed: 4.8s; --mood-particle-opacity: .1; --mood-aura-opacity: .08; --mood-accent-opacity: .04; --mood-effect-speed: 6.8s; }
+.moodMeter.range-downcast,
+.moodMeter.range-pleasant { --mood-frame-alpha: 35%; --mood-glow-alpha: 18%; --mood-glow-size: 7px; --mood-liquid-alpha: 80%; --mood-line-width: 1; --mood-line-speed: 3.8s; --mood-particle-opacity: .24; --mood-aura-opacity: .24; --mood-accent-opacity: .2; --mood-effect-speed: 5.2s; }
+.moodMeter.range-slump,
+.moodMeter.range-joyful { --mood-frame-alpha: 55%; --mood-glow-alpha: 32%; --mood-glow-size: 11px; --mood-liquid-alpha: 84%; --mood-line-width: 1.35; --mood-line-speed: 2.9s; --mood-particle-opacity: .52; --mood-aura-opacity: .5; --mood-accent-opacity: .52; --mood-effect-speed: 3.4s; }
+.moodMeter.range-darkened,
+.moodMeter.range-excited { --mood-frame-alpha: 82%; --mood-glow-alpha: 56%; --mood-glow-size: 17px; --mood-liquid-alpha: 90%; --mood-line-width: 1.8; --mood-line-speed: 1.9s; --mood-particle-opacity: .82; --mood-aura-opacity: .88; --mood-accent-opacity: .96; --mood-effect-speed: 1.8s; }
+.moodMeter:not(.theme-custom).range-darkened .moodCapsule {
+  border-color: color-mix(in srgb, var(--mood-down) 78%, #0b1024);
+  background: color-mix(in srgb, var(--mood-empty) 68%, #080b18);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--mood-down) 48%, #070a16), 0 10px 28px rgba(2,4,12,.56), inset 0 0 9px color-mix(in srgb, var(--mood-down) 22%, transparent);
+}
+.moodMeter:not(.theme-custom).range-darkened .moodBoundary { stroke-linecap: square; filter: drop-shadow(0 0 3px var(--mood-down)); }
+.moodMeter:not(.theme-custom).range-slump .moodCapsule { animation: moodFrameBreath 4.6s ease-in-out infinite; }
+.moodMeter:not(.theme-custom).range-excited .moodCapsule { box-shadow: 0 0 18px color-mix(in srgb, var(--mood-up) 64%, transparent), 0 8px 26px color-mix(in srgb, var(--mood-up) 26%, transparent), inset 0 0 9px color-mix(in srgb, var(--mood-up) 24%, transparent); }
+
+.moodMeter.frame-rounded .moodCapsule { border-radius: 10px; }
+.moodMeter.frame-sharp .moodCapsule { border-radius: 0; }
+.moodMeter.frame-pixel .moodCapsule { border-radius: 0; border-width: 2px; }
+.moodMeter.frame-cut-corner .moodCapsule { border-radius: 0; clip-path: polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); }
+
+.moodMeter.theme-soft { --mood-up: #ff8ebc; --mood-down: #7486dc; --mood-calm: #a7afbd; }
+.moodMeter.theme-soft::before {
+  inset: -10px;
+  border: 0;
+  border-radius: 26px;
+  background:
+    radial-gradient(ellipse at 25% 18%, color-mix(in srgb, var(--mood-active) 58%, white) 0 12%, transparent 48%),
+    radial-gradient(ellipse at 78% 76%, color-mix(in srgb, var(--mood-active) 72%, transparent) 0 10%, transparent 52%);
+  filter: blur(5px) drop-shadow(0 0 8px var(--mood-active));
+  animation-name: moodSoftBloom;
+}
+.moodMeter.theme-soft::after { filter: blur(.35px) drop-shadow(0 0 5px var(--mood-active)); }
+.moodMeter.theme-rock { --mood-up: #ffb326; --mood-down: #7b465d; --mood-calm: #a29b8d; --mood-empty: rgba(20,20,22,.72); --mood-text: #fff7d1; }
+.moodMeter.theme-rock::before {
+  inset: -7px -9px;
+  border: 0;
+  border-radius: 0;
+  background: conic-gradient(from 14deg, transparent 0 12%, var(--mood-active) 13% 14%, transparent 15% 37%, color-mix(in srgb, var(--mood-active) 68%, #ffd447) 38% 40%, transparent 41% 72%, var(--mood-active) 73% 75%, transparent 76%);
+  clip-path: polygon(40% 0,57% 7%,72% 0,78% 10%,100% 17%,89% 29%,100% 42%,92% 52%,100% 70%,85% 76%,91% 100%,65% 91%,52% 100%,38% 92%,12% 100%,18% 78%,0 66%,10% 52%,0 36%,13% 25%,0 12%,28% 10%);
+  filter: drop-shadow(0 0 4px var(--mood-active));
+  animation-name: moodRockPulse;
+}
+.moodMeter.theme-rock::after {
+  background: var(--mood-active);
+  clip-path: polygon(9% 3%,28% 19%,18% 21%,34% 39%,22% 36%,13% 61%,29% 48%,22% 82%,39% 63%,32% 97%,52% 72%,47% 54%,64% 62%,57% 40%,78% 49%,64% 28%,91% 18%,69% 16%,83% 0,53% 12%,41% 2%,34% 20%);
+  filter: drop-shadow(0 0 4px var(--mood-active)) drop-shadow(0 0 9px var(--mood-active));
+  animation-name: moodElectricFlicker;
+}
+.moodMeter.theme-pixel { --mood-up: #f6c945; --mood-down: #7564d8; --mood-calm: #94a3b8; --mood-empty: #1e293b; --mood-text: #fff; }
+.moodMeter.theme-pixel .moodCapsule { border-radius: 0; border-width: 2px; }
+.moodMeter.theme-pixel::before {
+  inset: -6px;
+  border: 3px dotted var(--mood-active);
+  border-radius: 0;
+  filter: drop-shadow(4px 4px 0 color-mix(in srgb, var(--mood-active) 28%, transparent));
+  animation: moodPixelStep var(--mood-effect-speed) steps(4, end) infinite;
+}
+.moodMeter.theme-pixel::after {
+  inset: -9px;
+  border-radius: 0;
+  background:
+    linear-gradient(var(--mood-active) 0 0) 0 10% / 3px 3px no-repeat,
+    linear-gradient(var(--mood-active) 0 0) 100% 34% / 4px 4px no-repeat,
+    linear-gradient(var(--mood-active) 0 0) 5% 70% / 2px 2px no-repeat,
+    linear-gradient(var(--mood-active) 0 0) 88% 92% / 3px 3px no-repeat;
+  filter: drop-shadow(0 0 3px var(--mood-active));
+  animation: moodPixelOrbit calc(var(--mood-effect-speed) * .8) steps(5, end) infinite;
+}
+.moodMeter.theme-journal { --mood-up: #d982a9; --mood-down: #7180a8; --mood-calm: #a08f7d; --mood-empty: #fffaf0; --mood-text: #713f12; }
+.moodMeter.theme-journal::before {
+  inset: -7px;
+  border: 1px dashed color-mix(in srgb, var(--mood-active) 72%, #7a5a3c);
+  border-radius: 48% 42% 46% 44% / 18% 22% 17% 25%;
+  filter: drop-shadow(0 2px 2px rgba(88,55,32,.24));
+  animation-name: moodJournalWaver;
+}
+.moodMeter.theme-journal::after {
+  background:
+    radial-gradient(ellipse at 15% 16%, color-mix(in srgb, var(--mood-active) 72%, #d6a94a) 0 1px, transparent 2px),
+    radial-gradient(ellipse at 85% 35%, var(--mood-active) 0 1px, transparent 2px),
+    radial-gradient(ellipse at 10% 72%, color-mix(in srgb, var(--mood-active) 68%, #d6a94a) 0 1.5px, transparent 2.5px),
+    radial-gradient(ellipse at 88% 90%, var(--mood-active) 0 1px, transparent 2px);
+  filter: sepia(.25) drop-shadow(0 1px 2px rgba(102,66,38,.3));
+  animation-name: moodJournalDust;
+}
+.moodMeter.theme-cyber { --mood-up: #d946ef; --mood-down: #22a7c7; --mood-calm: #8a91a8; --mood-empty: rgba(8,13,27,.88); --mood-text: #cffafe; }
+.moodMeter.theme-cyber .moodCapsule { clip-path: polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px); border-radius: 0; }
+.moodMeter.theme-cyber::before {
+  inset: -8px;
+  border: 0;
+  border-radius: 0;
+  background: conic-gradient(from 0deg, transparent 0 8%, var(--mood-active) 9% 12%, transparent 13% 45%, color-mix(in srgb, var(--mood-active) 68%, white) 46% 49%, transparent 50% 82%, var(--mood-active) 83% 86%, transparent 87%);
+  clip-path: polygon(15% 0,100% 0,100% 18%,92% 23%,100% 29%,100% 100%,20% 100%,0 91%,0 34%,8% 28%,0 19%,0 9%);
+  filter: drop-shadow(0 0 3px var(--mood-active)) drop-shadow(0 0 8px var(--mood-active));
+  animation: moodCyberOrbit var(--mood-effect-speed) linear infinite;
+}
+.moodMeter.theme-cyber::after {
+  inset: -10px -12px;
+  background: var(--mood-active);
+  clip-path: polygon(3% 14%,28% 24%,17% 29%,38% 42%,23% 45%,8% 67%,29% 55%,20% 84%,43% 63%,38% 100%,56% 70%,51% 51%,73% 59%,62% 39%,96% 31%,68% 27%,83% 4%,55% 20%,43% 2%,35% 26%);
+  filter: drop-shadow(0 0 3px white) drop-shadow(0 0 8px var(--mood-active));
+  animation: moodElectricFlicker calc(var(--mood-effect-speed) * .72) steps(2, end) infinite;
+}
+.moodMeter.theme-minimal { --mood-up: #d06083; --mood-down: #536786; --mood-calm: #747b86; --mood-empty: #fff; --mood-text: #111827; }
+.moodMeter.theme-minimal .moodCapsule { border-radius: 0; }
+.moodMeter.theme-minimal::before {
+  inset: -3px;
+  border: 0;
+  border-left: 1px solid var(--mood-active);
+  border-right: 1px solid var(--mood-active);
+  border-radius: 0;
+  filter: none;
+  animation: moodMinimalShimmer calc(var(--mood-effect-speed) * 1.2) ease-in-out infinite;
+}
+.moodMeter.theme-minimal::after { display: none; }
+.moodMeter.theme-custom { --mood-up: var(--custom-mood-up); --mood-down: var(--custom-mood-down); --mood-calm: var(--custom-mood-calm); }
+.moodMeter.theme-custom.effect-halo::before {
+  inset: -10px;
+  border: 0;
+  background:
+    radial-gradient(ellipse at 25% 18%, color-mix(in srgb, var(--mood-active) 58%, white) 0 12%, transparent 48%),
+    radial-gradient(ellipse at 78% 76%, color-mix(in srgb, var(--mood-active) 72%, transparent) 0 10%, transparent 52%);
+  filter: blur(5px) drop-shadow(0 0 8px var(--mood-active));
+  animation-name: moodSoftBloom;
+}
+.moodMeter.theme-custom.effect-lightning::before {
+  inset: -8px;
+  border: 0;
+  border-radius: 0;
+  background: conic-gradient(from 0deg, transparent 0 8%, var(--mood-active) 9% 12%, transparent 13% 45%, color-mix(in srgb, var(--mood-active) 68%, white) 46% 49%, transparent 50% 82%, var(--mood-active) 83% 86%, transparent 87%);
+  clip-path: polygon(15% 0,100% 0,100% 18%,92% 23%,100% 29%,100% 100%,20% 100%,0 91%,0 34%,8% 28%,0 19%,0 9%);
+  filter: drop-shadow(0 0 3px var(--mood-active)) drop-shadow(0 0 8px var(--mood-active));
+  animation-name: moodCyberOrbit;
+}
+.moodMeter.theme-custom.effect-lightning::after {
+  background: var(--mood-active);
+  clip-path: polygon(4% 10%,30% 25%,18% 29%,39% 44%,25% 48%,8% 72%,31% 58%,23% 91%,45% 67%,40% 98%,58% 71%,53% 53%,76% 60%,65% 40%,96% 28%,70% 27%,84% 5%,57% 20%,44% 3%,36% 26%);
+  filter: drop-shadow(0 0 3px white) drop-shadow(0 0 8px var(--mood-active));
+  animation-name: moodElectricFlicker;
+}
+.moodMeter.theme-custom.effect-pixel::before {
+  inset: -6px;
+  border: 3px dotted var(--mood-active);
+  border-radius: 0;
+  filter: drop-shadow(4px 4px 0 color-mix(in srgb, var(--mood-active) 28%, transparent));
+  animation: moodPixelStep var(--mood-effect-speed) steps(4, end) infinite;
+}
+.moodMeter.theme-custom.effect-pixel::after {
+  inset: -9px;
+  background:
+    linear-gradient(var(--mood-active) 0 0) 0 10% / 3px 3px no-repeat,
+    linear-gradient(var(--mood-active) 0 0) 100% 34% / 4px 4px no-repeat,
+    linear-gradient(var(--mood-active) 0 0) 5% 70% / 2px 2px no-repeat,
+    linear-gradient(var(--mood-active) 0 0) 88% 92% / 3px 3px no-repeat;
+  animation: moodPixelOrbit calc(var(--mood-effect-speed) * .8) steps(5, end) infinite;
+}
+.moodMeter.theme-custom.effect-ink::before {
+  inset: -7px;
+  border: 1px dashed var(--mood-active);
+  border-radius: 48% 42% 46% 44% / 18% 22% 17% 25%;
+  filter: drop-shadow(0 2px 2px color-mix(in srgb, var(--mood-active) 28%, transparent));
+  animation-name: moodJournalWaver;
+}
+.moodMeter.theme-custom.effect-ink::after {
+  background:
+    radial-gradient(ellipse at 15% 16%, var(--mood-active) 0 1px, transparent 2px),
+    radial-gradient(ellipse at 85% 35%, var(--mood-active) 0 1px, transparent 2px),
+    radial-gradient(ellipse at 10% 72%, var(--mood-active) 0 1.5px, transparent 2.5px),
+    radial-gradient(ellipse at 88% 90%, var(--mood-active) 0 1px, transparent 2px);
+  animation-name: moodJournalDust;
+}
+.moodMeter.theme-custom.effect-scan::before {
+  inset: -6px;
+  border-radius: 4px;
+  background: repeating-linear-gradient(0deg, transparent 0 7px, color-mix(in srgb, var(--mood-active) 48%, transparent) 8px, transparent 9px 14px);
+  filter: drop-shadow(0 0 5px var(--mood-active));
+  animation: moodScanSweep calc(var(--mood-effect-speed) * .9) linear infinite;
+}
+.moodMeter.theme-custom.effect-scan::after {
+  inset: -4px -8px;
+  background: linear-gradient(90deg, transparent, var(--mood-active), white, var(--mood-active), transparent) 50% 0 / 100% 2px no-repeat;
+  filter: drop-shadow(0 0 5px var(--mood-active));
+  animation: moodScanLine calc(var(--mood-effect-speed) * .68) linear infinite;
+}
+.moodMeter.theme-custom.effect-minimal::before {
+  inset: -3px;
+  border: 0;
+  border-left: 1px solid var(--mood-active);
+  border-right: 1px solid var(--mood-active);
+  border-radius: 0;
+  filter: none;
+  animation-name: moodMinimalShimmer;
+}
+.moodMeter.theme-custom.effect-minimal::after { display: none; }
+
+.moodMeter:not(.theme-custom).range-calm::after { opacity: 0; }
+.moodMeter:not(.theme-custom).range-darkened::before,
+.moodMeter:not(.theme-custom).range-darkened::after,
+.moodMeter:not(.theme-custom).range-excited::before,
+.moodMeter:not(.theme-custom).range-excited::after { animation-duration: calc(var(--mood-effect-speed) * .72); }
+
+.moodMeter.particle-minimal .moodCapsule i { display: none; }
+.moodMeter.particle-dust .moodCapsule i { width: 1px; height: 1px; filter: blur(.25px); }
+.moodMeter.particle-pixel .moodCapsule i { width: 3px; height: 3px; border-radius: 0; box-shadow: none; }
+.moodMeter.particle-scan .moodCapsule i { width: 8px; height: 1px; border-radius: 0; box-shadow: 0 0 5px var(--mood-active); }
+
+@keyframes moodBoundaryBreath { 50% { opacity: .56; transform: translateY(var(--mood-particle-travel)); } }
+@keyframes moodParticle { 50% { transform: translateY(var(--mood-particle-travel)); opacity: .12; } }
+@keyframes moodFrameBreath { 50% { filter: brightness(.82); } }
+@keyframes moodAuraOrbit { 50% { opacity: calc(var(--mood-aura-opacity) * .58); transform: scale(1.08); } }
+@keyframes moodAccentDrift { 50% { transform: translate3d(1px,-3px,0) scale(1.04); } }
+@keyframes moodSoftBloom { 50% { opacity: calc(var(--mood-aura-opacity) * .62); transform: scale(1.12) rotate(4deg); } }
+@keyframes moodRockPulse { 35% { transform: scale(1.04) rotate(-2deg); } 64% { opacity: calc(var(--mood-aura-opacity) * .45); transform: scale(.98) rotate(2deg); } }
+@keyframes moodElectricFlicker { 0%,18%,22%,55%,59%,100% { opacity: var(--mood-accent-opacity); } 19%,21%,56%,58% { opacity: .08; } 36% { opacity: calc(var(--mood-accent-opacity) * .46); transform: translateX(1px); } 74% { transform: translateX(-1px); } }
+@keyframes moodPixelStep { 50% { opacity: calc(var(--mood-aura-opacity) * .5); transform: translate(2px,-2px); } }
+@keyframes moodPixelOrbit { 50% { transform: rotate(180deg) scale(1.06); } 100% { transform: rotate(360deg); } }
+@keyframes moodJournalWaver { 50% { opacity: calc(var(--mood-aura-opacity) * .6); transform: rotate(-1.5deg) scaleX(1.06); } }
+@keyframes moodJournalDust { 50% { transform: translateY(-3px) rotate(2deg); } }
+@keyframes moodCyberOrbit { 50% { opacity: calc(var(--mood-aura-opacity) * .52); transform: rotate(180deg) scale(1.05); } 100% { transform: rotate(360deg); } }
+@keyframes moodMinimalShimmer { 50% { opacity: calc(var(--mood-aura-opacity) * .38); transform: scaleY(.92); } }
+@keyframes moodScanSweep { 50% { opacity: calc(var(--mood-aura-opacity) * .48); transform: translateY(3px); } }
+@keyframes moodScanLine { 100% { transform: translateY(calc(100% - 2px)); } }
+@media (prefers-reduced-motion: reduce) {
+  .moodMeter::before,
+  .moodMeter::after,
+  .moodBoundary,
+  .moodCapsule,
+  .moodCapsule i { animation: none; }
+}

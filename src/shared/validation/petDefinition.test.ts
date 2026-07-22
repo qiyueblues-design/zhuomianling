@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PetDefinition } from "../types/pet";
-import { normalizeLegacyPetDefinition } from "./petDefinition";
+import { normalizeLegacyPetDefinition, normalizePetMoodSettings } from "./petDefinition";
 
 function legacyPet(overrides: Record<string, unknown> = {}): PetDefinition {
   return {
@@ -127,5 +127,15 @@ describe("旧版桌宠配置兼容", () => {
   it("把已有但类型错误的关键结构交给损坏配置流程处理", () => {
     expect(() => normalizeLegacyPetDefinition(legacyPet({ details: "invalid" })))
       .toThrow("details");
+  });
+
+  it("保留进入心情区间时的专属台词，并拒绝空白或超长文本", () => {
+    expect(normalizePetMoodSettings({
+      ranges: { calm: { enterLine: "  我会慢慢平静下来的。  " } }
+    })).toEqual({ ranges: { calm: { enterLine: "我会慢慢平静下来的。" } } });
+    expect(() => normalizePetMoodSettings({ ranges: { calm: { enterLine: "   " } } }))
+      .toThrow("心情进入台词");
+    expect(() => normalizePetMoodSettings({ ranges: { calm: { enterLine: "x".repeat(301) } } }))
+      .toThrow("心情进入台词");
   });
 });

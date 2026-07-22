@@ -31,16 +31,19 @@ export interface AiConnectionDraft {
   models?: AiModelOption[];
 }
 
-export type AiOutputMode = "json-schema" | "json-object" | "plain-text";
+export type AiOutputMode = "json-schema" | "json-object" | "prompt-json" | "plain-text";
+export type AiProtocolTier = "full" | "text";
 export type AiOutputCapabilityConfidence = "tested" | "fallback";
 
 export interface AiOutputCapability {
   baseUrl: string;
   model: string;
   mode: AiOutputMode;
+  protocolTier: AiProtocolTier;
   streaming: boolean;
   confidence: AiOutputCapabilityConfidence;
   checkedAt: string;
+  probeVersion?: 2;
 }
 
 export interface AiOutputCapabilityTestResult extends AiConnectionTestResult {
@@ -136,6 +139,7 @@ export interface AiChatStreamEvent {
   content?: string;
   voiceText?: string;
   emotion?: string;
+  protocolTier?: AiProtocolTier;
   quality?: "structured" | "recovered" | "plain-text";
   message?: string;
   reason?: "renderer" | "replaced" | "owner-destroyed" | "connect-timeout" | "idle-timeout" | "total-timeout";
