@@ -73,6 +73,9 @@ AGENTS.md
 /桌面灵打包与GitHub发布要求.md
 # Local-only AI development memory plan; never publish with the repository.
 /MEMORY_SYSTEM_IMPLEMENTATION_PLAN.md
+# Local-only planning/history and role-specific screenshots; keep outside public commits.
+/docs/archive/memory-system-implementation-history.md
+/docs/video-subtitle-workflow.md
 config/*.local.json
 config/*local*.yaml
 config/local/*
