@@ -20,7 +20,10 @@ import type { VisionCapability } from "../../../shared/types/screen";
 import { PET_PACKAGE_LIMITS, allocateImportedPetId, normalizePetPackageEntryPath, parsePetPackageManifest, parsePortablePetDefinition } from "../../../shared/validation/petPackage";
 import { normalizeLegacyPetDefinition } from "../../../shared/validation/petDefinition";
 import { deleteAiConnection, listAiModels, saveAiConnection, testAiOutputCapability } from "../ai/aiSettings";
-import { clearChatVisionCapability, saveChatVisionCapability } from "../screen/ScreenVisionConnectionStore";
+import {
+  clearChatVisionCapabilityWhilePetConfigLocked,
+  saveChatVisionCapabilityWhilePetConfigLocked
+} from "../screen/ScreenVisionConnectionStore";
 import { testChatVisionDraft } from "../screen/ScreenVisionService";
 import { writeJsonFileAtomically } from "../config/durableJsonFile";
 import { getLocalPetsRootPath } from "../config/petConfigPersistence";
@@ -402,10 +405,10 @@ export async function commitPetPackageImport(sessionId: string, ownerWebContents
             }
           );
           if (!saved.test.ok) throw new Error(saved.test.message);
-          await saveChatVisionCapability(pet.id, session.aiVisionCapability!);
+          await saveChatVisionCapabilityWhilePetConfigLocked(pet.id, session.aiVisionCapability!);
         }
       } catch (error) {
-        if (session.aiVisionCapability) await clearChatVisionCapability(pet.id).catch(() => undefined);
+        if (session.aiVisionCapability) await clearChatVisionCapabilityWhilePetConfigLocked(pet.id).catch(() => undefined);
         await deleteAiConnection(pet.id).catch(() => undefined);
         await fs.rename(finalDirectory, session.stagingPath).catch(() => undefined);
         await writeJsonFileAtomically(session.markerPath, { kind: "zmling-import-staging", sessionId: session.id }).catch(() => undefined);

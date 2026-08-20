@@ -31,4 +31,18 @@ describe("pet package import dialog sequencing", () => {
     expect(source).not.toContain("setProviderName(e.target.value)");
     expect(source).not.toContain("<span>服务名称</span>");
   });
+
+  it("always releases the install loading state after commit", async () => {
+    const source = await readFile(new URL("./PetPackageImportDialog.tsx", import.meta.url), "utf8");
+    const commitStart = source.indexOf("const commit = async");
+    const commitEnd = source.indexOf("const stageLabel", commitStart);
+    const commitBody = source.slice(commitStart, commitEnd);
+
+    expect(commitStart).toBeGreaterThan(-1);
+    expect(commitBody).toContain("try {");
+    expect(commitBody).toContain("catch (reason: unknown)");
+    expect(commitBody).toContain("finally {");
+    expect(commitBody).toContain("setBusy(false)");
+    expect(source).toContain('if (next.status !== "running") setBusy(false);');
+  });
 });

@@ -194,24 +194,39 @@ export async function getChatVisionCapability(petId: string): Promise<VisionCapa
   return (await getPetRecord(petId)).chatCapability;
 }
 
-export async function saveChatVisionCapability(petIdValue: string, capability: VisionCapability): Promise<void> {
+/** Caller must hold the pet configuration write lock. */
+export async function saveChatVisionCapabilityWhilePetConfigLocked(
+  petIdValue: string,
+  capability: VisionCapability
+): Promise<void> {
   const petId = assertValidPetId(petIdValue);
-  await withPetConfigWriteLock(petId, () => runSettingsMutation(async () => {
+  await runSettingsMutation(async () => {
     const settings = await readSettings();
     settings.pets[petId] = { ...(settings.pets[petId] ?? {}), chatCapability: capability };
     await writeJsonFileAtomically(getSettingsPath(), settings);
-  }));
+  });
 }
 
-export async function clearChatVisionCapability(petIdValue: string): Promise<void> {
+export async function saveChatVisionCapability(petIdValue: string, capability: VisionCapability): Promise<void> {
   const petId = assertValidPetId(petIdValue);
-  await withPetConfigWriteLock(petId, () => runSettingsMutation(async () => {
+  await withPetConfigWriteLock(petId, () => saveChatVisionCapabilityWhilePetConfigLocked(petId, capability));
+}
+
+/** Caller must hold the pet configuration write lock. */
+export async function clearChatVisionCapabilityWhilePetConfigLocked(petIdValue: string): Promise<void> {
+  const petId = assertValidPetId(petIdValue);
+  await runSettingsMutation(async () => {
     const settings = await readSettings();
     const pet = settings.pets[petId];
     if (!pet?.chatCapability) return;
     delete pet.chatCapability;
     await writeJsonFileAtomically(getSettingsPath(), settings);
-  }));
+  });
+}
+
+export async function clearChatVisionCapability(petIdValue: string): Promise<void> {
+  const petId = assertValidPetId(petIdValue);
+  await withPetConfigWriteLock(petId, () => clearChatVisionCapabilityWhilePetConfigLocked(petId));
 }
 
 export async function getIndependentVisionSummary(petIdValue: string): Promise<ScreenVisionConnectionSummary | undefined> {
@@ -300,14 +315,20 @@ export async function saveIndependentVisionConnection(
   }));
 }
 
-export async function deleteScreenVisionConnection(petIdValue: string): Promise<void> {
+/** Caller must hold the pet configuration write lock. */
+export async function deleteScreenVisionConnectionWhilePetConfigLocked(petIdValue: string): Promise<void> {
   const petId = assertValidPetId(petIdValue);
-  await withPetConfigWriteLock(petId, () => runSettingsMutation(async () => {
+  await runSettingsMutation(async () => {
     const settings = await readSettings();
     if (settings.pets[petId]) {
       delete settings.pets[petId];
       await writeJsonFileAtomically(getSettingsPath(), settings);
     }
     await deleteSecureString(secretScope, petId);
-  }));
+  });
+}
+
+export async function deleteScreenVisionConnection(petIdValue: string): Promise<void> {
+  const petId = assertValidPetId(petIdValue);
+  await withPetConfigWriteLock(petId, () => deleteScreenVisionConnectionWhilePetConfigLocked(petId));
 }

@@ -52,6 +52,7 @@ export function PetPackageImportDialog({ onClose, onImported }: { onClose: () =>
     const unsubscribe = window.desktopPet?.petPackage.onProgress((next) => {
       if (next.kind !== "import") return;
       setProgress(next);
+      if (next.status !== "running") setBusy(false);
       if (selectingRef.current && next.status === "running" && !checkingStartedRef.current) {
         checkingStartedRef.current = true;
         setStep("checking");
@@ -197,9 +198,15 @@ export function PetPackageImportDialog({ onClose, onImported }: { onClose: () =>
   const commit = async (): Promise<void> => {
     if (!inspection?.sessionId) return;
     setBusy(true); setError(undefined);
-    const result = await window.desktopPet?.petPackage.commitImport({ sessionId: inspection.sessionId });
-    if (result?.ok && result.pet) { setStep("done"); setApiKey(""); onImported(result.pet); return; }
-    setError(result?.message ?? "安装失败。"); setBusy(false);
+    try {
+      const result = await window.desktopPet?.petPackage.commitImport({ sessionId: inspection.sessionId });
+      if (result?.ok && result.pet) { setStep("done"); setApiKey(""); onImported(result.pet); return; }
+      setError(result?.message ?? "安装失败。");
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : "安装失败。");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const stageLabel: Record<string, string> = { inspect: "正在读取桌宠包", extract: "正在解压并校验文件", validate: "正在检查 Live2D 和语音资源", "test-ai": "正在测试 AI 输出能力", "test-voice": "正在测试 GPT-SoVITS 真实合成", commit: "正在完成安装，请勿关闭" };
