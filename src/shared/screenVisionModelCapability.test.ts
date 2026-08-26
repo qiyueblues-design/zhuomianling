@@ -17,12 +17,14 @@ describe("screen vision model-name routing", () => {
     ["OpenAI Compatible", "internvl3"],
     ["中转站", "qwen/qwen2.5-vl-72b-instruct"],
     ["深度求索", "deepseek-vl2-small"],
+    ["DeepSeek", "deepseek-v4-flash-vision-exp"],
     ["科大讯飞", "imagev3"]
   ])("classifies %s/%s as multimodal", (providerName, model) => {
     expect(classifyScreenVisionModel({ providerName, model })).toBe("multimodal");
   });
 
   it.each([
+    ["DeepSeek", "deepseek-v4-flash"],
     ["DeepSeek", "deepseek-v4-pro"],
     ["DeepSeek", "deepseek-chat"],
     ["百川", "Baichuan4"],

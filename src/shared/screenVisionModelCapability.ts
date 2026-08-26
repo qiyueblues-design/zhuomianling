@@ -70,6 +70,9 @@ const multimodalRules: readonly ModelRule[] = [
   { model: /internvl/u },
   { model: /minicpm(?:v|o|3v|4v)/u },
   { model: /yivl/u },
+  // DeepSeek V4 Flash Vision Exp is visual; keep the exact model id here so
+  // ordinary DeepSeek V4 Flash and V4 Pro models remain text-only below.
+  { model: /deepseekv4flashvisionexp/u },
   { model: /deepseek(?:vl|ocr)/u },
   { model: /(?:llava|idefics|paligemma|molmo|ovis|aria)/u },
 
