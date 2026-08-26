@@ -11,10 +11,29 @@ export function PetPackageExportDialog({ pet, onClose }: { pet: PetDefinition; o
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string }>();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const exportRequestedRef = useRef(false);
+  const activeOperationIdRef = useRef<string>();
   useEffect(() => {
     dialogRef.current?.focus();
     void window.desktopPet?.petPackage.inspectExport(pet.id).then(setInspection);
-    return window.desktopPet?.petPackage.onProgress((next) => { if (next.kind === "export") setProgress(next); });
+    return window.desktopPet?.petPackage.onProgress((next) => {
+      if (next.kind !== "export" || !exportRequestedRef.current) return;
+      if (!activeOperationIdRef.current) {
+        if (next.status !== "running") return;
+        activeOperationIdRef.current = next.operationId;
+      }
+      if (activeOperationIdRef.current !== next.operationId) return;
+      setProgress(next);
+      if (next.status === "success") {
+        setResult((current) => current ?? { ok: true, message: "桌宠包已安全保存。" });
+        setBusy(false);
+      } else if (next.status === "failed") {
+        setResult((current) => current ?? { ok: false, message: "导出失败。" });
+        setBusy(false);
+      } else if (next.status === "canceled") {
+        setBusy(false);
+      }
+    });
   }, [pet.id]);
   const cancelOrClose = async (): Promise<void> => {
     if (busy && progress?.operationId) {
@@ -28,12 +47,18 @@ export function PetPackageExportDialog({ pet, onClose }: { pet: PetDefinition; o
     document.addEventListener("keydown", listener); return () => document.removeEventListener("keydown", listener);
   });
   const runExport = async (): Promise<void> => {
+    exportRequestedRef.current = true;
+    activeOperationIdRef.current = undefined;
     setBusy(true); setResult(undefined);
     try {
       const next = await window.desktopPet?.petPackage.export(pet.id);
       if (next && !next.canceled) setResult({ ok: next.ok, message: next.message });
-      if (next?.canceled) setBusy(false); else setBusy(false);
     } catch (error) { setResult({ ok: false, message: error instanceof Error ? error.message : "导出失败。" }); setBusy(false); }
+    finally {
+      exportRequestedRef.current = false;
+      activeOperationIdRef.current = undefined;
+      setBusy(false);
+    }
   };
   return <div className="petPackageOverlay"><div className="petPackageDialog export" role="dialog" aria-modal="true" aria-labelledby="package-export-title" tabIndex={-1} ref={dialogRef}>
     <header><span className="petPackageDialogIcon"><Archive size={22} /></span><div><h2 id="package-export-title">导出桌宠</h2><p>{pet.name}</p></div><button className="iconButton" aria-label="关闭" onClick={() => void cancelOrClose()}><X size={18} /></button></header>

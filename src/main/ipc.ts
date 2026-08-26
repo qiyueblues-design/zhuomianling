@@ -642,7 +642,7 @@ export function registerIpc(ipcMain: IpcMain, getMainWindow: () => BrowserWindow
       () => deleteLocalPet(petId, {
         finalizeDeletion: async (deletingPetId) => {
           await deleteAiConnection(deletingPetId);
-          await screenVisionService.deleteForPet(deletingPetId);
+          await screenVisionService.deleteForPetWhilePetConfigLocked(deletingPetId);
         }
       })
     );

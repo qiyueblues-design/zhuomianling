@@ -69,6 +69,7 @@ import {
   createVisionCapabilityFingerprint,
   clearChatVisionCapability,
   deleteScreenVisionConnection,
+  deleteScreenVisionConnectionWhilePetConfigLocked,
   getChatVisionCapability,
   getIndependentVisionConfig,
   getIndependentVisionSummary,
@@ -2049,6 +2050,12 @@ export class ScreenVisionService {
   public async deleteForPet(petId: string): Promise<void> {
     this.verifiedIndependentCapabilities.forEach((_value, key) => { if (key.startsWith(`${petId}\0`)) this.verifiedIndependentCapabilities.delete(key); });
     await deleteScreenVisionConnection(petId);
+  }
+
+  /** Caller must hold the pet configuration write lock. */
+  public async deleteForPetWhilePetConfigLocked(petId: string): Promise<void> {
+    this.verifiedIndependentCapabilities.forEach((_value, key) => { if (key.startsWith(`${petId}\0`)) this.verifiedIndependentCapabilities.delete(key); });
+    await deleteScreenVisionConnectionWhilePetConfigLocked(petId);
   }
 }
 

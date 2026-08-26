@@ -17,7 +17,8 @@ vi.mock("../ai/aiSettings", () => ({
 }));
 // TIMED DIAGNOSTICS TEST MODULE: screen-vision capability import coverage.
 vi.mock("../screen/ScreenVisionConnectionStore", () => ({
-  clearChatVisionCapability: vi.fn(), saveChatVisionCapability: vi.fn()
+  clearChatVisionCapabilityWhilePetConfigLocked: vi.fn(),
+  saveChatVisionCapabilityWhilePetConfigLocked: vi.fn()
 }));
 vi.mock("../screen/ScreenVisionService", () => ({
   testChatVisionDraft: vi.fn()
@@ -26,8 +27,11 @@ vi.mock("../config/live2dImportService", () => ({ validateLive2DFolder: vi.fn() 
 
 import { beginPetPackageImport, cancelPetPackageImport, cleanupInterruptedPetPackageImports, commitPetPackageImport, listPetPackageImportAiModels, testPetPackageImportAi, testPetPackageImportVoice } from "./petPackageImportService";
 import { validateLive2DFolder } from "../config/live2dImportService";
-import { listAiModels, saveAiConnection, testAiOutputCapability } from "../ai/aiSettings";
-import { clearChatVisionCapability, saveChatVisionCapability } from "../screen/ScreenVisionConnectionStore";
+import { deleteAiConnection, listAiModels, saveAiConnection, testAiOutputCapability } from "../ai/aiSettings";
+import {
+  clearChatVisionCapabilityWhilePetConfigLocked,
+  saveChatVisionCapabilityWhilePetConfigLocked
+} from "../screen/ScreenVisionConnectionStore";
 import { testChatVisionDraft } from "../screen/ScreenVisionService";
 
 async function createValidPackage(filePath: string, options?: { disabledVoiceResources?: boolean; ai?: boolean; retainedTheme?: boolean }): Promise<void> {
@@ -232,10 +236,65 @@ describe("pet package import staging safety", () => {
       expect.objectContaining({ petId: "imported", model: "model-a", apiKey: "secret" }),
       expect.any(AbortSignal)
     );
-    expect(vi.mocked(saveChatVisionCapability)).toHaveBeenCalledWith(
+    expect(vi.mocked(saveChatVisionCapabilityWhilePetConfigLocked)).toHaveBeenCalledWith(
       "imported",
       expect.objectContaining({ visionInput: "tested", fingerprint: expect.objectContaining({ model: "model-a" }) })
     );
-    expect(vi.mocked(clearChatVisionCapability)).not.toHaveBeenCalled();
+    expect(vi.mocked(clearChatVisionCapabilityWhilePetConfigLocked)).not.toHaveBeenCalled();
+  });
+
+  it("rolls back an AI import when locked vision capability persistence fails", async () => {
+    vi.mocked(validateLive2DFolder).mockResolvedValue({ ok: true, message: "ok", entryRelativePath: "model.json", checks: [], missingFiles: [], textureCount: 0, motionCount: 0, expressionCount: 0 });
+    const checkedAt = "2026-07-29T00:00:00.000Z";
+    vi.mocked(listAiModels).mockResolvedValue({ ok: true, message: "ok", checkedAt, models: [{ id: "model-a", name: "Model A" }] });
+    vi.mocked(testAiOutputCapability).mockResolvedValue({
+      ok: true,
+      message: "ok",
+      checkedAt,
+      capability: { baseUrl: "https://api.example.com/v1", model: "model-a", mode: "json-schema", protocolTier: "full", streaming: true, confidence: "tested", checkedAt, probeVersion: 2 }
+    });
+    vi.mocked(testChatVisionDraft).mockResolvedValue({
+      ok: true,
+      message: "vision-ok",
+      checkedAt,
+      state: "tested",
+      capability: {
+        visionInput: "tested",
+        checkedAt,
+        fingerprint: {
+          normalizedBaseUrl: "https://api.example.com/v1",
+          model: "model-a",
+          providerProtocol: "openai-compatible",
+          visionInputFormat: "image_url-data-url",
+          probeVersion: 1
+        },
+        probeVersion: 1
+      }
+    });
+    vi.mocked(saveAiConnection).mockResolvedValue({
+      config: { petId: "imported", providerName: "OpenAI Compatible", baseUrl: "https://api.example.com/v1", model: "model-a", models: [{ id: "model-a", name: "Model A" }], hasApiKey: true },
+      test: { ok: true, message: "saved", checkedAt }
+    });
+    vi.mocked(saveChatVisionCapabilityWhilePetConfigLocked).mockRejectedValueOnce(new Error("vision store unavailable"));
+    vi.mocked(clearChatVisionCapabilityWhilePetConfigLocked).mockResolvedValue(undefined);
+    vi.mocked(deleteAiConnection).mockResolvedValue(undefined);
+
+    const input = path.join(userData, "ai-rollback.zmling");
+    await createValidPackage(input, { ai: true });
+    const begun = await beginPetPackageImport(input, 14);
+    expect(begun.ok, begun.message).toBe(true);
+    const tested = await testPetPackageImportAi({
+      sessionId: begun.sessionId!,
+      draft: { baseUrl: "https://api.example.com/v1", apiKey: "secret", model: "model-a" }
+    }, 14);
+    expect(tested.ok).toBe(true);
+
+    const committed = await commitPetPackageImport(begun.sessionId!, 14);
+
+    expect(committed).toMatchObject({ ok: false, message: "vision store unavailable" });
+    expect(vi.mocked(clearChatVisionCapabilityWhilePetConfigLocked)).toHaveBeenCalledWith("imported");
+    await expect(fs.access(path.join(userData, "pets", "imported", "pet.local.json"))).rejects.toThrow();
+    const entries = await fs.readdir(path.join(userData, "pets"));
+    expect(entries.some((name) => name.startsWith(".importing-"))).toBe(true);
   });
 });
